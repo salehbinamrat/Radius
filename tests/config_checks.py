@@ -41,6 +41,22 @@ class ProjectConfigTests(unittest.TestCase):
             self.assertIn(f'Auth-Type {auth_type} {{\n      {module}\n    }}', site)
         self.assertNotRegex(site, r'Auth-Type[ \t]+[A-Z-]+[ \t]*\{[ \t]*\w+[ \t]*\}')
 
+    def test_lab_migration_runs_on_existing_database(self):
+        script=(ROOT/'radius/schema-init.sh').read_text()
+        self.assertIn('002_lab_accounts.sql',script)
+        self.assertIn('initial schema init skipped.',script)
+        self.assertIn('./database/002_lab_accounts.sql', (ROOT/'compose.yaml').read_text())
+
+    def test_lab_endpoints_are_only_for_generated_users(self):
+        routes=(ROOT/'src/RadiusManager.Api/LabAccountEndpoints.cs').read_text()
+        self.assertIn('RequireRateLimiting("admin")',routes)
+        self.assertIn('Cleartext-Password',routes)
+        self.assertIn('radusergroup',routes)
+        self.assertIn('existingSessionsMayContinue = true',routes)
+        self.assertIn('quota_bytes IS NULL AND validity_days IS NULL',routes)
+        self.assertIn('MapLabAccountEndpoints()', (ROOT/'src/RadiusManager.Api/Program.cs').read_text())
+        self.assertNotIn('INSERT INTO radcheck', (ROOT/'database/002_lab_accounts.sql').read_text())
+
     def test_no_default_real_accounts(self):
         self.assertNotIn('INSERT INTO radcheck',(ROOT/'database/001_app.sql').read_text())
         self.assertIn('lab_', (ROOT/'scripts/smoke-test.sh').read_text())

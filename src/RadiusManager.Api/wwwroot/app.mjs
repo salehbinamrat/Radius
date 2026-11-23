@@ -12,10 +12,30 @@ async function call(url, options={}) {
   return body;
 }
 async function reload(){
- const [summary, all] = await Promise.all([call('/api/summary'),call('/api/plans')]);
+ const [summary, all, accounts] = await Promise.all([call('/api/summary'),call('/api/plans'),call('/api/lab-accounts')]);
  el('statPlans').textContent=summary.plans.toLocaleString('en-US');
  el('statUsers').textContent=summary.labAccounts.toLocaleString('en-US');
  plans=all;
+ const select=el('labPlan');select.replaceChildren();
+ for(const p of plans.filter(x=>x.active && x.quotaBytes===null && x.validityDays===null)) {
+   const opt=document.createElement('option');opt.value=p.id;opt.textContent=p.name;select.append(opt);
+ }
+ const labs=el('labList');labs.replaceChildren();
+ for(const a of accounts){
+   const tr=labs.insertRow();
+   tr.insertCell().textContent=a.username;
+   tr.insertCell().textContent=a.planName;
+   tr.insertCell().textContent=a.active?'نشط (مختبر)':'موقوف';
+   const td=tr.insertCell();
+   if(a.active){
+     const btn=document.createElement('button');btn.type='button';btn.textContent='تعطيل';
+     btn.addEventListener('click',async()=>{
+       el('labError').textContent='';
+       try{await call(`/api/lab-accounts/${encodeURIComponent(a.username)}/disable`,{method:'POST'});await reload();}
+       catch(e){el('labError').textContent=e.message;}
+     });td.append(btn);
+   }
+ }
  const body=el('plansList');body.replaceChildren();
  if (!plans.length){const row=body.insertRow();const cell=row.insertCell();cell.colSpan=5;cell.textContent='لا توجد باقات بعد.';return;}
  for(const p of plans){
@@ -40,9 +60,18 @@ el('loginForm').addEventListener('submit', async ev=>{
  try{await reload();el('loginPanel').hidden=true;el('dashboard').hidden=false;el('loginPass').value='';}
  catch(err){auth='';el('loginError').textContent=err.message;}
 });
-el('logout').addEventListener('click',()=>{auth='';plans=[];clearEdit();el('dashboard').hidden=true;el('loginPanel').hidden=false;});
+el('logout').addEventListener('click',()=>{auth='';plans=[];el('labCredentials').textContent='';el('labCredentials').hidden=true;clearEdit();el('dashboard').hidden=true;el('loginPanel').hidden=false;});
 el('refresh').addEventListener('click',()=>reload().catch(err=>{el('planError').textContent=err.message;}));
 el('cancelEdit').addEventListener('click',clearEdit);
+el('labForm').addEventListener('submit',async e=>{
+ e.preventDefault();el('labError').textContent='';el('labCredentials').hidden=true;
+ try {
+  const data=await call('/api/lab-accounts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({planId:el('labPlan').value})});
+  el('labCredentials').textContent=`رقم الكرت: ${data.username}\nكلمة المرور (تظهر مرة واحدة): ${data.password}`;
+  el('labCredentials').hidden=false;
+  await reload();
+ } catch(err){el('labError').textContent=err.message;}
+});
 el('planForm').addEventListener('submit',async ev=>{
  ev.preventDefault();el('planError').textContent='';
  try{
