@@ -35,6 +35,24 @@ app.Use(async (context, next) =>
 app.UseDefaultFiles();
 app.UseStaticFiles();
 app.UseRateLimiter();
+// Protect authenticated, state-changing browser requests against cross-site
+// form submission. The API remains usable by existing local CLI clients.
+app.Use(async (ctx, next) =>
+{
+    if (ctx.Request.Path.StartsWithSegments("/api")
+        && !RequestOriginRules.IsAllowed(
+            ctx.Request.Method,
+            ctx.Request.Headers["Origin"].ToString(),
+            ctx.Request.Headers["Sec-Fetch-Site"].ToString(),
+            ctx.Request.Scheme,
+            ctx.Request.Host.Value))
+    {
+        ctx.Response.StatusCode = StatusCodes.Status403Forbidden;
+        await ctx.Response.WriteAsJsonAsync(new { error = "طلب من مصدر غير موثوق" });
+        return;
+    }
+    await next();
+});
 
 app.MapGet("/api/health/live", () => Results.Ok(new { status = "running", phase = 1 }));
 app.MapGet("/api/health/ready", async (NpgsqlDataSource dataSource, CancellationToken ct) =>
