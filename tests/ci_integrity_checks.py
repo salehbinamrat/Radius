@@ -15,6 +15,7 @@ class CiIntegrityChecks(unittest.TestCase):
         self.assertIn('needs: [dotnet-tests, config-tests]', ci)
         self.assertIn('run: bash scripts/ci-config-checks.sh', ci)
         self.assertIn('run: bash scripts/api-contract-smoke.sh', ci)
+        self.assertIn('run: bash scripts/concurrent-plan-smoke.sh', ci)
 
     def test_all_module_syntax_and_all_python_checks_are_discovered(self):
         script = (ROOT / 'scripts/ci-config-checks.sh').read_text(encoding='utf-8')
@@ -32,10 +33,10 @@ class CiIntegrityChecks(unittest.TestCase):
         self.assertTrue((ROOT / 'scripts/setup.sh').exists())
 
     def test_temporary_fixtures_are_removed_on_every_exit(self):
-        for name in ('lab-account-smoke.sh', 'accounting-smoke.sh', 'accounting-wire-smoke.sh'):
+        for name in ('lab-account-smoke.sh', 'accounting-smoke.sh', 'accounting-wire-smoke.sh', 'concurrent-plan-smoke.sh'):
             script = (ROOT / 'scripts' / name).read_text(encoding='utf-8')
             self.assertIn('trap cleanup EXIT', script, name)
-            self.assertIn('DELETE FROM radacct', script, name) if name != 'lab-account-smoke.sh' else None
+            self.assertIn('DELETE FROM radacct', script, name) if name not in ('lab-account-smoke.sh', 'concurrent-plan-smoke.sh') else None
 
     def test_plans_extracted_without_changing_public_routes(self):
         program = (ROOT / 'src/RadiusManager.Api/Program.cs').read_text(encoding='utf-8')
