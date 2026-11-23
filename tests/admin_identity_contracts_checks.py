@@ -12,7 +12,7 @@ class IdentityContracts(unittest.TestCase):
         for name in ('"AspNetUsers"', '"AspNetRoles"', '"AspNetUserRoles"',
                      '"AspNetUserClaims"', '"AspNetRoleClaims"', '"AspNetUserLogins"',
                      '"AspNetUserTokens"', "app_admin_sessions", "app_admin_audit_events",
-                     "session_token_hash", "RevokedAt", "security_stamp",
+                     "session_token_hash", "revoked_at", "security_stamp",
                      "super-admin", "noc-operator", "voucher-operator", "reseller", "auditor"):
             self.assertIn(name,sql)
         self.assertNotIn("DROP TABLE",sql.upper())
@@ -35,7 +35,7 @@ class IdentityContracts(unittest.TestCase):
         server=(API/"Program.cs").read_text()
         db=(API/"AdminIdentityDbContext.cs").read_text()
         for marker in ("UserManager<IdentityUser>", "SignInManager<IdentityUser>",
-                       "IsHttps", "IAntiforgery", "PasswordSignIn", "revoked_at",
+                       "IsHttps", "IAntiforgery", "PasswordSignIn", "RevokedAt",
                        "Audit", "lockout"):
             self.assertIn(marker.lower(),src.lower())
         for marker in ("super-admin", "noc-operator", "voucher-operator", "reseller", "auditor"):
