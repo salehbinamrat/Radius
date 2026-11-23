@@ -5,6 +5,7 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 [[ "${LAB_BACKUP_ACK:-}" == "isolated-lab" ]] || { echo "LAB_BACKUP_ACK=isolated-lab is required" >&2; exit 1; }
 [[ $# -eq 1 && "$1" == /* && "$1" == *.pgp ]] || { echo "Usage: lab-backup.sh /absolute/private/path/snapshot.pgp" >&2; exit 1; }
 dest="$1"
+[[ "$dest" != *[[:space:]]* ]] || { echo "Backup paths with whitespace are not supported by the manifest" >&2; exit 1; }
 [[ ! -e "$dest" && ! -L "$dest" && ! -e "$dest.sha256" ]] || { echo "Backup already exists; refusing overwrite" >&2; exit 1; }
 [[ -d "$(dirname "$dest")" ]] || { echo "Backup directory does not exist" >&2; exit 1; }
 [[ -f .env ]] || { echo "Run scripts/setup.sh for the isolated lab first" >&2; exit 1; }
@@ -12,6 +13,7 @@ dest="$1"
 mode=$(stat -c %a "$BACKUP_PASSPHRASE_FILE")
 [[ "$mode" =~ ^[0-7]{3,4}$ ]] && (( (8#$mode & 0077) == 0 )) || { echo "Passphrase file must not be group/world readable" >&2; exit 1; }
 [[ -s "$BACKUP_PASSPHRASE_FILE" ]] || { echo "Passphrase file must not be empty" >&2; exit 1; }
+[[ $(wc -c < "$BACKUP_PASSPHRASE_FILE") -ge 32 ]] || { echo "Passphrase must contain at least 32 bytes" >&2; exit 1; }
 command -v gpg >/dev/null || { echo "Install GnuPG before proceeding" >&2; exit 1; }
 command -v sha256sum >/dev/null || { echo "sha256sum is required" >&2; exit 1; }
 umask 077
