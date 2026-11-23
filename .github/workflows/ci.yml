@@ -41,6 +41,7 @@ jobs:
           docker compose logs --no-color
           exit 1
       - run: bash scripts/api-contract-smoke.sh
+      - run: bash scripts/concurrent-plan-smoke.sh
       - run: bash scripts/smoke-test.sh
       - run: bash scripts/lab-account-smoke.sh
       - run: bash scripts/accounting-smoke.sh
