@@ -9,7 +9,7 @@ namespace RadiusManager.Api;
 public static class RequestOriginRules
 {
     public static bool IsAllowed(
-        string method, string? origin, string? fetchSite, string requestScheme, string requestHost)
+        string method, string? origin, string? fetchSite, string requestScheme, string? requestHost)
     {
         if (string.Equals(method, "GET", StringComparison.OrdinalIgnoreCase)
             || string.Equals(method, "HEAD", StringComparison.OrdinalIgnoreCase)
