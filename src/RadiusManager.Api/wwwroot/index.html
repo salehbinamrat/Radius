@@ -82,7 +82,7 @@
       </nav>
       <div class="sidebar-section-label">قيد التطوير</div>
       <nav class="nav-items" aria-label="المراحل القادمة">
-        <button type="button" class="nav-item" data-view="networks" aria-label="الشبكات وNAS"><svg class="ico"><use href="#i-wifi"/></svg> الشبكات وNAS <span class="nav-coming">قريبا</span></button>
+        <button type="button" class="nav-item" data-view="networks" aria-label="الشبكات وNAS"><svg class="ico"><use href="#i-wifi"/></svg> الشبكات وNAS <span class="nav-coming">مسودات</span></button>
         <button type="button" class="nav-item" data-view="roadmap" aria-label="الرصيد الموحد"><svg class="ico"><use href="#i-settings"/></svg> الرصيد الموحد <span class="nav-coming">قريبا</span></button>
       </nav>
       <div class="sidebar-bottom"><div class="environment"><span class="env-dot"></span><div><strong>بيئة المختبر</strong><small>لا تربط شبكة الإنتاج</small></div></div><button class="side-logout" id="logout" type="button"><svg class="ico"><use href="#i-log-out"/></svg> تسجيل الخروج</button></div>
@@ -206,8 +206,24 @@
             <p class="ultra-note">طريقة الحساب: المتزامنون = المستخدمون × نسبة الذروة؛ السعة = المتزامنون × سرعة الباقة ÷ معامل المشاركة؛ الاستهلاك = السعة × ساعات الذروة المكافئة × 30 يوما. لا يأخذ هذا التقدير في الحسبان تأخر Starlink أو التذبذب أو عدد الاتصالات الفعلي.</p>
             </section></div>
         </section>
-        <section class="view" id="view-networks" data-page="networks" hidden><div class="page-heading"><div><span class="eyebrow">مرحلة لاحقة</span><h1>الشبكات وNAS</h1><p>لم ننفذ حتى الآن إدارة أجهزة MikroTik الفعلية أو مراقبتها داخل هذا الإصدار.</p></div></div><section class="surface-card coming-card"><svg class="ico"><use href="#i-network"/></svg><h2>قيد التطوير — غير متاح حاليا</h2><p>ستأتي إدارة NAS وربط الشبكات البعيدة عبر VPN بعد اختبار المصادقة والمحاسبة على راوترات مختبرية. لا تظهر بيانات أجهزة وهمية هنا.</p></section></section>
-        <section class="view" id="view-roadmap" data-page="roadmap" hidden><div class="page-heading"><div><span class="eyebrow">مرحلة لاحقة</span><h1>الرصيد الموحد</h1><p>يجب إكمال محاسبة البيانات وإدارة الجلسات قبل تشغيل كرت واحد على عدة شبكات.</p></div></div><section class="surface-card coming-card"><svg class="ico"><use href="#i-shield"/></svg><h2>قيد التطوير — غير متاح حاليا</h2><p>دفتر الرصيد المركزي، وحدود الحصة، ومنع الجلسات المتزامنة، ومعالجة انقطاع VPN ما زالت خارج نطاق الإصدار 3A. لا توجد هنا خصومات رصيد مفعلة.</p></section></section>
+        <section class="view" id="view-networks" data-page="networks" hidden>
+ <div class="page-heading"><div><span class="eyebrow">المرحلة 7A • تخطيط فقط</span><h1>سجل راوترات NAS التجريبي</h1><p>تخطيط أسماء المواقع وعناوين VPN الخاصة في PostgreSQL دون ربط الراوترات.</p></div></div>
+ <section class="surface-card nas-warning" role="note"><h2>مسودات غير مفعلة على RADIUS</h2><p id="nasDraftMessage">لم تُحمّل بيانات من الخادم بعد.</p><p>لا تخزن أسرار RADIUS أو كلمات مرور MikroTik. لا يجري Ping أو CoA أو اتصال تلقائي بأي جهاز.</p></section>
+ <div class="nas-draft-grid">
+  <section class="surface-card" aria-labelledby="nasDraftTitle"><h2 id="nasDraftTitle">إضافة مسودة راوتر</h2><form id="nasDraftForm" class="nas-form">
+   <label for="nasDraftName">اسم الراوتر<input id="nasDraftName" required minlength="3" maxlength="64" placeholder="مثال: Router Lab A" autocomplete="off"></label>
+   <label for="nasDraftSite">الموقع<input id="nasDraftSite" required minlength="3" maxlength="80" placeholder="مثال: Isolated Site" autocomplete="off"></label>
+   <label for="nasDraftIp">عنوان VPN الخاص<input id="nasDraftIp" required maxlength="15" inputmode="decimal" placeholder="10.255.70.21" dir="ltr" autocomplete="off"></label>
+   <button id="nasDraftSave" class="btn primary" type="submit">حفظ مسودة غير مفعلة</button>
+   </form><p id="nasDraftError" class="form-error" role="alert"></p></section>
+  <section class="surface-card" aria-labelledby="nasDraftListTitle">
+   <div class="card-heading"><h2 id="nasDraftListTitle">قائمة مسودات NAS</h2><button id="nasDraftRefresh" type="button" class="btn subtle">تحديث</button></div>
+   <p id="nasDraftCount">لم تُحمّل المسودات</p>
+   <div class="table-wrap"><table class="data-table"><thead><tr><th>الراوتر</th><th>الموقع</th><th>VPN IP</th><th>الحالة</th><th>إجراء</th></tr></thead><tbody id="nasDraftList"></tbody></table></div>
+  </section>
+ </div>
+</section>
+<section class="view" id="view-roadmap" data-page="roadmap" hidden><div class="page-heading"><div><span class="eyebrow">مرحلة لاحقة</span><h1>الرصيد الموحد</h1><p>يجب إكمال محاسبة البيانات وإدارة الجلسات قبل تشغيل كرت واحد على عدة شبكات.</p></div></div><section class="surface-card coming-card"><svg class="ico"><use href="#i-shield"/></svg><h2>قيد التطوير — غير متاح حاليا</h2><p>دفتر الرصيد المركزي، وحدود الحصة، ومنع الجلسات المتزامنة، ومعالجة انقطاع VPN ما زالت خارج نطاق الإصدار 3A. لا توجد هنا خصومات رصيد مفعلة.</p></section></section>
         <footer class="site-footer">RADIUS Manager · نسخة تجريبية للاستخدام المحلي فقط · لا تربطها بشبكة الإنتاج</footer>
       </main>
     </div>

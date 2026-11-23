@@ -21,4 +21,6 @@ psql -X -v ON_ERROR_STOP=1 -h db -U radius -d radius \
   -f /opt/radius/002_lab_accounts.sql
 psql -X -v ON_ERROR_STOP=1 -h db -U radius -d radius \
   -f /opt/radius/003_accounting.sql
+psql -X -v ON_ERROR_STOP=1 -h db -U radius -d radius \
+  -f /opt/radius/004_nas_drafts.sql
 echo 'Additive application migrations verified.'

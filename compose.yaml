@@ -27,6 +27,7 @@ services:
     volumes:
       - ./database/002_lab_accounts.sql:/opt/radius/002_lab_accounts.sql:ro
       - ./database/003_accounting.sql:/opt/radius/003_accounting.sql:ro
+      - ./database/004_nas_drafts.sql:/opt/radius/004_nas_drafts.sql:ro
     depends_on:
       db:
         condition: service_healthy
