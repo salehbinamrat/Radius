@@ -44,7 +44,7 @@ class NocUiTests(unittest.TestCase):
         self.assertEqual(self.page.remote,[])
         self.assertEqual(self.page.handlers,[])
         self.assertEqual(self.page.scripts,['app.mjs'])
-        self.assertEqual(self.page.styles,['styles.css','noc.css'])
+        self.assertEqual(self.page.styles,['styles.css','noc.css','ultra.css'])
         for dep in ['cdn.tailwindcss.com','jsdelivr.net','fonts.googleapis.com']:
             self.assertNotIn(dep,HTML+CSS+UI)
         self.assertNotIn('.innerHTML',UI)
