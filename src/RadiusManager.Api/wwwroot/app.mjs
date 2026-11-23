@@ -1,4 +1,5 @@
 import { normalizedPlan } from './plan-utils.mjs';
+import { initializeNocUi } from './noc-ui.mjs';
 import { filterPlans, filterAccounts, summarizeVisibleAccounts, formatBytes, formatKbps } from './dashboard-utils.mjs';
 
 const el = id => document.getElementById(id);
@@ -8,6 +9,7 @@ let plans = [];
 let accounts = [];
 let pendingRequest = false;
 let toastTimeout = null;
+let noc = null;
 const viewLabels = { overview: 'الرئيسية', plans: 'إدارة الباقات', vouchers: 'كروت المختبر', accounting: 'مراجعة الاستهلاك', networks: 'الشبكات وNAS', roadmap: 'الرصيد الموحد' };
 
 function setError(id, message = '') { el(id).textContent = message; }
@@ -52,6 +54,7 @@ function switchView(view, focusId = '') {
   el('pageError').hidden = true;
   if (view !== 'vouchers') clearCredentials(); // one-time password must not linger across navigation
   closeMenu();
+  noc?.onViewChanged();
   window.scrollTo({ top: 0, behavior: 'smooth' });
   if (focusId) requestAnimationFrame(() => el(focusId)?.focus());
 }
@@ -172,6 +175,7 @@ function renderAll(summary) {
   el('statHealth').textContent = 'متصل';
   el('statHealth').className = 'health-metric good';
   renderSelectors();renderRecent();renderPlans();renderAccounts();
+  noc?.render();
 }
 async function reload() {
   if (pendingRequest) return;
@@ -181,7 +185,9 @@ async function reload() {
     const [summary, all, lab] = await Promise.all([call('/api/summary'), call('/api/plans'), call('/api/lab-accounts')]);
     plans = all; accounts = lab;
     renderAll(summary);
+    noc?.status(true);
   } catch (err) {
+    noc?.status(false);
     el('statHealth').textContent = 'خطأ';el('statHealth').className = 'health-metric bad';
     el('pageError').textContent = err.message;
     el('pageError').hidden = false;
@@ -215,6 +221,7 @@ async function disableAccount(username) {
   try {
     await call(`/api/lab-accounts/${encodeURIComponent(username)}/disable`, { method: 'POST' });
     toast('تم تعطيل الكرت للدخول الجديد فقط.', 'success');
+    noc?.record(`تعطيل تسجيل الدخول الجديد للكرت ${username}`);
     await reload();
   } catch (err) { setError('labError', err.message);toast(err.message, 'error'); }
 }
@@ -247,7 +254,7 @@ function logout(showToast = true) {
   el('loginPass').value = '';
   el('dashboard').hidden = true;
   el('loginPanel').hidden = false;
-  closeMenu();
+  closeMenu();noc?.reset();
   if (showToast) toast('تم تسجيل الخروج.');
 }
 
@@ -298,6 +305,7 @@ el('planForm').addEventListener('submit', async event => {
     await call(changing ? `/api/plans/${editingId}` : '/api/plans', { method: changing ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
     clearEdit();
     toast(changing ? 'تم تعديل الباقة بنجاح.' : 'تم إنشاء الباقة التجريبية.', 'success');
+    noc?.record(changing ? 'تعديل إعدادات باقة تجريبية' : 'إنشاء باقة تجريبية');
     try { await reload(); } catch { toast('تم الحفظ، لكن تعذر تحديث القائمة. استخدم تحديث البيانات.', 'error'); }
   } catch (err) { setError('planError', err.message); }
   finally {loading(saveButton, false);}
@@ -313,7 +321,11 @@ el('labForm').addEventListener('submit', async event => {
     el('labCredentials').textContent = `رقم الكرت: ${data.username}\nكلمة المرور (تظهر مرة واحدة): ${data.password}`;
     el('labCredentials').hidden = false;
     toast('تم إنشاء كرت اختبار. احفظ كلمة المرور الآن؛ لن تظهر ثانية.', 'success');
+    noc?.record(`إنشاء كرت مختبر ${data.username}`);
     try { await reload(); } catch { toast('تم إنشاء الكرت، لكن تعذر تحديث القائمة. احتفظ بكلمة المرور المعروضة.', 'error'); }
   } catch (err) {setError('labError', err.message);}
   finally {loading(createButton, false);}
 });
+
+// NOC presentation wiring is independent of API, database and RADIUS authentication.
+noc = initializeNocUi({ getPlans: () => plans, getAccounts: () => accounts, navigate: switchView, showToast: toast });
