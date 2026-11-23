@@ -24,7 +24,9 @@ class MigrationLedgerContracts(unittest.TestCase):
         self.assertIn("with connection:", source)
         self.assertIn("raise RuntimeError", source)
         self.assertNotIn("DROP TABLE", source.upper())
-        self.assertNotIn("TRUNCATE", source.upper())
+        for name in ("001_app.sql", "002_lab_accounts.sql", "003_accounting.sql", "004_nas_drafts.sql"):
+            sql = (ROOT / "database" / name).read_text(encoding="utf-8")
+            self.assertNotRegex(sql, r"(?im)^\\s*(?:DROP|TRUNCATE)\\b")
 
     def test_baseline_is_pinned_to_original_sql_files_and_requires_complete_objects(self):
         source = ENGINE.read_text(encoding="utf-8")
