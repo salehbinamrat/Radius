@@ -27,8 +27,9 @@ SQL
 trap cleanup EXIT
 # A generated plan without quota / expiration is safe for this lab only.
 plan_name="lab_phase2_$(python3 -c 'import secrets;print(secrets.token_hex(6))')"
+plan_payload=$(printf '{"name":"%s","downloadKbps":1024,"uploadKbps":256}' "$plan_name")
 plan_json=$(curl -fsS -u "$ADMIN_USER:$ADMIN_PASSWORD" -H 'Content-Type: application/json' \
-  -d "{"name":"$plan_name","downloadKbps":1024,"uploadKbps":256}" "$API/plans")
+  -d "$plan_payload" "$API/plans")
 plan_id=$(printf '%s' "$plan_json" | python3 -c 'import json,sys;print(json.load(sys.stdin)["id"])')
 payload=$(printf '{"planId":"%s"}' "$plan_id")
 response=$(curl -fsS -u "$ADMIN_USER:$ADMIN_PASSWORD" -H 'Content-Type: application/json'   -d "$payload" "$API/lab-accounts")
