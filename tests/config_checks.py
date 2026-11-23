@@ -35,6 +35,12 @@ class ProjectConfigTests(unittest.TestCase):
         self.assertIn('radgroupreply',src)
         self.assertNotIn('Mikrotik-Total-Limit',src)
 
+    def test_freeradius_auth_sections_parseable_multiline(self):
+        site=(ROOT/'radius/default.site').read_text()
+        for auth_type, module in [('PAP','pap'),('CHAP','chap'),('MS-CHAP','mschap')]:
+            self.assertIn(f'Auth-Type {auth_type} {{\n      {module}\n    }}', site)
+        self.assertNotRegex(site, r'Auth-Type[ \t]+[A-Z-]+[ \t]*\{[ \t]*\w+[ \t]*\}')
+
     def test_no_default_real_accounts(self):
         self.assertNotIn('INSERT INTO radcheck',(ROOT/'database/001_app.sql').read_text())
         self.assertIn('lab_', (ROOT/'scripts/smoke-test.sh').read_text())

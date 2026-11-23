@@ -20,9 +20,15 @@ server default {
     pap
   }
   authenticate {
-    Auth-Type PAP { pap }
-    Auth-Type CHAP { chap }
-    Auth-Type MS-CHAP { mschap }
+    Auth-Type PAP {
+      pap
+    }
+    Auth-Type CHAP {
+      chap
+    }
+    Auth-Type MS-CHAP {
+      mschap
+    }
   }
   preacct {
     preprocess
