@@ -41,6 +41,12 @@ class MigrationLedgerContracts(unittest.TestCase):
         self.assertIn("MIGRATION_FAIL_AFTER_SQL_VERSION", source)
         self.assertIn("LAB_MIGRATION_TEST_MODE", source)
 
+    def test_read_only_verification_cannot_bootstrap_and_errors_are_redacted(self):
+        source = ENGINE.read_text(encoding="utf-8")
+        self.assertIn('if "--verify-only" in sys.argv and not ledger_exists:', source)
+        self.assertIn('except psycopg2.Error as exc:', source)
+        self.assertIn("exc.pgcode", source)
+
     def test_compose_migrator_bundling_preserves_original_db_volume(self):
         dockerfile = (ROOT / "radius/Dockerfile").read_text()
         compose = (ROOT / "compose.yaml").read_text()
