@@ -26,6 +26,7 @@ services:
     entrypoint: ["/bin/bash", "/usr/local/bin/schema-init.sh"]
     volumes:
       - ./database/002_lab_accounts.sql:/opt/radius/002_lab_accounts.sql:ro
+      - ./database/003_accounting.sql:/opt/radius/003_accounting.sql:ro
     depends_on:
       db:
         condition: service_healthy

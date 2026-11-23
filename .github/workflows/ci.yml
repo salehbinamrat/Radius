@@ -42,6 +42,8 @@ jobs:
           exit 1
       - run: bash scripts/smoke-test.sh
       - run: bash scripts/lab-account-smoke.sh
+      - run: bash scripts/accounting-smoke.sh
+      - run: bash scripts/accounting-wire-smoke.sh
       - name: Diagnose failed RADIUS integration
         if: failure()
         run: |
