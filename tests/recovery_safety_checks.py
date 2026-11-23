@@ -15,7 +15,7 @@ class RecoverySafetyChecks(unittest.TestCase):
                      "radusergroup", "radacct", "radpostauth", "nas"):
             self.assertIn(name, init)
         self.assertIn("app_plans", init)
-        self.assertIn("-1 -f", init)  # one transaction per existing app SQL file
+        self.assertIn("ON_ERROR_STOP=1 -1", init)  # one transaction per existing app SQL file
         self.assertIn("ON_ERROR_STOP=1", init)
 
     def test_backup_is_encrypted_and_never_overwrites_an_existing_snapshot(self):
