@@ -49,6 +49,8 @@ jobs:
       - run: bash scripts/ui-smoke.sh
       - run: bash scripts/lab-sessions-smoke.sh
       - run: bash scripts/nas-drafts-smoke.sh
+      - name: Encrypted backup, isolated restore and migration replay
+        run: bash scripts/lab-recovery-smoke.sh
       - name: Diagnose failed RADIUS integration
         if: failure()
         run: |
