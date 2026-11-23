@@ -1,0 +1,11 @@
+# Lab clients only. Never publish RADIUS UDP ports directly to the Internet.
+client loopback_lab {
+  ipaddr = 127.0.0.1
+  secret = __RADIUS_SECRET__
+  nastype = other
+}
+client vpn_lab {
+  ipaddr = __RADIUS_CLIENT_CIDR__
+  secret = __RADIUS_SECRET__
+  nastype = other
+}

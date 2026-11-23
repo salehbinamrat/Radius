@@ -1,0 +1,45 @@
+name: Radius lab CI
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  dotnet-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with: { dotnet-version: '10.0.x' }
+      - run: dotnet restore tests/RadiusManager.Tests/RadiusManager.Tests.csproj
+      - run: dotnet test tests/RadiusManager.Tests/RadiusManager.Tests.csproj --no-restore -c Release
+  config-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22' }
+      - run: node --test tests/js/*.test.mjs
+      - run: bash -n scripts/*.sh radius/*.sh
+      - run: python3 tests/config_checks.py
+  compose-integration:
+    needs: [dotnet-tests, config-tests]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash scripts/setup.sh
+      - run: docker compose config --quiet
+      - run: docker compose up -d --build
+      - name: API ready
+        run: |
+          for i in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:8080/api/health/ready; then exit 0; fi
+            sleep 3
+          done
+          docker compose logs --no-color
+          exit 1
+      - run: bash scripts/smoke-test.sh
+      - if: always()
+        run: docker compose down --remove-orphans

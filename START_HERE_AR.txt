@@ -1,0 +1,20 @@
+مشروع RADIUS Manager - المرحلة الأولى (للتجربة فقط)
+التاريخ: 2026-11-23
+
+1) على خادم Linux مثبت عليه Docker وDocker Compose:
+   bash scripts/setup.sh
+   docker compose config --quiet
+   docker compose up -d --build
+   docker compose ps
+
+2) الدخول محليا: http://127.0.0.1:8080
+   اسم المستخدم: admin
+   كلمة المرور: القيمة ADMIN_PASSWORD في ملف .env الذي تم توليده على الخادم.
+
+3) اختبارات المصادقة التجريبية:
+   bash scripts/smoke-test.sh
+
+4) اقرأ README_AR.md و PROJECT_STATUS_AR.md و ARCHITECTURE_AR.md.
+
+تنبيه: لا تستخدم هذا الإصدار لكروت العملاء الحقيقيين، ولا تربطه بالراوتر الرئيسي.
+لم يتم بناء حاويات Docker أو اختبار تشغيل FreeRADIUS عمليا في بيئة الإنشاء.
