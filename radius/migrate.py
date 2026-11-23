@@ -173,6 +173,8 @@ def run():
         with connection:
             with connection.cursor() as cursor:
                 ledger_exists = exists(cursor, "public.app_schema_migrations")
+        if "--verify-only" in sys.argv and not ledger_exists:
+            raise RuntimeError("Migration ledger missing; verify-only cannot create schema")
         if not ledger_exists:
             create_ledger_and_adopt_legacy(connection, files)
 
@@ -213,7 +215,10 @@ def run():
 if __name__ == "__main__":
     try:
         run()
-    except (OSError, UnicodeError, ValueError, RuntimeError, psycopg2.Error) as exc:
-        # Never echo SQL text or environment secrets.
+    except psycopg2.Error as exc:
+        # PostgreSQL errors can quote rejected SQL and values; emit SQLSTATE only.
+        print(f"Database migration refused: SQLSTATE {exc.pgcode or 'unclassified'}", file=sys.stderr)
+        sys.exit(1)
+    except (OSError, UnicodeError, ValueError, RuntimeError) as exc:
         print(f"Database migration refused: {exc}", file=sys.stderr)
         sys.exit(1)
