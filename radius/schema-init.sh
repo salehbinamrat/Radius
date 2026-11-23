@@ -11,8 +11,12 @@ fi
 # Schema must only be initialized once; never overwrite an existing RADIUS database.
 FOUND=$(psql -X -h db -U radius -d radius -tAc "SELECT to_regclass('public.radcheck') IS NOT NULL")
 if [[ "$FOUND" == 't' ]]; then
-  echo 'FreeRADIUS tables already exist; schema init skipped.'
-  exit 0
+  echo 'FreeRADIUS tables already exist; initial schema init skipped.'
+else
+  psql -X -v ON_ERROR_STOP=1 -h db -U radius -d radius -f "$SCHEMA"
+  echo 'Official FreeRADIUS PostgreSQL schema installed.'
 fi
-psql -X -v ON_ERROR_STOP=1 -h db -U radius -d radius -f "$SCHEMA"
-echo 'Official FreeRADIUS PostgreSQL schema installed.'
+# Apply additive app migrations on EVERY start, including existing databases.
+psql -X -v ON_ERROR_STOP=1 -h db -U radius -d radius \
+  -f /opt/radius/002_lab_accounts.sql
+echo 'Additive application migrations verified.'

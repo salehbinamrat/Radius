@@ -1,4 +1,4 @@
-# Radius — local private-network RADIUS lab (Phase 1)
+# Radius — local private-network RADIUS lab (Phase 2)
 
 > **Laboratory only — not production ready.** No real customer vouchers or MikroTik production routers should be connected yet.
 
@@ -6,9 +6,9 @@ This is the first phase of a self-hosted RADIUS management project for MikroTik 
 
 **Components:** FreeRADIUS 3.x, PostgreSQL 16, ASP.NET Core 10 API, Arabic RTL web interface, Docker Compose, automated tests.
 
-**Implemented:** basic management of experimental plans, storing plan name, speed, quota/validity metadata, and emitting the rate limit for RADIUS groups.
+**Implemented:** experimental plans, stable RADIUS rate-limit groups, API-generated lab-only vouchers with strong random credentials, administrative listing/disable, and authenticated PAP smoke tests.
 
-**Not implemented:** production vouchers, quota/validity enforcement, cross-site shared credit, simultaneous-use enforcement, failover, and RouterOS integration. Do not market or sell cards with this phase.
+**Not implemented:** production vouchers, quota/validity enforcement, cross-site shared credit, simultaneous-use enforcement, failover, or verification on actual RouterOS hardware. Do not market or sell cards with this phase.
 
 See [README_AR.md](README_AR.md) for the Arabic setup guide and [PROJECT_STATUS_AR.md](PROJECT_STATUS_AR.md) for verification limitations.
 
