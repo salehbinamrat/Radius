@@ -25,6 +25,7 @@ class RecoverySafetyChecks(unittest.TestCase):
                        "--cipher-algo AES256", "--passphrase-file",
                        "sha256sum", 'ln "$partial" "$dest"'):
             self.assertIn(marker, source)
+        self.assertIn('wc -c < "$BACKUP_PASSPHRASE_FILE"', source)
         self.assertNotIn("pg_dump -f", source)
         self.assertNotIn("docker compose down -v", source)
 
@@ -35,6 +36,7 @@ class RecoverySafetyChecks(unittest.TestCase):
                        'down -v --remove-orphans', "pg_catalog.pg_tables"):
             self.assertIn(marker, source)
         self.assertIn('docker compose -p "$restore_project" -f "$compose_file"', source)
+        self.assertIn('wc -c < "$BACKUP_PASSPHRASE_FILE"', source)
         self.assertNotIn("docker compose exec -T db pg_restore", source)
         restore_compose = (ROOT / "tests/isolated-restore.compose.yaml").read_text(encoding="utf-8")
         self.assertIn("postgres:16-bookworm", restore_compose)
