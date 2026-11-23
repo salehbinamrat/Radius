@@ -31,6 +31,12 @@ class CiIntegrityChecks(unittest.TestCase):
         self.assertFalse((ROOT / '.env').exists())
         self.assertTrue((ROOT / 'scripts/setup.sh').exists())
 
+    def test_temporary_fixtures_are_removed_on_every_exit(self):
+        for name in ('lab-account-smoke.sh', 'accounting-smoke.sh', 'accounting-wire-smoke.sh'):
+            script = (ROOT / 'scripts' / name).read_text(encoding='utf-8')
+            self.assertIn('trap cleanup EXIT', script, name)
+            self.assertIn('DELETE FROM radacct', script, name) if name != 'lab-account-smoke.sh' else None
+
     def test_plans_extracted_without_changing_public_routes(self):
         program = (ROOT / 'src/RadiusManager.Api/Program.cs').read_text(encoding='utf-8')
         plans = (ROOT / 'src/RadiusManager.Api/PlanEndpoints.cs').read_text(encoding='utf-8')
