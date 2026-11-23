@@ -1,6 +1,7 @@
 import { normalizedPlan } from './plan-utils.mjs';
 import { initializeNocUi } from './noc-ui.mjs';
 import { initializeUltraFeatures } from './ultra-features.mjs';
+import { initializeNasDrafts } from './nas-drafts.mjs';
 import { filterPlans, filterAccounts, summarizeVisibleAccounts, formatBytes, formatKbps } from './dashboard-utils.mjs';
 
 const el = id => document.getElementById(id);
@@ -12,6 +13,7 @@ let pendingRequest = false;
 let toastTimeout = null;
 let noc = null;
 let ultra = null;
+let nasDrafts = null;
 const viewLabels = { overview: 'الرئيسية', plans: 'إدارة الباقات', vouchers: 'كروت المختبر', accounting: 'مراجعة الاستهلاك', sessions: 'سجلات الجلسات', capacity: 'تخطيط السعة', networks: 'الشبكات وNAS', roadmap: 'الرصيد الموحد' };
 
 function setError(id, message = '') { el(id).textContent = message; }
@@ -54,7 +56,8 @@ function switchView(view, focusId = '') {
   }
   el('breadcrumbCurrent').textContent = viewLabels[view];
   el('pageError').hidden = true;
-  if (view !== 'vouchers') clearCredentials(); // one-time password must not linger across navigation
+  if (view !== 'vouchers') clearCredentials();
+  if (view === 'networks' && !el('dashboard').hidden) nasDrafts?.refresh(); // one-time password must not linger across navigation
   closeMenu();
   noc?.onViewChanged();
   window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -256,7 +259,7 @@ function logout(showToast = true) {
   el('loginPass').value = '';
   el('dashboard').hidden = true;
   el('loginPanel').hidden = false;
-  closeMenu();noc?.reset();ultra?.reset();
+  closeMenu();noc?.reset();ultra?.reset();nasDrafts?.reset();
   if (showToast) toast('تم تسجيل الخروج.');
 }
 
@@ -334,3 +337,6 @@ noc = initializeNocUi({ getPlans: () => plans, getAccounts: () => accounts, navi
 
 // Ultra v4: safe read-only lab session browser and offline capacity planner.
 ultra = initializeUltraFeatures({ request: call, notify: toast, record: message => noc?.record(message) });
+
+// Phase 7A inventory: no RouterOS API, VPN connection or RADIUS client updates.
+nasDrafts = initializeNasDrafts({request:call, notify:toast, record:message=>noc?.record(message)});

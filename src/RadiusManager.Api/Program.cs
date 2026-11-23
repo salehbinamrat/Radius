@@ -162,4 +162,6 @@ api.MapPut("/plans/{id:guid}", async (Guid id, PlanInput input, NpgsqlDataSource
 app.MapLabAccountEndpoints();
 app.MapLabUsageEndpoints();
 app.MapLabSessionEndpoints();
+// Phase 7A: metadata-only NAS drafts; no actual RADIUS client registration.
+app.MapNasDraftEndpoints();
 app.Run();

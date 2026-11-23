@@ -29,6 +29,8 @@ jobs:
       - run: node --check src/RadiusManager.Api/wwwroot/app.mjs
       - run: node --check src/RadiusManager.Api/wwwroot/ultra-features.mjs
       - run: python3 tests/ultra_ui_structure_checks.py
+      - run: python3 tests/nas_draft_structure_checks.py
+      - run: node --check src/RadiusManager.Api/wwwroot/nas-drafts.mjs
       - run: node --check src/RadiusManager.Api/wwwroot/noc-ui.mjs
       - run: node --check src/RadiusManager.Api/wwwroot/noc-utils.mjs
   compose-integration:
@@ -53,6 +55,7 @@ jobs:
       - run: bash scripts/accounting-wire-smoke.sh
       - run: bash scripts/ui-smoke.sh
       - run: bash scripts/lab-sessions-smoke.sh
+      - run: bash scripts/nas-drafts-smoke.sh
       - name: Diagnose failed RADIUS integration
         if: failure()
         run: |
