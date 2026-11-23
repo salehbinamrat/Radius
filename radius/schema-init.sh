@@ -35,8 +35,7 @@ if [[ "$APP_TABLE_PRESENT" != "t" ]]; then
   exit 1
 fi
 
-# Each existing additive SQL file runs atomically. New migration ledgers require separate schema approval.
-psql -X -v ON_ERROR_STOP=1 -1 -h db -U radius -d radius -f /opt/radius/002_lab_accounts.sql
-psql -X -v ON_ERROR_STOP=1 -1 -h db -U radius -d radius -f /opt/radius/003_accounting.sql
-psql -X -v ON_ERROR_STOP=1 -1 -h db -U radius -d radius -f /opt/radius/004_nas_drafts.sql
-echo 'Existing additive application SQL scripts applied with transaction guards.'
+# Versioned transaction-safe PostgreSQL application migrations 001_app.sql,
+# 002_lab_accounts.sql, 003_accounting.sql and 004_nas_drafts.sql.
+# Existing objects are adopted only after schema completeness checks.
+python3 /opt/radius/migrate.py
