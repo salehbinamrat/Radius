@@ -24,6 +24,8 @@ jobs:
       - run: node --test tests/js/*.test.mjs
       - run: bash -n scripts/*.sh radius/*.sh
       - run: python3 tests/config_checks.py
+      - run: python3 tests/ui_structure_checks.py
+      - run: node --check src/RadiusManager.Api/wwwroot/app.mjs
   compose-integration:
     needs: [dotnet-tests, config-tests]
     runs-on: ubuntu-latest
@@ -44,6 +46,7 @@ jobs:
       - run: bash scripts/lab-account-smoke.sh
       - run: bash scripts/accounting-smoke.sh
       - run: bash scripts/accounting-wire-smoke.sh
+      - run: bash scripts/ui-smoke.sh
       - name: Diagnose failed RADIUS integration
         if: failure()
         run: |
