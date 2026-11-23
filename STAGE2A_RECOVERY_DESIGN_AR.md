@@ -25,11 +25,12 @@
 bash scripts/setup.sh
 docker compose up -d --build
 umask 077
-mkdir -p "$HOME/radius-lab-backups"
-python3 -c 'import secrets; print(secrets.token_hex(32))' > "$HOME/radius-lab-backups/passphrase"
-chmod 600 "$HOME/radius-lab-backups/passphrase"
+mkdir -p "$HOME/radius-lab-backups" "$HOME/.config/radius-lab"
+chmod 700 "$HOME/.config/radius-lab"
+python3 -c 'import secrets; print(secrets.token_hex(32))' > "$HOME/.config/radius-lab/backup.key"
+chmod 600 "$HOME/.config/radius-lab/backup.key"
 export LAB_BACKUP_ACK=isolated-lab
-export BACKUP_PASSPHRASE_FILE="$HOME/radius-lab-backups/passphrase"
+export BACKUP_PASSPHRASE_FILE="$HOME/.config/radius-lab/backup.key"
 bash scripts/lab-backup.sh "$HOME/radius-lab-backups/backup-001.pgp"
 bash scripts/lab-restore-drill.sh "$HOME/radius-lab-backups/backup-001.pgp"
 ```
