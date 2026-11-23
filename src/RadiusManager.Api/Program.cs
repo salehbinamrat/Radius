@@ -160,4 +160,5 @@ api.MapPut("/plans/{id:guid}", async (Guid id, PlanInput input, NpgsqlDataSource
 
 // Independent laboratory voucher routes; protected by the same /api auth middleware.
 app.MapLabAccountEndpoints();
+app.MapLabUsageEndpoints();
 app.Run();

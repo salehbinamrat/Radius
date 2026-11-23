@@ -27,8 +27,19 @@ async function reload(){
    tr.insertCell().textContent=a.planName;
    tr.insertCell().textContent=a.active?'نشط (مختبر)':'موقوف';
    const td=tr.insertCell();
+   const usageButton=document.createElement('button');
+   usageButton.type='button';usageButton.className='secondary';usageButton.textContent='الاستهلاك';
+   usageButton.addEventListener('click',async()=>{
+     el('labError').textContent='';el('labUsage').hidden=true;
+     try{
+       const v=await call(`/api/lab-accounts/${encodeURIComponent(a.username)}/usage`);
+       const mb=n=>(Number(n)/1048576).toLocaleString('en-US',{maximumFractionDigits:2});
+       el('labUsage').textContent=`الكرت: ${v.username}\nرفع: ${mb(v.uploadBytes)} MB\nتنزيل: ${mb(v.downloadBytes)} MB\nالمجموع: ${mb(v.totalBytes)} MB\nالجلسات: ${v.sessions} | المفتوحة: ${v.openSessions} | القديمة: ${v.staleSessions}\nملاحظات بيانات غير سليمة: ${v.anomalousSessions} | عناوين NAS المرصودة: ${v.observedNas}\nنهائية حسب السجلات الحالية: ${v.reportIsFinal?'نعم':'لا'}\n${v.warning}`;
+       el('labUsage').hidden=false;
+     }catch(e){el('labError').textContent=e.message;}
+   });td.append(usageButton);
    if(a.active){
-     const btn=document.createElement('button');btn.type='button';btn.textContent='تعطيل';
+     const btn=document.createElement('button');btn.type='button';btn.textContent='تعطيل';btn.className='danger';
      btn.addEventListener('click',async()=>{
        el('labError').textContent='';
        try{await call(`/api/lab-accounts/${encodeURIComponent(a.username)}/disable`,{method:'POST'});await reload();}
@@ -60,7 +71,7 @@ el('loginForm').addEventListener('submit', async ev=>{
  try{await reload();el('loginPanel').hidden=true;el('dashboard').hidden=false;el('loginPass').value='';}
  catch(err){auth='';el('loginError').textContent=err.message;}
 });
-el('logout').addEventListener('click',()=>{auth='';plans=[];el('labCredentials').textContent='';el('labCredentials').hidden=true;clearEdit();el('dashboard').hidden=true;el('loginPanel').hidden=false;});
+el('logout').addEventListener('click',()=>{auth='';plans=[];el('labCredentials').textContent='';el('labCredentials').hidden=true;el('labUsage').textContent='';el('labUsage').hidden=true;clearEdit();el('dashboard').hidden=true;el('loginPanel').hidden=false;});
 el('refresh').addEventListener('click',()=>reload().catch(err=>{el('planError').textContent=err.message;}));
 el('cancelEdit').addEventListener('click',clearEdit);
 el('labForm').addEventListener('submit',async e=>{

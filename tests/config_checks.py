@@ -62,6 +62,20 @@ class ProjectConfigTests(unittest.TestCase):
         self.assertIn('MapLabAccountEndpoints()', (ROOT/'src/RadiusManager.Api/Program.cs').read_text())
         self.assertNotIn('INSERT INTO radcheck', (ROOT/'database/002_lab_accounts.sql').read_text())
 
+    def test_accounting_is_observational_not_a_balance_ledger(self):
+        sql=(ROOT/'database/003_accounting.sql').read_text()
+        api=(ROOT/'src/RadiusManager.Api/LabUsageEndpoints.cs').read_text()
+        self.assertIn('app_lab_usage_snapshot',sql)
+        self.assertIn('FROM radacct a',sql)
+        self.assertIn('acctstoptime IS NULL',sql)
+        self.assertIn('COUNT(DISTINCT a.nasipaddress)',sql)
+        self.assertIn('BillingVerified = false',api)
+        self.assertIn('QuotaEnforced = false',api)
+        self.assertIn('MapLabUsageEndpoints()', (ROOT/'src/RadiusManager.Api/Program.cs').read_text())
+        self.assertIn('003_accounting.sql', (ROOT/'radius/schema-init.sh').read_text())
+        self.assertIn('003_accounting.sql', (ROOT/'compose.yaml').read_text())
+        self.assertIn('scripts/accounting-smoke.sh', (ROOT/'.github/workflows/ci.yml').read_text())
+
     def test_no_default_real_accounts(self):
         self.assertNotIn('INSERT INTO radcheck',(ROOT/'database/001_app.sql').read_text())
         self.assertIn('lab_', (ROOT/'scripts/smoke-test.sh').read_text())
