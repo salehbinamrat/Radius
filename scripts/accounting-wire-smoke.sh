@@ -8,7 +8,13 @@ set -a; source .env; set +a
 username="lab_$(python3 -c 'import secrets;print(secrets.token_hex(6))')"
 session_id="wire_$(python3 -c 'import secrets;print(secrets.token_hex(8))')"
 log=$(mktemp)
-trap 'rm -f "$log"' EXIT
+cleanup() {
+  rm -f "$log"
+  docker compose exec -T db psql -X -v ON_ERROR_STOP=1 -U radius -d radius -v username="$username" <<'SQL' >/dev/null || true
+DELETE FROM radacct WHERE username=:'username';
+SQL
+}
+trap cleanup EXIT
 
 send_accounting() {
  local status="$1" up="$2" down="$3"
@@ -49,7 +55,4 @@ assert_row 100 200 false
 send_accounting Stop 175 325
 assert_row 175 325 true
 
-docker compose exec -T db psql -X -v ON_ERROR_STOP=1 -U radius -d radius -v username="$username" <<'SQL' >/dev/null
-DELETE FROM radacct WHERE username=:'username';
-SQL
 echo 'Phase 3A FreeRADIUS accounting Start/Interim/Stop transport PASS'
