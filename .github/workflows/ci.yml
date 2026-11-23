@@ -49,6 +49,10 @@ jobs:
       - run: bash scripts/ui-smoke.sh
       - run: bash scripts/lab-sessions-smoke.sh
       - run: bash scripts/nas-drafts-smoke.sh
+      - name: Versioned migrations: isolated rollback, mixed legacy and concurrent starts
+        env:
+          MIGRATION_TEST_ACK: isolated-lab
+        run: bash scripts/migration-ledger-smoke.sh
       - name: Encrypted backup, isolated restore and migration replay
         run: bash scripts/lab-recovery-smoke.sh
       - name: Diagnose failed RADIUS integration
