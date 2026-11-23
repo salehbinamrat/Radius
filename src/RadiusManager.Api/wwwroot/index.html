@@ -8,6 +8,7 @@
   <meta name="description" content="لوحة إدارة محلية تجريبية لباقات MikroTik وكروت المختبر ومراجعة سجلات المحاسبة">
   <link rel="stylesheet" href="styles.css">
   <link rel="stylesheet" href="noc.css">
+  <link rel="stylesheet" href="ultra.css">
 </head>
 <body>
   <svg class="icon-defs" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
@@ -73,6 +74,11 @@
         <button type="button" class="nav-item" data-view="plans" aria-label="إدارة الباقات"><svg class="ico"><use href="#i-layers"/></svg> إدارة الباقات</button>
         <button type="button" class="nav-item" data-view="vouchers" aria-label="كروت المختبر"><svg class="ico"><use href="#i-ticket"/></svg> كروت المختبر</button>
         <button type="button" class="nav-item" data-view="accounting" aria-label="مراجعة الاستهلاك"><svg class="ico"><use href="#i-chart"/></svg> مراجعة الاستهلاك</button>
+        <button type="button" class="nav-item" data-view="sessions" aria-label="سجلات الجلسات التجريبية"><svg class="ico"><use href="#i-activity"/></svg> سجلات الجلسات <span class="ultra-permission">قراءة</span></button>
+      </nav>
+      <div class="sidebar-section-label">التخطيط والهندسة</div>
+      <nav class="nav-items" aria-label="أدوات التخطيط">
+        <button type="button" class="nav-item" data-view="capacity" aria-label="حاسبة تخطيط السعة"><svg class="ico"><use href="#i-chart"/></svg> تخطيط السعة <span class="ultra-permission">تقديري</span></button>
       </nav>
       <div class="sidebar-section-label">قيد التطوير</div>
       <nav class="nav-items" aria-label="المراحل القادمة">
@@ -175,6 +181,29 @@
             <section class="surface-card usage-results"><div class="section-title"><div><span class="eyebrow">سجل المحاسبة</span><h2>نتيجة الاستعلام</h2></div></div>
               <div id="usageEmpty" class="empty-illustration"><svg class="ico"><use href="#i-chart"/></svg><strong>اختر كرتا لعرض البيانات</strong><span>سيظهر إجمالي الرفع والتنزيل وحالة سجلات الجلسات هنا.</span></div>
               <div id="usageReport" hidden><div class="usage-kpis"><div><span>إجمالي البيانات</span><strong id="usageTotal">—</strong></div><div><span>التنزيل</span><strong id="usageDown">—</strong></div><div><span>الرفع</span><strong id="usageUp">—</strong></div></div><div class="usage-details"><div><span>إجمالي الجلسات</span><strong id="usageSessions">—</strong></div><div><span>المفتوحة</span><strong id="usageOpen">—</strong></div><div><span>القديمة</span><strong id="usageStale">—</strong></div><div><span>سجلات غير سليمة</span><strong id="usageAnomalous">—</strong></div><div><span>عناوين NAS المرصودة</span><strong id="usageNas">—</strong></div><div><span>حالة السجل</span><strong id="usageFinal">—</strong></div></div><p id="usageWarning" class="warning-note"></p></div>
+            </section></div>
+        </section>
+        <section class="view" id="view-sessions" data-page="sessions" hidden>
+          <div class="page-heading"><div><span class="eyebrow">مختبر المحاسبة • radacct</span><h1>متصفح الجلسات وسجل المحاسبة</h1><p>بيانات حقيقية من سجلات الكروت التجريبية فقط، وليس كشفا مؤكدا للمتصلين حاليا.</p></div></div>
+          <div class="ultra-banner"><div><strong>القراءة فقط — لا فصل ولا تعديل جلسات</strong><p>البيانات من PostgreSQL، وتعرض حالة أحدث رسالة محاسبة متاحة. لا توجد هنا أوامر CoA أو رصيد مفعل.</p></div><svg class="ico"><use href="#i-shield"/></svg></div>
+          <section class="surface-card ultra-section-grid"><div class="section-title"><div><span class="eyebrow">التصفية والاستعلام</span><h2>جلسات المختبر المسجلة</h2><p class="section-note">أول 100 سجل مطابق فقط، مرتبة حسب آخر تحديث</p></div></div>
+            <div class="ultra-toolbar"><label class="sr-only" for="ultraSessionState">حالة السجلات</label><select id="ultraSessionState" aria-label="تصفية حالة الجلسات"><option value="all">كل الحالات</option><option value="open">مفتوحة بحسب السجل</option><option value="stale">قديمة / غير مؤكدة</option><option value="closed">مغلقة</option></select>
+            <label class="sr-only" for="ultraSessionSearch">بحث في النتائج المحملة</label><input id="ultraSessionSearch" type="search" placeholder="بحث: كرت، IP، MAC أو NAS" aria-label="بحث في النتائج المحملة">
+            <button type="button" class="btn primary" id="ultraSessionsRefresh">قراءة من الخادم</button><button type="button" class="btn subtle" id="ultraSessionsExport">تصدير CSV المعروض</button></div>
+            <div class="ultra-status">آخر استعلام: <strong id="ultraSessionUpdated">لم يتم الاستعلام</strong> • <span id="ultraSessionCount">لم تُحمّل سجلات</span></div>
+            <div class="ultra-table-wrap"><table class="ultra-table"><thead><tr><th>الكرت</th><th>IP</th><th>MAC</th><th>NAS</th><th>حالة السجل</th><th>بداية الجلسة</th><th>آخر تحديث</th><th>رفع / تنزيل</th><th>سبب الإنهاء</th></tr></thead><tbody id="ultraSessionsList"><tr><td colspan="9">اختر «قراءة من الخادم» لعرض البيانات.</td></tr></tbody></table></div>
+            <p id="ultraSessionsWarning" class="ultra-note" role="status">سجلات المحاسبة لم تُحمّل بعد. الجلسة المفتوحة لا تثبت وجود اتصال فعلي.</p>
+          </section>
+        </section>
+        <section class="view" id="view-capacity" data-page="capacity" hidden>
+          <div class="page-heading"><div><span class="eyebrow">أداة هندسية غير متصلة بالراوترات</span><h1>حاسبة السعة والتخطيط</h1><p>استفدت من حاسبة Ultra NOC v4 مع صيغة واضحة وافتراضات قابلة للتعديل، دون أي تطبيق على الشبكة.</p></div></div>
+          <div class="ultra-banner"><div><strong>تقدير استرشادي — لا يستند إلى قياسات فعلية</strong><p>غيّر مدخلاتك لترى سيناريو الذروة والسعة والبيانات؛ النتائج ليست ضمانا للأداء.</p></div><svg class="ico"><use href="#i-info"/></svg></div>
+          <div class="ultra-calculator"><section class="surface-card"><div class="section-title"><div><span class="eyebrow">الافتراضات</span><h2>مدخلات التخطيط</h2></div></div>
+            <form id="capForm"><div class="ultra-form-grid"><label>إجمالي المشتركين<input id="capUsers" type="number" min="1" max="1000000" step="1" value="800" required></label><label>متوسط السرعة Mbps<input id="capSpeed" type="number" min="0.1" max="10000" step="0.1" value="6" required></label><label>نسبة التزامن وقت الذروة %<input id="capConcurrency" type="number" min="1" max="100" step="1" value="45" required></label><label>معامل المشاركة 1:X<input id="capSharing" type="number" min="1" max="1000" step="1" value="8" required></label><label>الساعات المكافئة لذروة الاستهلاك يوميا<input id="capHours" type="number" min="0.5" max="24" step="0.5" value="6" required></label></div>
+            <p id="capError" class="form-error" role="alert"></p><button type="submit" class="btn primary">حساب السيناريو</button></form></section>
+            <section class="surface-card"><div class="section-title"><div><span class="eyebrow">النتائج</span><h2>التقدير الافتراضي</h2></div></div>
+            <div id="capResults" class="ultra-caps"><div class="ultra-cap"><span>المستخدمون المتزامنون المتوقعون</span><strong id="capPeakOut">—</strong></div><div class="ultra-cap"><span>سعة الإنترنت المقدرة</span><strong id="capSpeedOut">—</strong></div><div class="ultra-cap"><span>البيانات الشهرية (TB عشرية)</span><strong id="capVolumeOut">—</strong></div></div>
+            <p class="ultra-note">طريقة الحساب: المتزامنون = المستخدمون × نسبة الذروة؛ السعة = المتزامنون × سرعة الباقة ÷ معامل المشاركة؛ الاستهلاك = السعة × ساعات الذروة المكافئة × 30 يوما. لا يأخذ هذا التقدير في الحسبان تأخر Starlink أو التذبذب أو عدد الاتصالات الفعلي.</p>
             </section></div>
         </section>
         <section class="view" id="view-networks" data-page="networks" hidden><div class="page-heading"><div><span class="eyebrow">مرحلة لاحقة</span><h1>الشبكات وNAS</h1><p>لم ننفذ حتى الآن إدارة أجهزة MikroTik الفعلية أو مراقبتها داخل هذا الإصدار.</p></div></div><section class="surface-card coming-card"><svg class="ico"><use href="#i-network"/></svg><h2>قيد التطوير — غير متاح حاليا</h2><p>ستأتي إدارة NAS وربط الشبكات البعيدة عبر VPN بعد اختبار المصادقة والمحاسبة على راوترات مختبرية. لا تظهر بيانات أجهزة وهمية هنا.</p></section></section>

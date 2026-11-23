@@ -1,5 +1,6 @@
 import { normalizedPlan } from './plan-utils.mjs';
 import { initializeNocUi } from './noc-ui.mjs';
+import { initializeUltraFeatures } from './ultra-features.mjs';
 import { filterPlans, filterAccounts, summarizeVisibleAccounts, formatBytes, formatKbps } from './dashboard-utils.mjs';
 
 const el = id => document.getElementById(id);
@@ -10,7 +11,8 @@ let accounts = [];
 let pendingRequest = false;
 let toastTimeout = null;
 let noc = null;
-const viewLabels = { overview: 'الرئيسية', plans: 'إدارة الباقات', vouchers: 'كروت المختبر', accounting: 'مراجعة الاستهلاك', networks: 'الشبكات وNAS', roadmap: 'الرصيد الموحد' };
+let ultra = null;
+const viewLabels = { overview: 'الرئيسية', plans: 'إدارة الباقات', vouchers: 'كروت المختبر', accounting: 'مراجعة الاستهلاك', sessions: 'سجلات الجلسات', capacity: 'تخطيط السعة', networks: 'الشبكات وNAS', roadmap: 'الرصيد الموحد' };
 
 function setError(id, message = '') { el(id).textContent = message; }
 function toast(message, type = '') {
@@ -254,7 +256,7 @@ function logout(showToast = true) {
   el('loginPass').value = '';
   el('dashboard').hidden = true;
   el('loginPanel').hidden = false;
-  closeMenu();noc?.reset();
+  closeMenu();noc?.reset();ultra?.reset();
   if (showToast) toast('تم تسجيل الخروج.');
 }
 
@@ -329,3 +331,6 @@ el('labForm').addEventListener('submit', async event => {
 
 // NOC presentation wiring is independent of API, database and RADIUS authentication.
 noc = initializeNocUi({ getPlans: () => plans, getAccounts: () => accounts, navigate: switchView, showToast: toast });
+
+// Ultra v4: safe read-only lab session browser and offline capacity planner.
+ultra = initializeUltraFeatures({ request: call, notify: toast, record: message => noc?.record(message) });
