@@ -10,7 +10,8 @@ trap 'rm -f "$LOG"' EXIT
 # A generated plan without quota / expiration is safe for this lab only.
 plan_json=$(curl -fsS -u "$ADMIN_USER:$ADMIN_PASSWORD" -H 'Content-Type: application/json'   -d '{"name":"Lab Phase2 256up 1024down","downloadKbps":1024,"uploadKbps":256}' "$API/plans")
 plan_id=$(printf '%s' "$plan_json" | python3 -c 'import json,sys;print(json.load(sys.stdin)["id"])')
-response=$(curl -fsS -u "$ADMIN_USER:$ADMIN_PASSWORD" -H 'Content-Type: application/json'   -d "{"planId":"$plan_id"}" "$API/lab-accounts")
+payload=$(printf '{"planId":"%s"}' "$plan_id")
+response=$(curl -fsS -u "$ADMIN_USER:$ADMIN_PASSWORD" -H 'Content-Type: application/json'   -d "$payload" "$API/lab-accounts")
 username=$(printf '%s' "$response" | python3 -c 'import json,sys;print(json.load(sys.stdin)["username"])')
 password=$(printf '%s' "$response" | python3 -c 'import json,sys;print(json.load(sys.stdin)["password"])')
 if [[ ! "$username" =~ ^lab_[a-f0-9]{12}$ || ! "$password" =~ ^[a-f0-9]{48}$ ]]; then
