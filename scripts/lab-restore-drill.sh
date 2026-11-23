@@ -10,6 +10,7 @@ backup="$1"
 mode=$(stat -c %a "$BACKUP_PASSPHRASE_FILE")
 [[ "$mode" =~ ^[0-7]{3,4}$ ]] && (( (8#$mode & 0077) == 0 )) || { echo "Insecure passphrase file permissions" >&2; exit 1; }
 [[ -s "$BACKUP_PASSPHRASE_FILE" ]] || { echo "Passphrase file is empty" >&2; exit 1; }
+[[ $(wc -c < "$BACKUP_PASSPHRASE_FILE") -ge 32 ]] || { echo "Passphrase must contain at least 32 bytes" >&2; exit 1; }
 [[ -f .env ]] || { echo "Isolated-lab .env missing" >&2; exit 1; }
 [[ "$backup" != *[[:space:]]* ]] || { echo "Backup paths containing spaces are not supported by the checksum manifest" >&2; exit 1; }
 expected_hash=$(head -c 64 "$backup.sha256")
