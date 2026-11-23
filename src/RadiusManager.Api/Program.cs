@@ -1,8 +1,21 @@
 using System.Threading.RateLimiting;
+using System.Security.Claims;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Antiforgery;
+using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using RadiusManager.Api;
 
 var builder = WebApplication.CreateBuilder(args);
+var adminAuthMode = Environment.GetEnvironmentVariable("RADIUS_ADMIN_AUTH_MODE") ?? "basic";
+if (adminAuthMode is not ("basic" or "session"))
+    throw new InvalidOperationException("RADIUS_ADMIN_AUTH_MODE must be basic or session");
+var sessionMode = adminAuthMode == "session";
+// Session mode will not be silently activated on the current plain-HTTP container.
+// A separate, tested HTTPS deployment must explicitly configure Kestrel TLS.
+if (sessionMode && !(builder.Configuration["ASPNETCORE_URLS"] ?? "").Split(';')
+    .Any(x => x.StartsWith("https://", StringComparison.OrdinalIgnoreCase)))
+    throw new InvalidOperationException("Session mode requires a verified HTTPS Kestrel endpoint");
 var adminUser = Environment.GetEnvironmentVariable("RADIUS_ADMIN_USER") ?? "admin";
 var adminPassword = Environment.GetEnvironmentVariable("RADIUS_ADMIN_PASSWORD") ?? "";
 var connectionString = builder.Configuration.GetConnectionString("RadiusDb");
@@ -10,6 +23,42 @@ if (adminUser.Length < 3 || adminPassword.Length < 24 || string.IsNullOrWhiteSpa
     throw new InvalidOperationException("Provide strong admin credentials and a database connection string.");
 
 builder.Services.AddSingleton(NpgsqlDataSource.Create(connectionString));
+builder.Services.AddDbContext<AdminIdentityDbContext>(o => o.UseNpgsql(connectionString));
+builder.Services.AddIdentity<IdentityUser, IdentityRole>(options =>
+{
+    options.Password.RequiredLength = 14;
+    options.Password.RequireDigit = true;
+    options.Password.RequireUppercase = true;
+    options.Password.RequireLowercase = true;
+    options.Password.RequireNonAlphanumeric = true;
+    options.Lockout.MaxFailedAccessAttempts = 5;
+    options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(20);
+    options.Lockout.AllowedForNewUsers = true;
+    options.User.RequireUniqueEmail = false;
+}).AddEntityFrameworkStores<AdminIdentityDbContext>().AddDefaultTokenProviders();
+builder.Services.ConfigureApplicationCookie(options =>
+{
+    options.Cookie.Name = "__Host-RadiusAdmin";
+    options.Cookie.HttpOnly = true;
+    options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
+    options.Cookie.SameSite = SameSiteMode.Strict;
+    options.Cookie.Path = "/";
+    options.SlidingExpiration = false;
+    options.ExpireTimeSpan = TimeSpan.FromHours(8);
+    options.Events.OnValidatePrincipal = AdminSessionSecurity.ValidateAsync;
+    options.Events.OnRedirectToLogin = ctx => { ctx.Response.StatusCode = 401; return Task.CompletedTask; };
+    options.Events.OnRedirectToAccessDenied = ctx => { ctx.Response.StatusCode = 403; return Task.CompletedTask; };
+});
+builder.Services.AddAntiforgery(options =>
+{
+    options.HeaderName = "X-CSRF-TOKEN";
+    options.Cookie.Name = "__Host-RadiusCsrf";
+    options.Cookie.HttpOnly = true;
+    options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
+    options.Cookie.SameSite = SameSiteMode.Strict;
+    options.Cookie.Path = "/";
+});
+builder.Services.AddAuthorization();
 builder.Services.AddRateLimiter(o =>
 {
     o.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
@@ -23,6 +72,11 @@ builder.Services.AddRateLimiter(o =>
 });
 
 var app = builder.Build();
+if (args.Length == 1 && args[0] == "--bootstrap-admin")
+{
+    Environment.ExitCode = await AdminBootstrap.RunAsync(app.Services);
+    return;
+}
 app.Use(async (context, next) =>
 {
     context.Response.Headers["X-Content-Type-Options"] = "nosniff";
@@ -34,6 +88,8 @@ app.Use(async (context, next) =>
 app.UseDefaultFiles();
 app.UseStaticFiles();
 app.UseRateLimiter();
+app.UseAuthentication();
+app.UseAuthorization();
 // Protect authenticated, state-changing browser requests against cross-site
 // form submission. The API remains usable by existing local CLI clients.
 app.Use(async (ctx, next) =>
@@ -68,9 +124,38 @@ app.MapGet("/api/health/ready", async (NpgsqlDataSource dataSource, Cancellation
 app.Use(async (ctx, next) =>
 {
     if (ctx.Request.Path.StartsWithSegments("/api")
-        && !ctx.Request.Path.StartsWithSegments("/api/health"))
+        && !ctx.Request.Path.StartsWithSegments("/api/health")
+        && !ctx.Request.Path.StartsWithSegments("/api/admin/auth"))
     {
-        if (!AdminBasicAuth.Matches(ctx.Request.Headers.Authorization.ToString(), adminUser, adminPassword))
+        if (sessionMode)
+        {
+            if (!ctx.Request.IsHttps)
+            {
+                ctx.Response.StatusCode = StatusCodes.Status403Forbidden;
+                return;
+            }
+            if (ctx.User.Identity?.IsAuthenticated != true)
+            {
+                ctx.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                return;
+            }
+            if (!AdminAuthorizationRules.IsAllowed(ctx.User, ctx.Request.Method, ctx.Request.Path.Value))
+            {
+                ctx.Response.StatusCode = StatusCodes.Status403Forbidden;
+                return;
+            }
+            if (HttpMethods.IsPost(ctx.Request.Method) || HttpMethods.IsPut(ctx.Request.Method)
+                || HttpMethods.IsPatch(ctx.Request.Method) || HttpMethods.IsDelete(ctx.Request.Method))
+            {
+                var csrf = ctx.RequestServices.GetRequiredService<IAntiforgery>();
+                if (!await csrf.IsRequestValidAsync(ctx))
+                {
+                    ctx.Response.StatusCode = StatusCodes.Status403Forbidden;
+                    return;
+                }
+            }
+        }
+        else if (!AdminBasicAuth.Matches(ctx.Request.Headers.Authorization.ToString(), adminUser, adminPassword))
         {
             ctx.Response.StatusCode = StatusCodes.Status401Unauthorized;
             ctx.Response.Headers.WWWAuthenticate = "Basic realm=\"Local-RADIUS-Lab\"";
@@ -99,4 +184,5 @@ app.MapLabUsageEndpoints();
 app.MapLabSessionEndpoints();
 // Phase 7A: metadata-only NAS drafts; no actual RADIUS client registration.
 app.MapNasDraftEndpoints();
+app.MapAdminIdentityEndpoints(sessionMode);
 app.Run();

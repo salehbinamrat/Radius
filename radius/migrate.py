@@ -29,6 +29,14 @@ MIGRATIONS = (
         "public.app_nas_drafts", "public.app_nas_draft_events",
         "public.idx_nas_drafts_created",
     )),
+    (5, "005_admin_identity.sql", (
+        'public."AspNetUsers"', 'public."AspNetRoles"',
+        'public."AspNetUserRoles"', 'public."AspNetUserClaims"',
+        'public."AspNetRoleClaims"', 'public."AspNetUserLogins"',
+        'public."AspNetUserTokens"',
+        "public.app_admin_sessions", "public.app_admin_audit_events",
+        "public.idx_admin_sessions_user_active", "public.idx_admin_audit_actor_time",
+    )),
 )
 FREERADIUS_OBJECTS = (
     "radcheck", "radreply", "radgroupcheck", "radgroupreply",
