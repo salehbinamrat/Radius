@@ -6,9 +6,29 @@ set -a; source .env; set +a
 : "${RADIUS_SECRET:?}" "${ADMIN_USER:?}" "${ADMIN_PASSWORD:?}"
 API=http://127.0.0.1:8080/api
 LOG=$(mktemp)
-trap 'rm -f "$LOG"' EXIT
+plan_id='' username=''
+cleanup() {
+  rm -f "$LOG"
+  if [[ -n "$username" ]]; then
+    docker compose exec -T db psql -X -v ON_ERROR_STOP=1 -U radius -d radius -v username="$username" <<'SQL' >/dev/null || true
+DELETE FROM radacct WHERE username=:'username';
+DELETE FROM radcheck WHERE username=:'username';
+DELETE FROM radusergroup WHERE username=:'username';
+DELETE FROM app_lab_accounts WHERE username=:'username';
+SQL
+  fi
+  if [[ -n "$plan_id" ]]; then
+    docker compose exec -T db psql -X -v ON_ERROR_STOP=1 -U radius -d radius -v plan_id="$plan_id" <<'SQL' >/dev/null || true
+DELETE FROM radgroupreply WHERE groupname='plan-'||replace(:'plan_id','-','');
+DELETE FROM app_plans WHERE id=:'plan_id'::uuid;
+SQL
+  fi
+}
+trap cleanup EXIT
 # A generated plan without quota / expiration is safe for this lab only.
-plan_json=$(curl -fsS -u "$ADMIN_USER:$ADMIN_PASSWORD" -H 'Content-Type: application/json'   -d '{"name":"Lab Phase2 256up 1024down","downloadKbps":1024,"uploadKbps":256}' "$API/plans")
+plan_name="lab_phase2_$(python3 -c 'import secrets;print(secrets.token_hex(6))')"
+plan_json=$(curl -fsS -u "$ADMIN_USER:$ADMIN_PASSWORD" -H 'Content-Type: application/json' \
+  -d "{"name":"$plan_name","downloadKbps":1024,"uploadKbps":256}" "$API/plans")
 plan_id=$(printf '%s' "$plan_json" | python3 -c 'import json,sys;print(json.load(sys.stdin)["id"])')
 payload=$(printf '{"planId":"%s"}' "$plan_id")
 response=$(curl -fsS -u "$ADMIN_USER:$ADMIN_PASSWORD" -H 'Content-Type: application/json'   -d "$payload" "$API/lab-accounts")
