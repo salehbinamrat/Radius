@@ -46,6 +46,11 @@ assert len(found)==1 and found[0]['retired'] is False
 assert found[0]['radiusClientEnabled'] is False and x['radiusRegistrationEnabled'] is False
 assert not any('secret' in k.lower() or 'password' in k.lower() for k in found[0])
 PY
+# Browser requests from another origin must never retire an authenticated draft.
+for header in 'Origin: https://attacker.example' 'Origin: null' 'Sec-Fetch-Site: cross-site'; do
+  status=$(curl -sS -u "$ADMIN_USER:$ADMIN_PASSWORD" -H "$header" -X POST -o "$out" -w '%{http_code}' "$API/nas-drafts/$id/retire")
+  [[ "$status" == 403 ]] || { echo "Cross-origin draft mutation not blocked ($header): $status" >&2;exit 1; }
+done
 status=$(curl -sS -u "$ADMIN_USER:$ADMIN_PASSWORD" -X POST -o "$out" -w '%{http_code}' "$API/nas-drafts/$id/retire")
 [[ "$status" == 200 ]] || { echo "Retire returned $status" >&2;exit 1; }
 curl -fsS -u "$ADMIN_USER:$ADMIN_PASSWORD" "$API/nas-drafts" -o "$out"
