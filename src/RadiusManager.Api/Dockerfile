@@ -1,0 +1,12 @@
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+WORKDIR /src
+COPY RadiusManager.Api.csproj ./
+RUN dotnet restore
+COPY . ./
+RUN dotnet publish -c Release --no-restore -o /app/out
+FROM mcr.microsoft.com/dotnet/aspnet:10.0
+WORKDIR /app
+COPY --from=build /app/out ./
+USER $APP_UID
+EXPOSE 8080
+ENTRYPOINT ["dotnet", "RadiusManager.Api.dll"]

@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="ar" dir="rtl"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>إدارة RADIUS المحلي • المرحلة الأولى</title>
+<link rel="stylesheet" href="styles.css">
+</head><body>
+<header><span class="logo">◉</span><div><strong>RADIUS المحلي</strong><small>إدارة شبكاتك الخاصة • المرحلة الأولى</small></div><span class="tag">معمل تجريبي</span></header>
+<main>
+ <section id="loginPanel" class="card login">
+  <h1>الدخول إلى لوحة الإدارة</h1><p>هذه الواجهة محلية للتجربة، ولا توجد حسابات مشتركين افتراضية.</p>
+  <form id="loginForm"><label>اسم المسؤول<input id="loginUser" autocomplete="username" required value="admin"></label><label>كلمة المرور<input type="password" id="loginPass" autocomplete="current-password" required></label><button type="submit">دخول</button></form>
+  <p id="loginError" role="alert" class="error"></p>
+ </section>
+ <div id="dashboard" hidden>
+  <div class="heading"><div><h1>لوحة إدارة RADIUS</h1><p>الخطوة الأولى: الباقات والاتصال بقاعدة البيانات</p></div><button id="logout" class="secondary" type="button">خروج</button></div>
+  <section class="warning"><b>تنبيه:</b> هذه نسخة معملية. يتم حفظ الباقات وإعداد سرعة RADIUS فقط. حدود الرصيد والمدة ومنع الاستخدام المتزامن غير مفعلة بعد، ولا يجوز استخدامها للمشتركين الحقيقيين.</section>
+  <div class="stats"><article class="card"><span>الباقات المسجلة</span><b id="statPlans">—</b></article><article class="card"><span>حسابات المختبر</span><b id="statUsers">—</b></article><article class="card"><span>مرحلة التطوير</span><b>01 / 06</b></article></div>
+  <section class="grid">
+   <article class="card"><h2 id="planFormTitle">إنشاء باقة تجريبية</h2>
+    <form id="planForm">
+     <label>اسم الباقة<input id="planName" maxlength="80" placeholder="مثال: باقة 1M" required></label>
+     <div class="two"><label>سرعة التنزيل (Kbps)<input id="planDown" type="number" min="64" max="1000000" value="1024" required></label><label>سرعة الرفع (Kbps)<input id="planUp" type="number" min="64" max="1000000" value="256" required></label></div>
+     <div class="two"><label>الرصيد بالميجابايت (اختياري - غير مفعل)<input id="planQuota" type="number" min="1" placeholder="—"></label><label>الصلاحية بالأيام (اختياري - غير مفعلة)<input id="planDays" type="number" min="1" max="3650" placeholder="—"></label></div>
+     <button id="savePlan" type="submit">حفظ الباقة</button><button class="secondary" id="cancelEdit" type="button" hidden>إلغاء التعديل</button>
+    </form><p id="planError" role="alert" class="error"></p>
+   </article>
+   <article class="card"><div class="inline"><h2>الباقات المحفوظة</h2><button class="secondary" id="refresh" type="button">تحديث</button></div><div class="tablewrap"><table><thead><tr><th>اسم الباقة</th><th>تنزيل</th><th>رفع</th><th>الحالة</th><th>التحكم</th></tr></thead><tbody id="plansList"><tr><td colspan="5">لا توجد باقات بعد.</td></tr></tbody></table></div></article>
+  </section>
+  <footer>التجربة على جهازك فقط. لا تربط الراوتر الرئيسي قبل اكتمال الاختبارات.</footer>
+ </div>
+</main><script type="module" src="app.mjs"></script>
+</body></html>

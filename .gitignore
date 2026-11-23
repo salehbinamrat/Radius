@@ -1,0 +1,9 @@
+.env
+**/bin/
+**/obj/
+**/node_modules/
+*.user
+*.suo
+*.bak
+**/.DS_Store
+__pycache__/
