@@ -1,44 +1,155 @@
 <!doctype html>
-<html lang="ar" dir="rtl"><head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="color-scheme" content="light">
-<title>إدارة RADIUS المحلي • المرحلة الثالثة (3A)</title>
-<link rel="stylesheet" href="styles.css">
-</head><body>
-<header><span class="logo">◉</span><div><strong>RADIUS المحلي</strong><small>إدارة شبكاتك الخاصة • المرحلة الثالثة (3A)</small></div><span class="tag">معمل تجريبي — الكروت غير صالحة للبيع</span></header>
-<main>
- <section id="loginPanel" class="card login">
-  <h1>الدخول إلى لوحة الإدارة</h1><p>هذه الواجهة محلية للتجربة، ولا توجد حسابات مشتركين افتراضية.</p>
-  <form id="loginForm"><label>اسم المسؤول<input id="loginUser" autocomplete="username" required value="admin"></label><label>كلمة المرور<input type="password" id="loginPass" autocomplete="current-password" required></label><button type="submit">دخول</button></form>
-  <p id="loginError" role="alert" class="error"></p>
- </section>
- <div id="dashboard" hidden>
-  <div class="heading"><div><h1>لوحة إدارة RADIUS</h1><p>المرحلة الثالثة (3A): كروت اختبار مرتبطة بالباقات</p></div><button id="logout" class="secondary" type="button">خروج</button></div>
-  <section class="warning"><b>تنبيه:</b> هذه نسخة معملية. يتم حفظ الباقات وإعداد سرعة RADIUS فقط. يتم عرض الاستهلاك المسجل فقط؛ حدود الرصيد والمدة ومنع الاستخدام المتزامن غير مفعلة بعد، ولا يجوز استخدامها للمشتركين الحقيقيين.</section>
-  <div class="stats"><article class="card"><span>الباقات المسجلة</span><b id="statPlans">—</b></article><article class="card"><span>حسابات المختبر</span><b id="statUsers">—</b></article><article class="card"><span>مرحلة التطوير</span><b>03A / 06</b></article></div>
-  <section class="grid">
-   <article class="card"><h2 id="planFormTitle">إنشاء باقة تجريبية</h2>
-    <form id="planForm">
-     <label>اسم الباقة<input id="planName" maxlength="80" placeholder="مثال: باقة 1M" required></label>
-     <div class="two"><label>سرعة التنزيل (Kbps)<input id="planDown" type="number" min="64" max="1000000" value="1024" required></label><label>سرعة الرفع (Kbps)<input id="planUp" type="number" min="64" max="1000000" value="256" required></label></div>
-     <div class="two"><label>الرصيد بالميجابايت (اختياري - غير مفعل)<input id="planQuota" type="number" min="1" placeholder="—"></label><label>الصلاحية بالأيام (اختياري - غير مفعلة)<input id="planDays" type="number" min="1" max="3650" placeholder="—"></label></div>
-     <button id="savePlan" type="submit">حفظ الباقة</button><button class="secondary" id="cancelEdit" type="button" hidden>إلغاء التعديل</button>
-    </form><p id="planError" role="alert" class="error"></p>
-   </article>
-   <article class="card"><div class="inline"><h2>الباقات المحفوظة</h2><button class="secondary" id="refresh" type="button">تحديث</button></div><div class="tablewrap"><table><thead><tr><th>اسم الباقة</th><th>تنزيل</th><th>رفع</th><th>الحالة</th><th>التحكم</th></tr></thead><tbody id="plansList"><tr><td colspan="5">لا توجد باقات بعد.</td></tr></tbody></table></div></article>
-  </section>
-  <section class="card" aria-labelledby="labTitle">
-    <h2 id="labTitle">كروت الاختبار — RADIUS PAP/CHAP</h2>
-    <p>تُنشأ بيانات دخول عشوائية ويتم عرض كلمة المرور مرة واحدة فقط. اختر باقة <b>دون رصيد أو مدة</b>، لأنهما غير مطبقين بعد.</p>
-    <form id="labForm"><label>باقة الاختبار<select id="labPlan" required></select></label><button type="submit">إنشاء كرت تجريبي</button></form>
-    <p id="labError" role="alert" class="error"></p>
-    <pre id="labCredentials" hidden aria-live="polite"></pre>
-    <h2>الكروت التجريبية المسجلة</h2>
-    <div class="tablewrap"><table><thead><tr><th>رقم الكرت</th><th>الباقة</th><th>الحالة</th><th>إجراء</th></tr></thead><tbody id="labList"></tbody></table></div>
-    <pre id="labUsage" hidden aria-live="polite"></pre>
-    <p>تعطيل الكرت يمنع الدخول الجديد فقط، ولا يفصل الجلسة الحالية. لا تربط هذا المختبر بشبكة إنتاج.</p>
-  </section>
-  <footer>التجربة على جهازك فقط. لا تربط الراوتر الرئيسي قبل اكتمال الاختبارات.</footer>
- </div>
-</main><script type="module" src="app.mjs"></script>
-</body></html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>لوحة إدارة RADIUS المحلي — المختبر</title>
+  <meta name="description" content="لوحة إدارة محلية تجريبية لباقات MikroTik وكروت المختبر ومراجعة سجلات المحاسبة">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <svg class="icon-defs" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+    <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></symbol>
+    <symbol id="i-layers" viewBox="0 0 24 24"><path d="m12 2 9 5-9 5-9-5 9-5Z"/><path d="m3 12 9 5 9-5M3 17l9 5 9-5"/></symbol>
+    <symbol id="i-ticket" viewBox="0 0 24 24"><path d="M3 8a2 2 0 0 0 2-2h14a2 2 0 0 0 2 2v3a2 2 0 0 0 0 4v3a2 2 0 0 0-2 2H5a2 2 0 0 0-2-2v-3a2 2 0 0 0 0-4V8Z"/><path d="M12 5v2m0 3v3m0 3v3"/></symbol>
+    <symbol id="i-chart" viewBox="0 0 24 24"><path d="M3 3v18h18M7 16v-4m5 4V8m5 8V5"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 2 20 5v6c0 5-3.4 8.2-8 11-4.6-2.8-8-6-8-11V5l8-3Z"/><path d="m9 12 2 2 4-4"/></symbol>
+    <symbol id="i-network" viewBox="0 0 24 24"><rect x="8" y="2" width="8" height="6" rx="1"/><rect x="2" y="16" width="8" height="6" rx="1"/><rect x="14" y="16" width="8" height="6" rx="1"/><path d="M12 8v4M6 16v-4h12v4"/></symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24"><path d="M12 3a2 2 0 0 1 2 2v.5l2 .8.4-.3a2 2 0 0 1 2.8 2.8l-.4.4.8 2h.4a2 2 0 0 1 0 4h-.4l-.8 2 .4.4a2 2 0 0 1-2.8 2.8l-.4-.3-2 .8v.5a2 2 0 0 1-4 0v-.5l-2-.8-.4.3a2 2 0 0 1-2.8-2.8l.4-.4-.8-2H4a2 2 0 0 1 0-4h.4l.8-2-.4-.4a2 2 0 0 1 2.8-2.8l.4.3 2-.8V5a2 2 0 0 1 2-2Z"/><circle cx="12" cy="13" r="3"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 7v5h-5M4 17v-5h5"/><path d="M5 9a8 8 0 0 1 14-2l1 5M4 12l1 5a8 8 0 0 0 14-2"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></symbol>
+    <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m4 12 5 5L20 6"/></symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 3 2 21h20L12 3Z"/><path d="M12 9v5m0 4h.01"/></symbol>
+    <symbol id="i-wifi" viewBox="0 0 24 24"><path d="M2 8a15 15 0 0 1 20 0M5 12a10 10 0 0 1 14 0M9 16a4 4 0 0 1 6 0"/><circle cx="12" cy="20" r="1"/></symbol>
+    <symbol id="i-log-out" viewBox="0 0 24 24"><path d="M9 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h4M15 16l4-4-4-4M8 12h11"/></symbol>
+    <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M5 5 19 19M19 5 5 19"/></symbol>
+    <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14m-6-6 6 6-6 6"/></symbol>
+    <symbol id="i-activity" viewBox="0 0 24 24"><path d="M2 12h4l3-8 6 16 3-8h4"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v6l4 2"/></symbol>
+    <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-10h.01"/></symbol>
+  </svg>
+
+  <div id="loginPanel" class="login-shell">
+    <div class="login-side">
+      <div class="brand brand-light"><span class="brand-mark"><svg class="ico"><use href="#i-network"/></svg></span><div><strong>RADIUS Manager</strong><small>إدارة الشبكات المحلية</small></div></div>
+      <div class="login-hero"><span class="eyebrow light">نسخة مختبرية · 3A</span><h1>تحكم أفضل.<br><em>إدارة أوضح.</em></h1><p>إدارة باقات الشبكة وكروت التجربة ومراجعة بيانات المحاسبة في مكان واحد، تمهيدا لبناء منظومة رصيد موحد آمنة.</p></div>
+      <div class="login-side-foot">لشبكاتك الخاصة فقط · غير مخصص للبيع أو الإنتاج</div>
+    </div>
+    <div class="login-form-wrap">
+      <div class="login-form-card">
+        <span class="login-avatar"><svg class="ico"><use href="#i-shield"/></svg></span>
+        <span class="eyebrow">بوابة الإدارة</span>
+        <h2>مرحبا بعودتك</h2><p>أدخل بيانات مسؤول السيرفر المحلي للمتابعة.</p>
+        <form id="loginForm" novalidate>
+          <label for="loginUser">اسم المستخدم</label><input id="loginUser" name="username" autocomplete="username" minlength="3" value="admin" required>
+          <label for="loginPass">كلمة المرور</label><input id="loginPass" name="password" type="password" autocomplete="current-password" required>
+          <button class="btn primary login-submit" type="submit"><svg class="ico"><use href="#i-arrow"/></svg> الدخول إلى اللوحة</button>
+        </form>
+        <p id="loginError" class="form-error" role="alert" aria-live="polite"></p>
+        <div class="login-caution"><svg class="ico"><use href="#i-info"/></svg> لا توجد بيانات دخول افتراضية. كلمة المرور تُنشأ أثناء تهيئة السيرفر.</div>
+      </div>
+    </div>
+  </div>
+
+  <div id="dashboard" class="app-shell" hidden>
+    <aside class="sidebar" id="sidebar" aria-label="القائمة الرئيسية">
+      <div class="brand"><span class="brand-mark"><svg class="ico"><use href="#i-network"/></svg></span><div><strong>RADIUS</strong><small>لوحة الإدارة المحلية</small></div></div>
+      <div class="sidebar-section-label">مساحة العمل</div>
+      <nav class="nav-items" aria-label="التنقل">
+        <button type="button" class="nav-item is-active" data-view="overview" aria-current="page"><svg class="ico"><use href="#i-grid"/></svg> الرئيسية <svg class="ico nav-chevron"><use href="#i-chevron"/></svg></button>
+        <button type="button" class="nav-item" data-view="plans"><svg class="ico"><use href="#i-layers"/></svg> إدارة الباقات</button>
+        <button type="button" class="nav-item" data-view="vouchers"><svg class="ico"><use href="#i-ticket"/></svg> كروت المختبر</button>
+        <button type="button" class="nav-item" data-view="accounting"><svg class="ico"><use href="#i-chart"/></svg> مراجعة الاستهلاك</button>
+      </nav>
+      <div class="sidebar-section-label">قيد التطوير</div>
+      <nav class="nav-items" aria-label="المراحل القادمة">
+        <button type="button" class="nav-item" data-view="networks"><svg class="ico"><use href="#i-wifi"/></svg> الشبكات وNAS <span class="nav-coming">قريبا</span></button>
+        <button type="button" class="nav-item" data-view="roadmap"><svg class="ico"><use href="#i-settings"/></svg> الرصيد الموحد <span class="nav-coming">قريبا</span></button>
+      </nav>
+      <div class="sidebar-bottom"><div class="environment"><span class="env-dot"></span><div><strong>بيئة المختبر</strong><small>لا تربط شبكة الإنتاج</small></div></div><button class="side-logout" id="logout" type="button"><svg class="ico"><use href="#i-log-out"/></svg> تسجيل الخروج</button></div>
+    </aside>
+    <div id="mobileBackdrop" class="mobile-backdrop" hidden></div>
+    <div class="workspace">
+      <header class="topbar">
+        <button type="button" id="menuToggle" class="icon-button mobile-menu" aria-label="فتح القائمة" aria-expanded="false" aria-controls="sidebar"><svg class="ico"><use href="#i-menu"/></svg></button>
+        <div class="breadcrumbs"><span>إدارة الشبكة</span><svg class="ico"><use href="#i-chevron"/></svg><strong id="breadcrumbCurrent">الرئيسية</strong></div>
+        <div class="top-actions"><span class="top-chip"><span class="mini-led"></span> معمل 3A</span><button type="button" id="refreshAll" class="btn subtle" title="إعادة تحميل بيانات الخادم"><svg class="ico"><use href="#i-refresh"/></svg><span>تحديث البيانات</span></button><div class="avatar" aria-label="حساب المسؤول">A</div></div>
+      </header>
+      <main class="content">
+        <div id="globalWarning" class="status-banner" role="status"><svg class="ico"><use href="#i-alert"/></svg><div><strong>وضع الاختبار فقط</strong><p>السرعات والمصادقة وسجلات الاستهلاك التجريبية متاحة. خصم الرصيد والصلاحية ومنع الاتصال المتزامن لم يتم تفعيلها بعد. لا تستخدم كروت فعلية.</p></div></div>
+        <div id="pageError" class="page-error" role="alert" hidden></div>
+
+        <section class="view" id="view-overview" data-page="overview">
+          <div class="page-heading"><div><span class="eyebrow">نظرة عامة</span><h1>لوحة التحكم الرئيسية</h1><p>ملخص حي للبيانات الموجودة في السيرفر المحلي، وليس لعدد المتصلين الفعلي.</p></div><button type="button" class="btn primary" data-goto="plans" data-focus="planName"><svg class="ico"><use href="#i-plus"/></svg> باقة جديدة</button></div>
+          <div class="kpi-grid">
+            <article class="kpi-card"><span class="kpi-icon blue"><svg class="ico"><use href="#i-layers"/></svg></span><span class="kpi-label">الباقات المسجلة</span><strong id="statPlans">—</strong><small>من قاعدة البيانات</small></article>
+            <article class="kpi-card"><span class="kpi-icon purple"><svg class="ico"><use href="#i-ticket"/></svg></span><span class="kpi-label">حسابات المختبر</span><strong id="statUsers">—</strong><small>الإجمالي من الخادم</small></article>
+            <article class="kpi-card"><span class="kpi-icon teal"><svg class="ico"><use href="#i-check"/></svg></span><span class="kpi-label">كروت مفعلة في القائمة</span><strong id="statActive">—</strong><small>من أول 100 كرت معروض</small></article>
+            <article class="kpi-card"><span class="kpi-icon amber"><svg class="ico"><use href="#i-shield"/></svg></span><span class="kpi-label">سلامة الاتصال بالواجهة</span><strong id="statHealth" class="health-metric">—</strong><small>نتيجة آخر طلب بيانات</small></article>
+          </div>
+          <div class="overview-grid">
+            <section class="surface-card quick-actions"><div class="section-title"><div><span class="eyebrow">اختصارات</span><h2>إجراءات سريعة</h2></div></div>
+              <button class="quick-action" type="button" data-goto="plans" data-focus="planName"><span class="action-icon"><svg class="ico"><use href="#i-plus"/></svg></span><span><strong>إنشاء باقة</strong><small>تحديد السرعة والخصائص التجريبية</small></span><svg class="ico action-arrow"><use href="#i-chevron"/></svg></button>
+              <button class="quick-action" type="button" data-goto="vouchers" data-focus="labPlan"><span class="action-icon violet"><svg class="ico"><use href="#i-ticket"/></svg></span><span><strong>إنشاء كرت اختبار</strong><small>بيانات دخول تظهر مرة واحدة فقط</small></span><svg class="ico action-arrow"><use href="#i-chevron"/></svg></button>
+              <button class="quick-action" type="button" data-goto="accounting"><span class="action-icon green"><svg class="ico"><use href="#i-chart"/></svg></span><span><strong>عرض الاستهلاك</strong><small>مراجعة سجلات المحاسبة غير النهائية</small></span><svg class="ico action-arrow"><use href="#i-chevron"/></svg></button>
+            </section>
+            <section class="surface-card status-overview"><div class="section-title"><div><span class="eyebrow">تقدم المشروع</span><h2>ما يعمل وما لم يكتمل</h2></div><span class="pill gray">المرحلة 3A</span></div>
+              <div class="capability"><svg class="ico positive"><use href="#i-check"/></svg><div><strong>إدارة الباقات والسرعات</strong><small>حفظ وإرسال MikroTik-Rate-Limit</small></div><span class="pill good">متاح</span></div>
+              <div class="capability"><svg class="ico positive"><use href="#i-check"/></svg><div><strong>كروت المختبر والمصادقة</strong><small>إنشاء وتعطيل الدخول الجديد</small></div><span class="pill good">متاح</span></div>
+              <div class="capability"><svg class="ico positive"><use href="#i-check"/></svg><div><strong>مراجعة سجلات الاستهلاك</strong><small>قراءة من radacct دون خصم رصيد</small></div><span class="pill good">متاح</span></div>
+              <div class="capability"><svg class="ico pending"><use href="#i-clock"/></svg><div><strong>الرصيد الموحد والجلسات</strong><small>لم يتم تفعيل الفوترة أو التحكم بالجلسات</small></div><span class="pill pending-pill">قيد التطوير</span></div>
+            </section>
+          </div>
+          <section class="surface-card compact-table"><div class="section-title"><div><span class="eyebrow">ملخص سريع</span><h2>آخر كروت المختبر</h2></div><button type="button" class="text-link" data-goto="vouchers">عرض الكل <svg class="ico"><use href="#i-chevron"/></svg></button></div><div class="table-wrap"><table><thead><tr><th>الكرت</th><th>الباقة</th><th>الحالة</th></tr></thead><tbody id="recentAccounts"><tr><td colspan="3">البيانات لم تُحمّل بعد</td></tr></tbody></table></div></section>
+        </section>
+
+        <section class="view" id="view-plans" data-page="plans" hidden>
+          <div class="page-heading"><div><span class="eyebrow">إدارة الخدمات</span><h1>الباقات والسرعات</h1><p>إدارة باقات RADIUS التجريبية والسرعات التي تُرجعها المصادقة إلى MikroTik.</p></div><button type="button" class="btn primary" id="openPlanForm"><svg class="ico"><use href="#i-plus"/></svg> إضافة باقة</button></div>
+          <div class="plan-grid"><section class="surface-card" id="planEditor"><div class="section-title"><div><span class="eyebrow">بيانات الباقة</span><h2 id="planFormTitle">إنشاء باقة تجريبية</h2></div></div>
+              <form id="planForm" class="form-stack"><label for="planName">اسم الباقة <span>*</span></label><input id="planName" maxlength="80" placeholder="مثال: باقة 1M" required>
+                <div class="field-pair"><div><label for="planDown">التنزيل (Kbps) <span>*</span></label><input id="planDown" type="number" min="64" max="1000000" value="1024" required inputmode="numeric"></div><div><label for="planUp">الرفع (Kbps) <span>*</span></label><input id="planUp" type="number" min="64" max="1000000" value="256" required inputmode="numeric"></div></div>
+                <div class="info-hint"><svg class="ico"><use href="#i-info"/></svg> ترتيب السرعات في RADIUS: الرفع / التنزيل، وسيجري تحويل القيم تلقائيا.</div>
+                <div class="field-pair"><div><label for="planQuota">الحجم (MB) <span class="optional">غير مفعل</span></label><input id="planQuota" type="number" min="1" placeholder="بدون حد" inputmode="numeric"></div><div><label for="planDays">المدة (يوم) <span class="optional">غير مفعلة</span></label><input id="planDays" type="number" min="1" max="3650" placeholder="بدون حد" inputmode="numeric"></div></div>
+                <div class="form-actions"><button id="savePlan" class="btn primary" type="submit">حفظ الباقة</button><button id="cancelEdit" class="btn subtle" type="button" hidden>إلغاء التعديل</button></div><p id="planError" class="form-error" role="alert" aria-live="polite"></p>
+              </form></section>
+            <section class="surface-card"><div class="section-title"><div><span class="eyebrow">السجلات</span><h2>الباقات المحفوظة</h2><p class="section-note">أول 100 باقة حسب تاريخ الإنشاء</p></div></div>
+              <div class="filter-toolbar"><label class="search-field"><svg class="ico"><use href="#i-search"/></svg><input id="planSearch" type="search" placeholder="ابحث باسم الباقة..." aria-label="ابحث باسم الباقة"></label><button id="refresh" type="button" class="btn subtle icon-only" title="تحديث الباقات" aria-label="تحديث الباقات"><svg class="ico"><use href="#i-refresh"/></svg></button></div>
+              <div class="table-wrap"><table><thead><tr><th>الباقة</th><th>التنزيل</th><th>الرفع</th><th>الحالة</th><th>الإجراء</th></tr></thead><tbody id="plansList"><tr><td colspan="5">لا توجد بيانات محملة</td></tr></tbody></table></div><p id="planCount" class="table-caption"></p>
+            </section></div>
+        </section>
+
+        <section class="view" id="view-vouchers" data-page="vouchers" hidden>
+          <div class="page-heading"><div><span class="eyebrow">إدارة المستخدمين</span><h1>كروت المختبر</h1><p>كروت مصادقة تجريبية فقط، لا تصلح للبيع أو لاستخدام المشتركين الحقيقيين.</p></div></div>
+          <div class="voucher-grid"><section class="surface-card"><div class="section-title"><div><span class="eyebrow">إنشاء جديد</span><h2>إنشاء كرت تجريبي</h2></div></div>
+              <p class="section-note">تُنشأ كلمة المرور عشوائيا وتظهر مرة واحدة. لا يمكن اختيار باقة تحتوي على حجم أو مدة لم تُفعّل محاسبتهما.</p>
+              <form id="labForm" class="form-stack"><label for="labPlan">باقة الكرت</label><select id="labPlan" required></select><button type="submit" class="btn primary" id="generateLab"><svg class="ico"><use href="#i-plus"/></svg> إنشاء كرت اختبار</button></form>
+              <p id="labError" class="form-error" role="alert" aria-live="polite"></p><pre id="labCredentials" class="credentials" hidden aria-live="polite"></pre>
+              <div class="info-hint warn"><svg class="ico"><use href="#i-alert"/></svg> تعطيل الكرت يمنع الدخول الجديد فقط. لا يقطع اتصال جلسة بدأت سابقا.</div>
+            </section><section class="surface-card"><div class="section-title"><div><span class="eyebrow">قائمة الكروت</span><h2>الحسابات المسجلة</h2><p class="section-note">أول 100 كرت حسب تاريخ الإنشاء</p></div></div>
+              <div class="filter-toolbar"><label class="search-field"><svg class="ico"><use href="#i-search"/></svg><input id="labSearch" type="search" placeholder="ابحث برقم الكرت أو الباقة..." aria-label="البحث في الكروت"></label><select id="labFilter" class="filter-select" aria-label="تصفية الكروت"><option value="all">جميع الحالات</option><option value="active">المفعلة</option><option value="disabled">الموقوفة</option></select></div>
+              <div class="table-wrap"><table><thead><tr><th>رقم الكرت</th><th>الباقة</th><th>الحالة</th><th>الإجراءات</th></tr></thead><tbody id="labList"><tr><td colspan="4">لا توجد بيانات محملة</td></tr></tbody></table></div><p id="labCount" class="table-caption"></p>
+            </section></div>
+        </section>
+
+        <section class="view" id="view-accounting" data-page="accounting" hidden>
+          <div class="page-heading"><div><span class="eyebrow">مراجعة البيانات</span><h1>سجلات الاستهلاك</h1><p>قراءة تجميعية من قاعدة radacct للكروت التجريبية، وليست فوترة نهائية.</p></div></div>
+          <div class="accounting-layout"><section class="surface-card"><div class="section-title"><div><span class="eyebrow">اختيار الكرت</span><h2>استعلام الاستهلاك</h2></div></div><label for="usageAccount">رقم الكرت التجريبي</label><select id="usageAccount"></select><button type="button" class="btn primary usage-button" id="loadUsage"><svg class="ico"><use href="#i-chart"/></svg> عرض الاستهلاك المسجل</button><div class="info-hint warn"><svg class="ico"><use href="#i-alert"/></svg> الرسائل المتأخرة أو المفقودة قد تغير الأرقام. ليست أداة لحساب الرصيد المتبقي.</div></section>
+            <section class="surface-card usage-results"><div class="section-title"><div><span class="eyebrow">سجل المحاسبة</span><h2>نتيجة الاستعلام</h2></div></div>
+              <div id="usageEmpty" class="empty-illustration"><svg class="ico"><use href="#i-chart"/></svg><strong>اختر كرتا لعرض البيانات</strong><span>سيظهر إجمالي الرفع والتنزيل وحالة سجلات الجلسات هنا.</span></div>
+              <div id="usageReport" hidden><div class="usage-kpis"><div><span>إجمالي البيانات</span><strong id="usageTotal">—</strong></div><div><span>التنزيل</span><strong id="usageDown">—</strong></div><div><span>الرفع</span><strong id="usageUp">—</strong></div></div><div class="usage-details"><div><span>إجمالي الجلسات</span><strong id="usageSessions">—</strong></div><div><span>المفتوحة</span><strong id="usageOpen">—</strong></div><div><span>القديمة</span><strong id="usageStale">—</strong></div><div><span>سجلات غير سليمة</span><strong id="usageAnomalous">—</strong></div><div><span>عناوين NAS المرصودة</span><strong id="usageNas">—</strong></div><div><span>حالة السجل</span><strong id="usageFinal">—</strong></div></div><p id="usageWarning" class="warning-note"></p></div>
+            </section></div>
+        </section>
+        <section class="view" id="view-networks" data-page="networks" hidden><div class="page-heading"><div><span class="eyebrow">مرحلة لاحقة</span><h1>الشبكات وNAS</h1><p>لم ننفذ حتى الآن إدارة أجهزة MikroTik الفعلية أو مراقبتها داخل هذا الإصدار.</p></div></div><section class="surface-card coming-card"><svg class="ico"><use href="#i-network"/></svg><h2>قيد التطوير — غير متاح حاليا</h2><p>ستأتي إدارة NAS وربط الشبكات البعيدة عبر VPN بعد اختبار المصادقة والمحاسبة على راوترات مختبرية. لا تظهر بيانات أجهزة وهمية هنا.</p></section></section>
+        <section class="view" id="view-roadmap" data-page="roadmap" hidden><div class="page-heading"><div><span class="eyebrow">مرحلة لاحقة</span><h1>الرصيد الموحد</h1><p>يجب إكمال محاسبة البيانات وإدارة الجلسات قبل تشغيل كرت واحد على عدة شبكات.</p></div></div><section class="surface-card coming-card"><svg class="ico"><use href="#i-shield"/></svg><h2>قيد التطوير — غير متاح حاليا</h2><p>دفتر الرصيد المركزي، وحدود الحصة، ومنع الجلسات المتزامنة، ومعالجة انقطاع VPN ما زالت خارج نطاق الإصدار 3A. لا توجد هنا خصومات رصيد مفعلة.</p></section></section>
+        <footer class="site-footer">RADIUS Manager · نسخة تجريبية للاستخدام المحلي فقط · لا تربطها بشبكة الإنتاج</footer>
+      </main>
+    </div>
+  </div>
+  <div class="toast-layer" id="toastLayer" aria-live="polite" aria-atomic="true"></div>
+  <script type="module" src="app.mjs"></script>
+</body>
+</html>
