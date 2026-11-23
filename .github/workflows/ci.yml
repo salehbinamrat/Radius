@@ -24,6 +24,13 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: '22' }
       - run: bash scripts/ci-config-checks.sh
+      - name: 'React + TypeScript: compile and verify bundled dashboard component'
+        run: |
+          cd src/RadiusManager.Api/frontend
+          npm install --no-audit --no-fund --ignore-scripts
+          npm run check
+          npm run build
+          node --check ../wwwroot/modern/noc-react.mjs
   compose-integration:
     needs: [dotnet-tests, config-tests]
     runs-on: ubuntu-latest

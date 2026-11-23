@@ -7,3 +7,6 @@
 *.bak
 **/.DS_Store
 __pycache__/
+
+# Generated React/TypeScript dashboard assets; build from pinned frontend source.
+src/RadiusManager.Api/wwwroot/modern/
