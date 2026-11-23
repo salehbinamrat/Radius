@@ -7,6 +7,24 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 set -a; source .env; set +a
 : "${ADMIN_USER:?}" "${ADMIN_PASSWORD:?}"
 API=http://127.0.0.1:8080/api
+plan_id='' username=''
+cleanup() {
+  if [[ -n "$username" ]]; then
+    docker compose exec -T db psql -X -v ON_ERROR_STOP=1 -U radius -d radius -v username="$username" <<'SQL' >/dev/null || true
+DELETE FROM radacct WHERE username=:'username';
+DELETE FROM radcheck WHERE username=:'username';
+DELETE FROM radusergroup WHERE username=:'username';
+DELETE FROM app_lab_accounts WHERE username=:'username';
+SQL
+  fi
+  if [[ -n "$plan_id" ]]; then
+    docker compose exec -T db psql -X -v ON_ERROR_STOP=1 -U radius -d radius -v plan_id="$plan_id" <<'SQL' >/dev/null || true
+DELETE FROM radgroupreply WHERE groupname='plan-'||replace(:'plan_id','-','');
+DELETE FROM app_plans WHERE id=:'plan_id'::uuid;
+SQL
+  fi
+}
+trap cleanup EXIT
 plan_json=$(curl -fsS -u "$ADMIN_USER:$ADMIN_PASSWORD" -H 'Content-Type: application/json' \
   -d "{\"name\":\"Accounting lab $(date +%s)-$$\",\"downloadKbps\":1024,\"uploadKbps\":256}" "$API/plans")
 plan_id=$(printf '%s' "$plan_json" | python3 -c 'import json,sys;print(json.load(sys.stdin)["id"])')
@@ -71,11 +89,4 @@ code=$(curl -sS -u "$ADMIN_USER:$ADMIN_PASSWORD" -o /dev/null -w '%{http_code}' 
 code=$(curl -sS -u "$ADMIN_USER:$ADMIN_PASSWORD" -o /dev/null -w '%{http_code}' "$API/lab-accounts/lab_000000000000/usage")
 [[ "$code" == 404 ]] || { echo 'Nonexistent username accepted' >&2; exit 1; }
 
-# Fixture cleanup, including credentials (transactional in the app, test-only here).
-docker compose exec -T db psql -X -v ON_ERROR_STOP=1 -U radius -d radius -v username="$username" <<'SQL'
-DELETE FROM radacct WHERE username=:'username';
-DELETE FROM radcheck WHERE username=:'username';
-DELETE FROM radusergroup WHERE username=:'username';
-DELETE FROM app_lab_accounts WHERE username=:'username';
-SQL
 echo 'Phase 3A cumulative accounting from two NASes PASS (report-only)'

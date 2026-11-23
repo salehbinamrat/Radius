@@ -32,8 +32,9 @@ class ProjectConfigTests(unittest.TestCase):
         self.assertIn('ليستا مطبقتين',text)
         src=(ROOT/'src/RadiusManager.Api/Program.cs').read_text()
         self.assertIn('accountingEnforced = false',src)
-        self.assertIn('radgroupreply',src)
-        self.assertNotIn('Mikrotik-Total-Limit',src)
+        plans=(ROOT/'src/RadiusManager.Api/PlanEndpoints.cs').read_text()
+        self.assertIn('radgroupreply',plans)
+        self.assertNotIn('Mikrotik-Total-Limit',src + plans)
 
     def test_freeradius_auth_sections_parseable_multiline(self):
         site=(ROOT/'radius/default.site').read_text()
@@ -81,7 +82,7 @@ class ProjectConfigTests(unittest.TestCase):
         self.assertIn('lab_', (ROOT/'scripts/smoke-test.sh').read_text())
 
     def test_sql_queries_parameterized(self):
-        source=(ROOT/'src/RadiusManager.Api/Program.cs').read_text()
+        source=(ROOT/'src/RadiusManager.Api/PlanEndpoints.cs').read_text()
         self.assertIn('AddWithValue',source)
         self.assertIn('BeginTransactionAsync',source)
         self.assertIn('UniqueViolation',source)
