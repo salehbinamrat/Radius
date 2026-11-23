@@ -29,7 +29,10 @@ class TestNasDraft(unittest.TestCase):
         self.assertIn('لا تستخدم كروت فعلية',html)
     def test_ci(self):
         ci=(R/'.github/workflows/ci.yml').read_text()
-        self.assertIn('tests/nas_draft_structure_checks.py',ci)
+        self.assertIn('bash scripts/ci-config-checks.sh',ci)
         self.assertIn('scripts/nas-drafts-smoke.sh',ci)
-        self.assertIn('node --check src/RadiusManager.Api/wwwroot/nas-drafts.mjs',ci)
+        runner=(R/'scripts/ci-config-checks.sh').read_text()
+        self.assertIn("python3 -m unittest discover -s tests -p '*checks.py'",runner)
+        self.assertIn('node --check',runner)
+        self.assertTrue((R/'src/RadiusManager.Api/wwwroot/nas-drafts.mjs').is_file())
 if __name__=='__main__':unittest.main(verbosity=2)
