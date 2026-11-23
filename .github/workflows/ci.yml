@@ -15,24 +15,15 @@ jobs:
         with: { dotnet-version: '10.0.x' }
       - run: dotnet restore tests/RadiusManager.Tests/RadiusManager.Tests.csproj
       - run: dotnet test tests/RadiusManager.Tests/RadiusManager.Tests.csproj --no-restore -c Release
+      - name: Publish the tested API on a clean CI host
+        run: dotnet publish src/RadiusManager.Api/RadiusManager.Api.csproj --no-restore -c Release --no-self-contained -o /tmp/radius-api-publish
   config-tests:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: '22' }
-      - run: node --test tests/js/*.test.mjs
-      - run: bash -n scripts/*.sh radius/*.sh
-      - run: python3 tests/config_checks.py
-      - run: python3 tests/ui_structure_checks.py
-      - run: python3 tests/noc_ui_structure_checks.py
-      - run: node --check src/RadiusManager.Api/wwwroot/app.mjs
-      - run: node --check src/RadiusManager.Api/wwwroot/ultra-features.mjs
-      - run: python3 tests/ultra_ui_structure_checks.py
-      - run: python3 tests/nas_draft_structure_checks.py
-      - run: node --check src/RadiusManager.Api/wwwroot/nas-drafts.mjs
-      - run: node --check src/RadiusManager.Api/wwwroot/noc-ui.mjs
-      - run: node --check src/RadiusManager.Api/wwwroot/noc-utils.mjs
+      - run: bash scripts/ci-config-checks.sh
   compose-integration:
     needs: [dotnet-tests, config-tests]
     runs-on: ubuntu-latest
@@ -49,6 +40,7 @@ jobs:
           done
           docker compose logs --no-color
           exit 1
+      - run: bash scripts/api-contract-smoke.sh
       - run: bash scripts/smoke-test.sh
       - run: bash scripts/lab-account-smoke.sh
       - run: bash scripts/accounting-smoke.sh
