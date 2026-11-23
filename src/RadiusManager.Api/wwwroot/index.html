@@ -1,12 +1,13 @@
 <!doctype html>
-<html lang="ar" dir="rtl">
+<html lang="ar" dir="rtl" class="noc-dark">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="color-scheme" content="light">
-  <title>لوحة إدارة RADIUS المحلي — المختبر</title>
+  <meta name="color-scheme" content="dark light">
+  <title>FreeRADIUS NOC | مركز إدارة الشبكات المحلية</title>
   <meta name="description" content="لوحة إدارة محلية تجريبية لباقات MikroTik وكروت المختبر ومراجعة سجلات المحاسبة">
   <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="noc.css">
 </head>
 <body>
   <svg class="icon-defs" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
@@ -31,6 +32,11 @@
     <symbol id="i-activity" viewBox="0 0 24 24"><path d="M2 12h4l3-8 6 16 3-8h4"/></symbol>
     <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v6l4 2"/></symbol>
     <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-10h.01"/></symbol>
+
+    <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20.2 16.5A8.5 8.5 0 0 1 7.5 3.8 8.5 8.5 0 1 0 20.2 16.5Z"/></symbol>
+    <symbol id="i-bell" viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 8-3 9h18c0-1-3-2-3-9M10 21h4"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12m-5-5 5 5 5-5M4 17v4h16v-4"/></symbol>
+    <symbol id="i-collapse" viewBox="0 0 24 24"><path d="M8 4 2 12l6 8M15 4 9 12l6 8M20 4v16"/></symbol>
   </svg>
 
   <div id="loginPanel" class="login-shell">
@@ -57,18 +63,21 @@
 
   <div id="dashboard" class="app-shell" hidden>
     <aside class="sidebar" id="sidebar" aria-label="القائمة الرئيسية">
-      <div class="brand"><span class="brand-mark"><svg class="ico"><use href="#i-network"/></svg></span><div><strong>RADIUS</strong><small>لوحة الإدارة المحلية</small></div></div>
+      <div class="brand"><span class="brand-mark"><svg class="ico"><use href="#i-network"/></svg></span><div><strong>FreeRADIUS NOC</strong><small>مركز عمليات الشبكات • مختبر</small></div></div>
+      <button type="button" id="sidebarCollapse" class="sidebar-collapse" aria-label="طي أو توسيع القائمة الجانبية" aria-expanded="true" title="طي القائمة">
+        <svg class="ico"><use href="#i-collapse"/></svg><span>طي القائمة الجانبية</span>
+      </button>
       <div class="sidebar-section-label">مساحة العمل</div>
       <nav class="nav-items" aria-label="التنقل">
-        <button type="button" class="nav-item is-active" data-view="overview" aria-current="page"><svg class="ico"><use href="#i-grid"/></svg> الرئيسية <svg class="ico nav-chevron"><use href="#i-chevron"/></svg></button>
-        <button type="button" class="nav-item" data-view="plans"><svg class="ico"><use href="#i-layers"/></svg> إدارة الباقات</button>
-        <button type="button" class="nav-item" data-view="vouchers"><svg class="ico"><use href="#i-ticket"/></svg> كروت المختبر</button>
-        <button type="button" class="nav-item" data-view="accounting"><svg class="ico"><use href="#i-chart"/></svg> مراجعة الاستهلاك</button>
+        <button type="button" class="nav-item is-active" data-view="overview" aria-label="الرئيسية" aria-current="page"><svg class="ico"><use href="#i-grid"/></svg> الرئيسية <svg class="ico nav-chevron"><use href="#i-chevron"/></svg></button>
+        <button type="button" class="nav-item" data-view="plans" aria-label="إدارة الباقات"><svg class="ico"><use href="#i-layers"/></svg> إدارة الباقات</button>
+        <button type="button" class="nav-item" data-view="vouchers" aria-label="كروت المختبر"><svg class="ico"><use href="#i-ticket"/></svg> كروت المختبر</button>
+        <button type="button" class="nav-item" data-view="accounting" aria-label="مراجعة الاستهلاك"><svg class="ico"><use href="#i-chart"/></svg> مراجعة الاستهلاك</button>
       </nav>
       <div class="sidebar-section-label">قيد التطوير</div>
       <nav class="nav-items" aria-label="المراحل القادمة">
-        <button type="button" class="nav-item" data-view="networks"><svg class="ico"><use href="#i-wifi"/></svg> الشبكات وNAS <span class="nav-coming">قريبا</span></button>
-        <button type="button" class="nav-item" data-view="roadmap"><svg class="ico"><use href="#i-settings"/></svg> الرصيد الموحد <span class="nav-coming">قريبا</span></button>
+        <button type="button" class="nav-item" data-view="networks" aria-label="الشبكات وNAS"><svg class="ico"><use href="#i-wifi"/></svg> الشبكات وNAS <span class="nav-coming">قريبا</span></button>
+        <button type="button" class="nav-item" data-view="roadmap" aria-label="الرصيد الموحد"><svg class="ico"><use href="#i-settings"/></svg> الرصيد الموحد <span class="nav-coming">قريبا</span></button>
       </nav>
       <div class="sidebar-bottom"><div class="environment"><span class="env-dot"></span><div><strong>بيئة المختبر</strong><small>لا تربط شبكة الإنتاج</small></div></div><button class="side-logout" id="logout" type="button"><svg class="ico"><use href="#i-log-out"/></svg> تسجيل الخروج</button></div>
     </aside>
@@ -76,20 +85,45 @@
     <div class="workspace">
       <header class="topbar">
         <button type="button" id="menuToggle" class="icon-button mobile-menu" aria-label="فتح القائمة" aria-expanded="false" aria-controls="sidebar"><svg class="ico"><use href="#i-menu"/></svg></button>
-        <div class="breadcrumbs"><span>إدارة الشبكة</span><svg class="ico"><use href="#i-chevron"/></svg><strong id="breadcrumbCurrent">الرئيسية</strong></div>
-        <div class="top-actions"><span class="top-chip"><span class="mini-led"></span> معمل 3A</span><button type="button" id="refreshAll" class="btn subtle" title="إعادة تحميل بيانات الخادم"><svg class="ico"><use href="#i-refresh"/></svg><span>تحديث البيانات</span></button><div class="avatar" aria-label="حساب المسؤول">A</div></div>
+        <div class="breadcrumbs"><span>NOC / إدارة الشبكة</span><svg class="ico"><use href="#i-chevron"/></svg><strong id="breadcrumbCurrent">الرئيسية</strong></div>
+
+        <div class="noc-global-search">
+          <label class="sr-only" for="nocQuickSearch">البحث السريع عن كرت أو باقة</label>
+          <svg class="ico" aria-hidden="true"><use href="#i-search"/></svg>
+          <input id="nocQuickSearch" type="search" autocomplete="off" placeholder="بحث كرت أو باقة..." aria-controls="nocSearchResults" aria-expanded="false">
+          <kbd>Ctrl K</kbd>
+          <div id="nocSearchResults" class="noc-search-results" hidden role="listbox" aria-label="نتائج البحث السريع"></div>
+        </div>
+        <div class="top-actions"><span id="nocTopStatus" class="top-chip"><span class="mini-led"></span><span id="nocTopStatusText">مختبر • الحالة غير مفحوصة</span></span>
+        <button id="nocActivityToggle" type="button" class="icon-button noc-top-icon" aria-label="سجل عمليات الجلسة" aria-controls="nocActivityDrawer" aria-expanded="false" title="سجل العمليات"><svg class="ico"><use href="#i-bell"/></svg><span id="nocActivityCount" class="noc-activity-count" hidden>0</span></button>
+        <button id="nocThemeToggle" type="button" class="icon-button noc-top-icon" aria-label="تغيير المظهر الليلي أو النهاري" aria-pressed="true" title="تبديل الوضع الليلي"><svg class="ico"><use href="#i-moon"/></svg></button><button type="button" id="refreshAll" class="btn subtle" title="إعادة تحميل بيانات الخادم"><svg class="ico"><use href="#i-refresh"/></svg><span>تحديث البيانات</span></button><div class="avatar" aria-label="حساب المسؤول">A</div></div>
       </header>
       <main class="content">
         <div id="globalWarning" class="status-banner" role="status"><svg class="ico"><use href="#i-alert"/></svg><div><strong>وضع الاختبار فقط</strong><p>السرعات والمصادقة وسجلات الاستهلاك التجريبية متاحة. خصم الرصيد والصلاحية ومنع الاتصال المتزامن لم يتم تفعيلها بعد. لا تستخدم كروت فعلية.</p></div></div>
         <div id="pageError" class="page-error" role="alert" hidden></div>
 
         <section class="view" id="view-overview" data-page="overview">
-          <div class="page-heading"><div><span class="eyebrow">نظرة عامة</span><h1>لوحة التحكم الرئيسية</h1><p>ملخص حي للبيانات الموجودة في السيرفر المحلي، وليس لعدد المتصلين الفعلي.</p></div><button type="button" class="btn primary" data-goto="plans" data-focus="planName"><svg class="ico"><use href="#i-plus"/></svg> باقة جديدة</button></div>
+          <div class="page-heading"><div><span class="eyebrow">نظرة عامة</span><h1>مركز عمليات الشبكة والريديس</h1><p>إحصائيات موثقة من قاعدة بيانات المختبر، دون تخمين حالة الراوترات أو الجلسات الحية.</p></div><button type="button" class="btn primary" data-goto="plans" data-focus="planName"><svg class="ico"><use href="#i-plus"/></svg> باقة جديدة</button></div>
           <div class="kpi-grid">
             <article class="kpi-card"><span class="kpi-icon blue"><svg class="ico"><use href="#i-layers"/></svg></span><span class="kpi-label">الباقات المسجلة</span><strong id="statPlans">—</strong><small>من قاعدة البيانات</small></article>
             <article class="kpi-card"><span class="kpi-icon purple"><svg class="ico"><use href="#i-ticket"/></svg></span><span class="kpi-label">حسابات المختبر</span><strong id="statUsers">—</strong><small>الإجمالي من الخادم</small></article>
             <article class="kpi-card"><span class="kpi-icon teal"><svg class="ico"><use href="#i-check"/></svg></span><span class="kpi-label">كروت مفعلة في القائمة</span><strong id="statActive">—</strong><small>من أول 100 كرت معروض</small></article>
-            <article class="kpi-card"><span class="kpi-icon amber"><svg class="ico"><use href="#i-shield"/></svg></span><span class="kpi-label">سلامة الاتصال بالواجهة</span><strong id="statHealth" class="health-metric">—</strong><small>نتيجة آخر طلب بيانات</small></article>
+            <article class="kpi-card"><span class="kpi-icon amber"><svg class="ico"><use href="#i-shield"/></svg></span><span class="kpi-label">سلامة الاتصال بالواجهة</span><strong id="statHealth" class="health-metric">—</strong><small>نتيجة آخر طلب بيانات موثق</small></article>
+          </div>
+
+          <div class="noc-insights-grid">
+            <section class="surface-card noc-usage-card" aria-labelledby="nocMixTitle">
+              <div class="section-title"><div><span class="eyebrow">توزيع فعلي للبيانات المحملة</span><h2 id="nocMixTitle">كروت المختبر حسب الباقة</h2><p class="section-note">التوزيع من أول 100 كرت مسترجع فقط، وليس إحصاء لجميع المشتركين.</p></div></div>
+              <div id="nocPackageBars" class="noc-package-bars" aria-live="polite"><p class="section-note">سيتوفر التوزيع بعد قراءة بيانات الخادم.</p></div>
+            </section>
+            <section class="surface-card noc-services-card" aria-labelledby="nocServicesTitle">
+              <div class="section-title"><div><span class="eyebrow">حالة الخدمات • دون بيانات افتراضية</span><h2 id="nocServicesTitle">مراقبة التكامل</h2></div></div>
+              <div class="noc-service-row"><span><i class="noc-led" id="nocApiLed"></i> واجهة API وقاعدة PostgreSQL</span><strong id="nocApiState">لم تُفحص بعد</strong></div>
+              <div class="noc-service-row"><span><i class="noc-led unknown"></i> محرك FreeRADIUS</span><strong>غير مفحوص من الواجهة</strong></div>
+              <div class="noc-service-row"><span><i class="noc-led unknown"></i> راوترات NAS / CoA</span><strong>غير مفعلة بعد</strong></div>
+              <p class="section-note noc-last-sync" id="nocLastSync">آخر استعلام ناجح: لم يحدث بعد</p>
+              <div class="info-hint"><svg class="ico"><use href="#i-info"/></svg> الحالة «متصل» تعني نجاح طلبات الإدارة وقاعدة البيانات فقط، ولا تعني اتصال أجهزة MikroTik.</div>
+            </section>
           </div>
           <div class="overview-grid">
             <section class="surface-card quick-actions"><div class="section-title"><div><span class="eyebrow">اختصارات</span><h2>إجراءات سريعة</h2></div></div>
@@ -117,7 +151,7 @@
                 <div class="form-actions"><button id="savePlan" class="btn primary" type="submit">حفظ الباقة</button><button id="cancelEdit" class="btn subtle" type="button" hidden>إلغاء التعديل</button></div><p id="planError" class="form-error" role="alert" aria-live="polite"></p>
               </form></section>
             <section class="surface-card"><div class="section-title"><div><span class="eyebrow">السجلات</span><h2>الباقات المحفوظة</h2><p class="section-note">أول 100 باقة حسب تاريخ الإنشاء</p></div></div>
-              <div class="filter-toolbar"><label class="search-field"><svg class="ico"><use href="#i-search"/></svg><input id="planSearch" type="search" placeholder="ابحث باسم الباقة..." aria-label="ابحث باسم الباقة"></label><button id="refresh" type="button" class="btn subtle icon-only" title="تحديث الباقات" aria-label="تحديث الباقات"><svg class="ico"><use href="#i-refresh"/></svg></button></div>
+              <div class="filter-toolbar"><label class="search-field"><svg class="ico"><use href="#i-search"/></svg><input id="planSearch" type="search" placeholder="ابحث باسم الباقة..." aria-label="ابحث باسم الباقة"></label><button id="nocExportPlans" type="button" class="btn subtle noc-export-btn" title="تصدير الباقات المعروضة فقط"><svg class="ico"><use href="#i-download"/></svg>CSV</button><button id="refresh" type="button" class="btn subtle icon-only" title="تحديث الباقات" aria-label="تحديث الباقات"><svg class="ico"><use href="#i-refresh"/></svg></button></div>
               <div class="table-wrap"><table><thead><tr><th>الباقة</th><th>التنزيل</th><th>الرفع</th><th>الحالة</th><th>الإجراء</th></tr></thead><tbody id="plansList"><tr><td colspan="5">لا توجد بيانات محملة</td></tr></tbody></table></div><p id="planCount" class="table-caption"></p>
             </section></div>
         </section>
@@ -130,7 +164,7 @@
               <p id="labError" class="form-error" role="alert" aria-live="polite"></p><pre id="labCredentials" class="credentials" hidden aria-live="polite"></pre>
               <div class="info-hint warn"><svg class="ico"><use href="#i-alert"/></svg> تعطيل الكرت يمنع الدخول الجديد فقط. لا يقطع اتصال جلسة بدأت سابقا.</div>
             </section><section class="surface-card"><div class="section-title"><div><span class="eyebrow">قائمة الكروت</span><h2>الحسابات المسجلة</h2><p class="section-note">أول 100 كرت حسب تاريخ الإنشاء</p></div></div>
-              <div class="filter-toolbar"><label class="search-field"><svg class="ico"><use href="#i-search"/></svg><input id="labSearch" type="search" placeholder="ابحث برقم الكرت أو الباقة..." aria-label="البحث في الكروت"></label><select id="labFilter" class="filter-select" aria-label="تصفية الكروت"><option value="all">جميع الحالات</option><option value="active">المفعلة</option><option value="disabled">الموقوفة</option></select></div>
+              <div class="filter-toolbar"><label class="search-field"><svg class="ico"><use href="#i-search"/></svg><input id="labSearch" type="search" placeholder="ابحث برقم الكرت أو الباقة..." aria-label="البحث في الكروت"></label><select id="labFilter" class="filter-select" aria-label="تصفية الكروت"><option value="all">جميع الحالات</option><option value="active">المفعلة</option><option value="disabled">الموقوفة</option></select><button id="nocExportAccounts" type="button" class="btn subtle noc-export-btn" title="تصدير الكروت المعروضة بدون كلمات المرور"><svg class="ico"><use href="#i-download"/></svg>CSV</button></div>
               <div class="table-wrap"><table><thead><tr><th>رقم الكرت</th><th>الباقة</th><th>الحالة</th><th>الإجراءات</th></tr></thead><tbody id="labList"><tr><td colspan="4">لا توجد بيانات محملة</td></tr></tbody></table></div><p id="labCount" class="table-caption"></p>
             </section></div>
         </section>
@@ -149,6 +183,13 @@
       </main>
     </div>
   </div>
+
+  <div id="nocDrawerBackdrop" class="noc-drawer-backdrop" hidden></div>
+  <aside id="nocActivityDrawer" class="noc-activity-drawer" role="dialog" aria-label="سجل العمليات الحالية" aria-modal="true" hidden>
+    <div class="noc-drawer-heading"><div><span class="eyebrow">عمليات الواجهة الحالية فقط</span><h2>سجل العمليات</h2></div><button id="nocActivityClose" type="button" class="icon-button" aria-label="إغلاق السجل"><svg class="ico"><use href="#i-x"/></svg></button></div>
+    <p class="section-note">لا تعرض هذه القائمة إشعارات خادم أو حوادث شبكة؛ إنها عمليات هذه الجلسة ولا تُحفظ بعد تسجيل الخروج.</p>
+    <div id="nocActivityList" class="noc-activity-list"><div class="noc-empty-activity">لا توجد عمليات مسجلة في هذه الجلسة.</div></div>
+  </aside>
   <div class="toast-layer" id="toastLayer" aria-live="polite" aria-atomic="true"></div>
   <script type="module" src="app.mjs"></script>
 </body>
