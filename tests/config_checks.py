@@ -47,6 +47,11 @@ class ProjectConfigTests(unittest.TestCase):
         self.assertIn('initial schema init skipped.',script)
         self.assertIn('./database/002_lab_accounts.sql', (ROOT/'compose.yaml').read_text())
 
+    def test_lab_smoke_sends_valid_json_body(self):
+        script=(ROOT/'scripts/lab-account-smoke.sh').read_text()
+        self.assertIn('payload=$(printf', script)
+        self.assertIn('-d "$payload" "$API/lab-accounts"',script)
+
     def test_lab_endpoints_are_only_for_generated_users(self):
         routes=(ROOT/'src/RadiusManager.Api/LabAccountEndpoints.cs').read_text()
         self.assertIn('RequireRateLimiting("admin")',routes)
