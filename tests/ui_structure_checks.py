@@ -36,7 +36,7 @@ class UiStructureChecks(unittest.TestCase):
         self.assertFalse(used-set(self.page.ids),f'Missing IDs: {used-set(self.page.ids)}')
     def test_secure_shell_never_loads_external_assets(self):
         self.assertEqual(self.page.external,[])
-        self.assertEqual([s.get('src') for s in self.page.scripts],['app.mjs'])
+        self.assertEqual([s.get('src') for s in self.page.scripts],['app.mjs','modern/noc-react.mjs'])
         self.assertFalse(any(any(key.lower().startswith('on') for key in attrs) for _,attrs in self.page.attrs))
     def test_required_views_and_real_form_identifiers(self):
         for key in ['view-overview','view-plans','view-vouchers','view-accounting','view-networks','view-roadmap','loginPanel','dashboard','planForm','labForm','usageReport','usageAccount','planSearch','labFilter']:
