@@ -104,8 +104,16 @@ wait "$second"
 assert_count "$db_two" "SELECT count(*) FROM app_schema_migrations" 4
 assert_count "$db_two" "SELECT count(*) FROM app_schema_migrations WHERE filename LIKE '00%.sql'" 4
 
-# 4. Partial legacy objects must prevent even creating the ledger.
+# 4. Verification-only mode cannot initialize schema or a migration ledger.
 setup_database "$db_partial"
+if docker compose run --rm --no-deps -e MIGRATION_DB_NAME="$db_partial" \
+     -e LAB_MIGRATION_TEST_MODE=isolated-ci --entrypoint python3 \
+     schema-init /opt/radius/migrate.py --verify-only >"$tmp/verify-empty.log" 2>&1; then
+  echo "Verify-only unexpectedly created a baseline" >&2; exit 1;
+fi
+assert_count "$db_partial" "SELECT count(*) FROM pg_catalog.pg_tables WHERE schemaname='public' AND tablename='app_schema_migrations'" 0
+
+# 5. Partial legacy objects must prevent even creating the ledger.
 docker compose exec -T db psql -X -v ON_ERROR_STOP=1 -U radius -d "$db_partial" \
   -c 'CREATE TABLE app_nas_drafts (id uuid PRIMARY KEY)' >/dev/null
 if run_migration "$db_partial" >"$tmp/partial.log" 2>&1; then
