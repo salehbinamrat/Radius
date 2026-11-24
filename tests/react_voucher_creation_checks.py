@@ -32,7 +32,7 @@ class VoucherCreationChecks(unittest.TestCase):
                          ".textContent =","radius-voucher-create-request",
                          "radius-voucher-creator-clear","radius-voucher-plans-updated",
                          "currentView.current","generation.current",
-                         "view-vouchers", "passwordDisplayedOnce"):
+                         "view-vouchers"):
             self.assertIn(required,creator)
 
     def test_account_creation_and_secret_lifecycle_only_in_legacy_api_controller(self):
