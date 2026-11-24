@@ -1,6 +1,6 @@
 # CI remediation candidate only; not an approved deployment image.
 # Preserve the PostgreSQL major/minor version and upstream entrypoint.
-FROM postgres:16.16-alpine3.24@sha256:f2f98726820d0342055351c6e9d36e705f5bfffb3dd53ff556325114b08afb6d
+FROM postgres:16.16-alpine3.24@sha256:f2f98726820d0342055351c6e9d36e705f5bfffb3dd53ff556325114b08afb6d AS remediated
 # CVE-2026-86144: Alpine v3.24 security fix, official signed APK repository.
 # apk info -v PACKAGE prints human-readable fields; use the package manager's
 # version-aware installed-status query instead of matching its display text.
@@ -20,7 +20,9 @@ RUN set -eu; \
     apk add --no-cache 'su-exec=0.3-r0'; \
     apk info --exists 'su-exec=0.3-r0'; \
     test -x /sbin/su-exec; \
-    rm -f /usr/local/bin/gosu /usr/local/bin/su-exec; \
+    rm -f /usr/local/bin/gosu /usr/local/bin/su-exec
+# Ensure deletion is recorded separately from the new symlink.
+RUN set -eu; \
     ln -s /sbin/su-exec /usr/local/bin/gosu; \
     ln -s /sbin/su-exec /usr/local/bin/su-exec; \
     test "$(id -u postgres)" != 0; \
@@ -33,3 +35,29 @@ RUN set -eu; \
     test ! -u /sbin/su-exec; \
     test ! -g /sbin/su-exec; \
     gosu postgres postgres --version
+
+# Rebuild the final image without the old binary's distributed layers.
+# Keep the entire patched filesystem, including the APK package database.
+FROM scratch
+COPY --from=remediated / /
+ENV PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+    LANG=en_US.utf8 \
+    PG_MAJOR=16 \
+    PG_VERSION=16.16 \
+    PG_SHA256=9d5cd8633043b75740d5d59749c6b7365e6aeb53c47098b1a5e80bb18f87881a \
+    DOCKER_PG_LLVM_DEPS="llvm21-dev clang21" \
+    PGDATA=/var/lib/postgresql/data
+RUN set -eu; \
+    test -x /usr/local/bin/docker-entrypoint.sh; \
+    test "$(readlink /usr/local/bin/gosu)" = /sbin/su-exec; \
+    test "$(readlink /usr/local/bin/su-exec)" = /sbin/su-exec; \
+    test "$(gosu postgres id -u)" = "$(id -u postgres)"; \
+    test "$(gosu postgres id -g)" = "$(id -g postgres)"; \
+    apk info --exists 'libxml2=2.13.9-r3' 'su-exec=0.3-r0'; \
+    test -d "$PGDATA"; \
+    postgres --version
+VOLUME ["/var/lib/postgresql/data"]
+ENTRYPOINT ["docker-entrypoint.sh"]
+STOPSIGNAL SIGINT
+EXPOSE 5432
+CMD ["postgres"]

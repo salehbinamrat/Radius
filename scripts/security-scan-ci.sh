@@ -72,6 +72,35 @@ candidate_id=$(cat "$tmp/alpine-image-id")
 candidate_id=$(docker image inspect --format '{{.Id}}' "$candidate_id")
 [[ "$candidate_id" =~ ^sha256:[a-f0-9]{64}$ ]] || exit 1
 printf '%s %s\n' candidate-alpine "$candidate_id" >> "$reports/image-identities.txt"
+# Confirm the final image does not distribute the vulnerable old layer.
+docker image inspect "$candidate_id" > "$tmp/alpine-inspect.json"
+python3 - "$tmp/alpine-inspect.json" <<'PY'
+import json
+import sys
+with open(sys.argv[1]) as f:
+    image = json.load(f)[0]
+layers = image["RootFS"]["Layers"]
+forbidden_layer = "sha256:313cac38511bcff0f059dfb294ab2fb1f9d2b23488e152ec139ba8d7b3b0f47f"
+if not layers or forbidden_layer in layers:
+    raise SystemExit("vulnerable image layer retained or missing filesystem")
+if len(layers) > 2:
+    raise SystemExit("Unexpected inherited image layers")
+config = image["Config"]
+expected = {"Entrypoint": ["docker-entrypoint.sh"], "Cmd": ["postgres"], "StopSignal": "SIGINT"}
+for field, value in expected.items():
+    if config.get(field) != value:
+        raise SystemExit("PostgreSQL image metadata mismatch: " + field)
+if "/var/lib/postgresql/data" not in (config.get("Volumes") or {}):
+    raise SystemExit("Missing PostgreSQL data volume metadata")
+if "5432/tcp" not in (config.get("ExposedPorts") or {}):
+    raise SystemExit("Missing PostgreSQL port metadata")
+env = dict(item.split("=", 1) for item in config["Env"])
+for name, value in {"PG_MAJOR": "16", "PG_VERSION": "16.16",
+                    "PGDATA": "/var/lib/postgresql/data"}.items():
+    if env.get(name) != value:
+        raise SystemExit("PostgreSQL environment mismatch: " + name)
+print("Clean PostgreSQL candidate image layers and runtime metadata PASS")
+PY
 "$scanner" image --image-src docker --format cyclonedx --output "$reports/candidate-alpine.cdx.json" "$candidate_id"
 if "$scanner" image --image-src docker --scanners vuln --severity HIGH,CRITICAL \
     --exit-code 1 --exit-on-eol 1 --format json \
@@ -101,6 +130,7 @@ for name in ("api", "radius", "db", "candidate-db", "candidate-alpine"):
             print(name, vuln.get("VulnerabilityID"), vuln.get("PkgName"),
                   vuln.get("InstalledVersion"), vuln.get("Severity"),
                   "fixed-version:", vuln.get("FixedVersion") or "not-reported",
-                  "status:", vuln.get("Status") or "unknown")
+                  "status:", vuln.get("Status") or "unknown",
+                  "target:", result.get("Target") or "unknown")
 PY
 exit "$failed"
