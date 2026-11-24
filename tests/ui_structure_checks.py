@@ -39,8 +39,11 @@ class UiStructureChecks(unittest.TestCase):
         self.assertEqual([s.get('src') for s in self.page.scripts],['app.mjs','modern/noc-react.mjs'])
         self.assertFalse(any(any(key.lower().startswith('on') for key in attrs) for _,attrs in self.page.attrs))
     def test_required_views_and_real_form_identifiers(self):
-        for key in ['view-overview','view-plans','view-vouchers','view-accounting','view-networks','view-roadmap','loginPanel','dashboard','planForm','labForm','usageReport','usageAccount','planSearch','labFilter']:
+        for key in ['view-overview','view-plans','view-vouchers','view-accounting','view-networks','view-roadmap','loginPanel','dashboard','reactPlanEditor','reactPlansTable','labForm','usageReport','usageAccount','planSearch','labFilter']:
             self.assertIn(key,self.page.ids)
+        react=(ROOT/'src/RadiusManager.Api/frontend/src/PlanManagement.tsx').read_text(encoding='utf-8')
+        for key in ['planForm','planName','planDown','planUp','planQuota','planDays']:
+            self.assertIn('id="'+key+'"',react)
         self.assertIn('data-view="overview"',HTML)
         self.assertIn('data-view="accounting"',HTML)
     def test_no_mock_data_or_stored_admin_password_in_production(self):
