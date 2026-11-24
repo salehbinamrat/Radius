@@ -48,7 +48,7 @@ chmod 644 "$tmp/tls/server.pfx" "$tmp/tls/server.crt"
 chmod 600 "$tmp/tls/server.key" "$tmp/pfx-password"
 
 docker compose -p "$project" -f "$compose_file" config --quiet
-docker compose -p "$project" -f "$compose_file" up -d --wait
+docker compose -p "$project" -f "$compose_file" up -d
 url="https://localhost:18443"
 https() {
   curl --silent --show-error --cacert "$tmp/tls/server.crt" \
