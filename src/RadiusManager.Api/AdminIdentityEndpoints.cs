@@ -16,6 +16,14 @@ public static class AdminIdentityEndpoints
 {
     public static IEndpointRouteBuilder MapAdminIdentityEndpoints(this IEndpointRouteBuilder app, bool identityEnabled)
     {
+        // Only a harmless mode label is public: no account, role or session data.
+        // Never suggest Basic fallback over HTTP when server requires HTTPS.
+        app.MapGet("/api/admin/auth/mode", (HttpContext ctx) =>
+        {
+            if (identityEnabled && !ctx.Request.IsHttps) return Results.StatusCode(403);
+            return Results.Ok(new { mode = identityEnabled ? "session" : "basic" });
+        });
+
         app.MapGet("/api/admin/auth/csrf", (HttpContext ctx, IAntiforgery csrf) =>
         {
             if (!identityEnabled) return Results.NotFound();
