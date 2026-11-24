@@ -21,7 +21,7 @@ test('empty/unknown values do not fabricate plan counts or leak plan records', (
   assert.deepEqual(buildPlanViewSnapshot(null,''),{loadedCount:0,visibleCount:0,visible:[],scope:'first-100-loaded'});
   const accounts=Array.from({length:110},(_,i)=>({
     id:'id-'+i,name:'Plan'+i,downloadKbps:1024,uploadKbps:256,
-    active:true,quotaBytes:null,validityDays:null,secret:'never'},
+    active:true,quotaBytes:null,validityDays:null,secret:'never'
   }));
   const result=buildPlanViewSnapshot(accounts,'');
   assert.equal(result.loadedCount,100);
