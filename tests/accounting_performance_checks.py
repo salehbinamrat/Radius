@@ -21,5 +21,18 @@ class AccountingPerformanceChecks(unittest.TestCase):
             self.assertIn(marker,source)
         self.assertNotIn("enable_seqscan",source)
 
+    def test_concurrent_write_benchmark_preserves_correctness(self):
+        source=(ROOT/"tests/accounting_query_performance.py").read_text()
+        for marker in ("ThreadPoolExecutor(max_workers=6)","threading.Barrier(6",
+                       "ids[number*250:(number+1)*250]","range(100)",
+                       "conn.commit()","p95_ms","PERF CONCURRENT",
+                       "assert cur.fetchone()==(1000,1000)",
+                       "assert baseline[:4]==candidate[:4]",
+                       "Foreign session escaped","lock_timeout=5000",
+                       "compare_concurrent_writes(conn,db,query)"):
+            self.assertIn(marker,source)
+        self.assertLess(source.index('concurrent_workload(db,query,ids,"baseline")'),
+                        source.index('concurrent_workload(db,query,ids,"candidate")'))
+
 if __name__=="__main__":
     unittest.main()

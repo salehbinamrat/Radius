@@ -4,6 +4,10 @@ import os
 import re
 import statistics
 import sys
+import math
+import time
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import psycopg2
@@ -78,6 +82,116 @@ def sample(cur,query,params,label,phase):
     print("PERF "+json.dumps(metric,sort_keys=True),flush=True)
     return rows
 
+def connect(db):
+    return psycopg2.connect(host="db",dbname=db,user="radius",
+                            password=load_hex("DB_PASSWORD"),connect_timeout=5,
+                            options="-c statement_timeout=30000 -c lock_timeout=5000")
+
+def concurrent_workload(db, query, ids, phase):
+    # Disjoint sessions avoid an artificial conflict between writers.
+    # Each transaction commits one cumulative accounting snapshot. Readers
+    # use the real API query and must never see an unregistered account.
+    barrier=threading.Barrier(6,timeout=20)
+    def worker(number):
+        conn=connect(db)
+        timings=[]
+        try:
+            with conn.cursor() as cur:
+                barrier.wait()
+                if number<4:
+                    for ident in ids[number*250:(number+1)*250]:
+                        start=time.perf_counter()
+                        cur.execute("""
+                            UPDATE radacct SET acctinputoctets=radacctid*100+1,
+                                acctoutputoctets=radacctid*100+2,
+                                acctupdatetime=acctstarttime+interval '2 minutes'
+                            WHERE radacctid=%s AND acctstoptime IS NULL
+                            """,(ident,))
+                        assert cur.rowcount==1,"Unexpected accounting update count"
+                        conn.commit()
+                        timings.append((time.perf_counter()-start)*1000)
+                else:
+                    for _ in range(100):
+                        start=time.perf_counter()
+                        cur.execute(query,{"user":"","state":"open"})
+                        rows=cur.fetchall()
+                        assert len(rows)==101,"Session result limit changed"
+                        assert all(int(row[0][4:],16)<1000 for row in rows),"Foreign session escaped"
+                        conn.commit()
+                        timings.append((time.perf_counter()-start)*1000)
+            return timings
+        finally:
+            conn.close()
+    started=time.perf_counter()
+    with ThreadPoolExecutor(max_workers=6) as executor:
+        jobs=[executor.submit(worker,n) for n in range(6)]
+        samples=[job.result() for job in jobs]
+    duration=time.perf_counter()-started
+    for kind, values in (("write",sum(samples[:4],[])),("read",sum(samples[4:],[]))):
+        values.sort()
+        assert len(values)==(1000 if kind=="write" else 200)
+        print("PERF CONCURRENT "+json.dumps({
+            "phase":phase,"kind":kind,"operations":len(values),
+            "median_ms":round(statistics.median(values),4),
+            "p95_ms":round(values[math.ceil(len(values)*.95)-1],4),
+            "max_ms":round(values[-1],4),
+            "workload_seconds":round(duration,4)
+        },sort_keys=True),flush=True)
+
+def compare_concurrent_writes(conn,db,query):
+    # Previous read comparison rolled back. Recreate the fixture and commit
+    # only in the disposable database so six independent connections see it.
+    with conn.cursor() as cur:
+        seed(cur)
+        cur.execute("""
+            CREATE TEMP TABLE perf_original AS
+            SELECT radacctid,acctinputoctets,acctoutputoctets,acctupdatetime
+            FROM radacct WHERE username='lab_000000000000'
+              AND acctstoptime IS NULL AND acctstarttime IS NOT NULL
+            ORDER BY radacctid LIMIT 1000
+            """)
+        cur.execute("SELECT radacctid FROM perf_original ORDER BY radacctid")
+        ids=[row[0] for row in cur.fetchall()]
+        assert len(ids)==1000
+    conn.commit()
+
+    def verify():
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT count(*),count(*) FILTER (
+                    WHERE a.acctinputoctets=a.radacctid*100+1
+                    AND a.acctoutputoctets=a.radacctid*100+2
+                    AND a.acctupdatetime=a.acctstarttime+interval '2 minutes'
+                    AND a.acctstoptime IS NULL)
+                FROM radacct a JOIN perf_original o USING(radacctid)
+                """)
+            assert cur.fetchone()==(1000,1000),"Concurrent cumulative updates differ"
+            cur.execute("SELECT count(*) FROM radacct")
+            assert cur.fetchone()==(100000,),"Session count changed"
+            cur.execute("SELECT * FROM app_lab_usage_snapshot('lab_000000000000')")
+            report=cur.fetchone()
+        conn.commit()
+        return report
+
+    concurrent_workload(db,query,ids,"baseline")
+    baseline=verify()
+    with conn.cursor() as cur:
+        cur.execute("""
+            UPDATE radacct a SET acctinputoctets=o.acctinputoctets,
+                acctoutputoctets=o.acctoutputoctets,acctupdatetime=o.acctupdatetime
+            FROM perf_original o WHERE a.radacctid=o.radacctid
+            """)
+        assert cur.rowcount==1000
+        for statement in CANDIDATES: cur.execute(statement)
+        cur.execute("ANALYZE radacct")
+    conn.commit()
+    concurrent_workload(db,query,ids,"candidate")
+    candidate=verify()
+    # Stale counts can legitimately move with the clock; compare cumulative
+    # values, session/open counts, anomalies, NAS count and last accounting.
+    assert baseline[:4]==candidate[:4] and baseline[5:]==candidate[5:], "Usage report changed"
+    print("PERF CONCURRENT exact cumulative updates and lab isolation preserved",flush=True)
+
 def main():
     if os.environ.get("CI")!="true" or os.environ.get("RADIUS_PERF_TEST_ACK")!="isolated-ci":
         raise RuntimeError("Isolated CI acknowledgement required")
@@ -115,6 +229,7 @@ def main():
         # Everything, including candidate indexes and data, is rolled back.
         conn.rollback()
         print("PERF exact query results and lab isolation preserved; no production index applied")
+        compare_concurrent_writes(conn,db,query)
     finally:
         conn.close()
 
