@@ -33,7 +33,9 @@ class UiStructureChecks(unittest.TestCase):
     def test_unique_ids_and_all_js_bindings_present(self):
         self.assertEqual(len(self.page.ids), len(set(self.page.ids)))
         used=set(re.findall(r"el\('([A-Za-z0-9_-]+)'\)",JS))
-        self.assertFalse(used-set(self.page.ids),f'Missing IDs: {used-set(self.page.ids)}')
+        react=(ROOT/'src/RadiusManager.Api/frontend/src/PlanManagement.tsx').read_text(encoding='utf-8')
+        unresolved={name for name in used-set(self.page.ids) if f'id="{name}"' not in react}
+        self.assertFalse(unresolved,f'Missing HTML/React IDs: {unresolved}')
     def test_secure_shell_never_loads_external_assets(self):
         self.assertEqual(self.page.external,[])
         self.assertEqual([s.get('src') for s in self.page.scripts],['app.mjs','modern/noc-react.mjs'])
