@@ -7,7 +7,14 @@ scanner=$(realpath "$1")
 reports=$(realpath "$2")
 umask 077
 tmp=$(mktemp -d)
-trap 'rm -rf -- "$tmp"' EXIT
+network=
+db_container=
+cleanup() {
+  if [[ -n "$db_container" ]]; then docker rm -f -v "$db_container" >/dev/null 2>&1 || true; fi
+  if [[ -n "$network" ]]; then docker network rm "$network" >/dev/null 2>&1 || true; fi
+  rm -rf -- "$tmp"
+}
+trap cleanup EXIT
 
 revision=00abf778c6c0af0320879c2b1ade9cf252a42506
 sim_fix=8e8a991c040cbb30f21f928f2b406c702e171b2e
@@ -89,9 +96,9 @@ if ! docker run --rm --network none --entrypoint /bin/sh "$image" -ec '
   test -s /opt/etc/raddb/mods-config/sql/main/postgresql/schema.sql
   driver=$(find /opt/lib -name rlm_sql_postgresql.so -print -quit)
   test -n "$driver"
-  ldd "$driver" > /tmp/driver-dependencies
-  cat /tmp/driver-dependencies
-  if grep -Eqi "not found|Error loading|Error relocating" /tmp/driver-dependencies; then exit 1; fi
+  # rlm_sql_postgresql is a plugin, not a standalone executable.
+  # Its host-provided symbols are checked by actual radiusd loading below.
+  test -s "$driver"
   psql --version
   python3 -c "import psycopg2"
   apk info -v
@@ -100,6 +107,50 @@ if ! docker run --rm --network none --entrypoint /bin/sh "$image" -ec '
   failed=1
 fi
 cat "$reports/radius-source-candidate.runtime.txt"
+# A real module load and SQL-backed authentication replace standalone ldd.
+# This database is a new anonymous volume, never the running application DB.
+if [[ "$failed" == 0 ]]; then
+  db_image=$(docker inspect --format '{{.Image}}' "$(docker compose ps -q db)")
+  [[ "$db_image" =~ ^sha256:[a-f0-9]{64}$ ]] || exit 1
+  [[ "$db_image" == "$(docker image inspect radius-postgres-local:16.16-icu --format '{{.Id}}')" ]] || exit 1
+  suffix=$(python3 -c 'import secrets; print(secrets.token_hex(8))')
+  network=$(docker network create --internal "radius-source-probe-$suffix")
+  export DB_PASSWORD=$(python3 -c 'import secrets; print(secrets.token_hex(24))')
+  export RADIUS_SECRET=$(python3 -c 'import secrets; print(secrets.token_hex(24))')
+  export POSTGRES_PASSWORD="$DB_PASSWORD"
+  db_container=$(docker run -d --network "$network" --network-alias db \
+    -e POSTGRES_USER=radius -e POSTGRES_DB=radius -e POSTGRES_PASSWORD "$db_image")
+  unset POSTGRES_PASSWORD
+  ready=0
+  for _ in $(seq 1 30); do
+    if docker exec "$db_container" pg_isready -h 127.0.0.1 -U radius -d radius >/dev/null 2>&1; then ready=1; break; fi
+    sleep 1
+  done
+  [[ "$ready" == 1 ]] || { echo 'Disposable PostgreSQL did not become ready' >&2; exit 1; }
+  docker run --rm --network none --entrypoint /bin/cat "$image" \
+    /opt/etc/raddb/mods-config/sql/main/postgresql/schema.sql |
+    docker exec -i "$db_container" psql -X -v ON_ERROR_STOP=1 -U radius -d radius >/dev/null
+  docker exec -i "$db_container" psql -X -v ON_ERROR_STOP=1 -U radius -d radius >/dev/null <<'SQL'
+INSERT INTO radcheck(username,attribute,op,value)
+VALUES ('source_probe','Cleartext-Password',':=','synthetic-source-probe-only');
+SQL
+  if ! docker run --rm --network "$network" \
+      -e DB_PASSWORD -e RADIUS_SECRET -e RADIUS_CLIENT_CIDR=192.0.2.0/24 \
+      --mount "type=bind,src=$PWD/radius,dst=/opt/radius,readonly" \
+      --mount "type=bind,src=$PWD/tests/freeradius-source-runtime.sh,dst=/opt/source-runtime.sh,readonly" \
+      --entrypoint /bin/bash "$image" /opt/source-runtime.sh \
+      > "$reports/radius-source-candidate.sql-runtime.txt" 2>&1; then
+    failed=1
+  fi
+  unset DB_PASSWORD RADIUS_SECRET
+  cat "$reports/radius-source-candidate.sql-runtime.txt"
+  if [[ "$failed" == 0 ]]; then
+    docker exec "$db_container" psql -X -qAt -v ON_ERROR_STOP=1 -U radius -d radius \
+      -c "SELECT CASE WHEN count(*) >= 1 THEN 'SQL_POSTAUTH_OK' ELSE 'SQL_POSTAUTH_MISSING' END FROM radpostauth WHERE username='source_probe' AND reply='Access-Accept'" |
+      grep -qx SQL_POSTAUTH_OK
+    echo 'Disposable PostgreSQL post-auth write PASS'
+  fi
+fi
 if [[ "$failed" != 0 ]]; then
   echo 'FreeRADIUS source candidate probe FAILED' >&2
   exit 1
