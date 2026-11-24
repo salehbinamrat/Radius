@@ -31,11 +31,17 @@ jobs:
           npm run check
           npm run build
           node --check ../wwwroot/modern/noc-react.mjs
+          if grep -Fq 'process.env.NODE_ENV' ../wwwroot/modern/noc-react.mjs; then
+            echo 'Vite library bundle retained Node process.env; browser startup unsafe' >&2
+            exit 1
+          fi
   compose-integration:
     needs: [dotnet-tests, config-tests]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '24' }
       - run: bash scripts/setup.sh
       - run: docker compose config --quiet
       - run: docker compose up -d --build
@@ -55,6 +61,11 @@ jobs:
       - run: bash scripts/accounting-smoke.sh
       - run: bash scripts/accounting-wire-smoke.sh
       - run: bash scripts/ui-smoke.sh
+      - name: 'Browser smoke: Chromium + React'
+        run: |
+          npm install --prefix tests/browser --no-audit --no-fund --ignore-scripts
+          tests/browser/node_modules/.bin/playwright install --with-deps chromium
+          tests/browser/node_modules/.bin/playwright test --config tests/browser/playwright.config.mjs
       - run: bash scripts/lab-sessions-smoke.sh
       - run: bash scripts/nas-drafts-smoke.sh
       - name: 'Versioned migrations: isolated rollback, mixed legacy and concurrent starts'
