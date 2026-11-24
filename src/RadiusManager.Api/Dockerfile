@@ -1,4 +1,4 @@
-FROM node:22-bookworm-slim AS ui-build
+FROM node:24-bookworm-slim AS ui-build
 WORKDIR /ui/frontend
 COPY frontend/package.json frontend/tsconfig.json frontend/vite.config.ts ./
 RUN npm install --no-audit --no-fund --ignore-scripts

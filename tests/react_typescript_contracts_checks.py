@@ -32,7 +32,7 @@ class ReactTypeScriptContracts(unittest.TestCase):
 
     def test_bundle_is_built_in_docker_and_covered_by_ci(self):
         dock=(API/"Dockerfile").read_text()
-        self.assertIn("node:22",dock)
+        self.assertIn("node:24-bookworm-slim",dock)
         self.assertIn("npm run check",dock)
         self.assertIn("npm run build",dock)
         self.assertIn("COPY --from=ui-build",dock)
