@@ -6,7 +6,7 @@ namespace RadiusManager.Api;
 /// <summary>Laboratory plan routes, preserving existing transactions and public API paths.</summary>
 public static class PlanEndpoints
 {
-    public static IEndpointRouteBuilder MapPlanEndpoints(this IEndpointRouteBuilder api)
+    public static IEndpointRouteBuilder MapPlanEndpoints(this IEndpointRouteBuilder api, bool sessionMode)
     {
         api.MapGet("/plans", async (NpgsqlDataSource dataSource, CancellationToken ct) =>
         {
@@ -18,7 +18,7 @@ public static class PlanEndpoints
             return Results.Ok(plans);
         });
 
-        api.MapPost("/plans", async (PlanInput input, NpgsqlDataSource dataSource, CancellationToken ct) =>
+        api.MapPost("/plans", async (PlanInput input, HttpContext ctx, NpgsqlDataSource dataSource, CancellationToken ct) =>
         {
             var validation = PlanRules.Validate(input);
             if (validation is not null) return Results.BadRequest(new { error = validation });
@@ -43,6 +43,7 @@ public static class PlanEndpoints
                     cmd.Parameters.AddWithValue("rate", PlanRules.MikroTikRate(input.UploadKbps,input.DownloadKbps));
                     await cmd.ExecuteNonQueryAsync(ct);
                 }
+                await LabMutationAudit.AppendAsync(conn, tx, ctx.User, sessionMode, LabMutation.PlanCreated, id.ToString("D"), ct);
                 await tx.CommitAsync(ct);
                 return Results.Created($"/api/plans/{id}", new { id, rate = PlanRules.MikroTikRate(input.UploadKbps,input.DownloadKbps), accountingEnforced = false });
             }
@@ -53,7 +54,7 @@ public static class PlanEndpoints
             }
         });
 
-        api.MapPut("/plans/{id:guid}", async (Guid id, PlanInput input, NpgsqlDataSource dataSource, CancellationToken ct) =>
+        api.MapPut("/plans/{id:guid}", async (Guid id, PlanInput input, HttpContext ctx, NpgsqlDataSource dataSource, CancellationToken ct) =>
         {
             var validation = PlanRules.Validate(input);
             if (validation is not null) return Results.BadRequest(new { error = validation });
@@ -82,6 +83,7 @@ public static class PlanEndpoints
                     if (await cmd.ExecuteNonQueryAsync(ct) != 1)
                         throw new DataException("RADIUS reply row missing; update rolled back.");
                 }
+                await LabMutationAudit.AppendAsync(conn, tx, ctx.User, sessionMode, LabMutation.PlanUpdated, id.ToString("D"), ct);
                 await tx.CommitAsync(ct);
                 return Results.Ok(new { id, updated = true, accountingEnforced = false });
             }

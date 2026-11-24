@@ -60,7 +60,7 @@ def main():
                                 cookies[name]=morsel.value
                 data=response.read()
                 if isinstance(expected,tuple): return response.status, None
-                return json.loads(data) if expected==200 else None
+                return json.loads(data) if expected in (200,201) else None
             finally:
                 conn.close()
         csrf=request("GET","/api/admin/auth/csrf",200)["requestToken"]
@@ -192,6 +192,46 @@ def main():
     options=admin("GET","/api/ownership/accounts",200)
     assert [row["username"] for row in options["accounts"]]==["lab_0000000000e1"]
     reseller("GET","/api/ownership/accounts",403)
+    # Six successful named administrative mutations must produce exactly six
+    # allowlisted events. Keep the created voucher disabled so it cannot affect
+    # the existing ownership browser fixture.
+    plan={"name":"CI Audit Plan","downloadKbps":1024,"uploadKbps":256}
+    plan_id=admin("POST","/api/plans",201,plan,csrf)["id"]
+    admin("PUT","/api/plans/"+plan_id,200,{**plan,"downloadKbps":2048},csrf)
+    created=admin("POST","/api/lab-accounts",201,{"planId":plan_id},csrf)
+    voucher=created["username"]
+    del created
+    admin("POST","/api/lab-accounts/"+voucher+"/disable",200,{},csrf)
+    admin("POST","/api/lab-accounts/"+voucher+"/disable",404,{},csrf)
+    draft={"name":"CI Audit Router","site":"CI Lab","vpnIp":"10.255.70.25"}
+    nas_id=admin("POST","/api/nas-drafts",201,draft,csrf)["id"]
+    admin("POST","/api/nas-drafts/"+nas_id+"/retire",200,{},csrf)
+    admin("POST","/api/nas-drafts/"+nas_id+"/retire",404,{},csrf)
+    # Inject a failure of the audit write in this disposable fixture only.
+    # A NOT VALID constraint affects new rows without changing recorded history.
+    db_cmd=["docker","compose","-p",project,"-f",compose_file,"exec","-T","db",
+            "psql","-X","-At","-v","ON_ERROR_STOP=1","-U","radius","-d","radius"]
+    def sql_check(query):
+        return subprocess.run(db_cmd,input=query,text=True,capture_output=True,check=True,timeout=20).stdout
+    sql_check("ALTER TABLE app_admin_audit_events ADD CONSTRAINT ci_reject_plan_audit CHECK (action <> 'plan_created') NOT VALID;")
+    try:
+        admin("POST","/api/plans",500,{**plan,"name":"CI Audit Rollback"},csrf)
+        assert sql_check("SELECT count(*) FROM app_plans WHERE name='CI Audit Rollback';").strip()=="0"
+    finally:
+        sql_check("ALTER TABLE app_admin_audit_events DROP CONSTRAINT ci_reject_plan_audit;")
+    assert re.fullmatch(r"[a-f0-9-]{36}",plan_id) and re.fullmatch(r"[a-f0-9-]{36}",nas_id)
+    assert re.fullmatch(r"lab_[a-f0-9]{12}",voucher)
+    audit=sql_check(f"""
+        SELECT action,subject_kind,subject_id,outcome FROM app_admin_audit_events
+        WHERE subject_id IN ('{plan_id}','{voucher}','{nas_id}')
+          AND actor_user_id IN (SELECT "UserId" FROM "AspNetUserRoles" WHERE "RoleId"='role-super-admin')
+        ORDER BY action;
+        """).splitlines()
+    assert audit==sorted([
+        f"plan_created|plan|{plan_id}|success",f"plan_updated|plan|{plan_id}|success",
+        f"voucher_created|lab_account|{voucher}|success",f"voucher_disabled|lab_account|{voucher}|success",
+        f"nas_draft_created|nas_draft|{nas_id}|success",f"nas_draft_retired|nas_draft|{nas_id}|success"])
+    print("Named administrative audit coverage and rollback on audit failure PASS")
     print("Two isolated reseller sessions: owner-only reads, forbidden writes, concurrent initial assignment and atomic audit PASS")
 
 if __name__=="__main__":

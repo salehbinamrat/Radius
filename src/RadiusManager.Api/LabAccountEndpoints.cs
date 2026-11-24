@@ -4,7 +4,7 @@ namespace RadiusManager.Api;
 
 public static class LabAccountEndpoints
 {
-    public static IEndpointRouteBuilder MapLabAccountEndpoints(this IEndpointRouteBuilder app)
+    public static IEndpointRouteBuilder MapLabAccountEndpoints(this IEndpointRouteBuilder app, bool sessionMode)
     {
         // All routes are under the existing /api Basic-auth middleware.
         var api = app.MapGroup("/api/lab-accounts").RequireRateLimiting("admin");
@@ -27,7 +27,7 @@ public static class LabAccountEndpoints
             return Results.Ok(rows);
         });
 
-        api.MapPost("", async (CreateLabAccountInput input, NpgsqlDataSource db, CancellationToken ct) =>
+        api.MapPost("", async (CreateLabAccountInput input, HttpContext ctx, NpgsqlDataSource db, CancellationToken ct) =>
         {
             if (input.PlanId == Guid.Empty)
                 return Results.BadRequest(new { error = "اختر باقة تجريبية" });
@@ -73,6 +73,7 @@ public static class LabAccountEndpoints
                     cmd.Parameters.AddWithValue("group", PlanRules.GroupName(input.PlanId));
                     await cmd.ExecuteNonQueryAsync(ct);
                 }
+                await LabMutationAudit.AppendAsync(conn, tx, ctx.User, sessionMode, LabMutation.VoucherCreated, username, ct);
                 await tx.CommitAsync(ct);
                 return Results.Created("/api/lab-accounts", new {
                     username, password, labOnly = true, passwordDisplayedOnce = true,
@@ -86,7 +87,7 @@ public static class LabAccountEndpoints
             }
         });
 
-        api.MapPost("/{username}/disable", async (string username, NpgsqlDataSource db, CancellationToken ct) =>
+        api.MapPost("/{username}/disable", async (string username, HttpContext ctx, NpgsqlDataSource db, CancellationToken ct) =>
         {
             if (!LabAccountRules.IsLabUsername(username))
                 return Results.BadRequest(new { error = "رقم الكرت التجريبي غير صالح" });
@@ -118,6 +119,7 @@ public static class LabAccountEndpoints
                 cmd.Parameters.AddWithValue("username", username);
                 await cmd.ExecuteNonQueryAsync(ct);
             }
+            await LabMutationAudit.AppendAsync(conn, tx, ctx.User, sessionMode, LabMutation.VoucherDisabled, username, ct);
             await tx.CommitAsync(ct);
             return Results.Ok(new {
                 username, disabled = true, newLoginsBlocked = true,
