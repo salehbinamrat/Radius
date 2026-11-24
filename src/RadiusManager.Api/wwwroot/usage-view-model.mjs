@@ -10,6 +10,12 @@ function displayCount(value) {
     ? number.toLocaleString('en-US') : '—';
 }
 
+function displayBytes(value) {
+  if (value === null || value === undefined || value === '' ||
+      !Number.isFinite(Number(value)) || Number(value) < 0) return '—';
+  return formatBytes(value);
+}
+
 export function buildUsageViewSnapshot(username, result) {
   if (typeof username !== 'string' || !username.trim() ||
       !result || typeof result !== 'object' || Array.isArray(result)) {
@@ -17,9 +23,9 @@ export function buildUsageViewSnapshot(username, result) {
   }
   return {
     username,
-    total: formatBytes(result.totalBytes),
-    download: formatBytes(result.downloadBytes),
-    upload: formatBytes(result.uploadBytes),
+    total: displayBytes(result.totalBytes),
+    download: displayBytes(result.downloadBytes),
+    upload: displayBytes(result.uploadBytes),
     sessions: displayCount(result.sessions),
     openSessions: displayCount(result.openSessions),
     staleSessions: displayCount(result.staleSessions),
