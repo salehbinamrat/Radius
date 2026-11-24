@@ -57,7 +57,7 @@ class LabPreflightTests(unittest.TestCase):
         perf=(ROOT/"scripts/lab-read-performance.sh").read_text()
         self.assertIn("LAB_NETWORK_PREFLIGHT_ACK",pre)
         self.assertIn("RADIUS_PERF_TEST_ACK",perf)
-        self.assertIn("http://127.0.0.1:8080/api/",perf)
+        self.assertIn('API="http://127.0.0.1:8080/api"',perf)
         self.assertIn("--netrc-file",perf)
         self.assertIn("mktemp",perf)
         self.assertIn("time_total",perf)
