@@ -111,12 +111,7 @@
 
         <section class="view" id="view-overview" data-page="overview">
           <div class="page-heading"><div><span class="eyebrow">نظرة عامة</span><h1>مركز عمليات الشبكة والريديس</h1><p>إحصائيات موثقة من قاعدة بيانات المختبر، دون تخمين حالة الراوترات أو الجلسات الحية.</p></div><button type="button" class="btn primary" data-goto="plans" data-focus="planName"><svg class="ico"><use href="#i-plus"/></svg> باقة جديدة</button></div>
-          <div class="kpi-grid">
-            <article class="kpi-card"><span class="kpi-icon blue"><svg class="ico"><use href="#i-layers"/></svg></span><span class="kpi-label">الباقات المسجلة</span><strong id="statPlans">—</strong><small>من قاعدة البيانات</small></article>
-            <article class="kpi-card"><span class="kpi-icon purple"><svg class="ico"><use href="#i-ticket"/></svg></span><span class="kpi-label">حسابات المختبر</span><strong id="statUsers">—</strong><small>الإجمالي من الخادم</small></article>
-            <article class="kpi-card"><span class="kpi-icon teal"><svg class="ico"><use href="#i-check"/></svg></span><span class="kpi-label">كروت مفعلة في القائمة</span><strong id="statActive">—</strong><small>من أول 100 كرت معروض</small></article>
-            <article class="kpi-card"><span class="kpi-icon amber"><svg class="ico"><use href="#i-shield"/></svg></span><span class="kpi-label">سلامة الاتصال بالواجهة</span><strong id="statHealth" class="health-metric">—</strong><small>نتيجة آخر طلب بيانات موثق</small></article>
-          </div>
+          <div id="reactOverviewKpis" class="kpi-grid" aria-live="polite"></div>
 
           <div class="noc-insights-grid">
             <section class="surface-card noc-usage-card" aria-labelledby="nocMixTitle">
@@ -145,7 +140,7 @@
               <div class="capability"><svg class="ico pending"><use href="#i-clock"/></svg><div><strong>الرصيد الموحد والجلسات</strong><small>لم يتم تفعيل الفوترة أو التحكم بالجلسات</small></div><span class="pill pending-pill">قيد التطوير</span></div>
             </section>
           </div>
-          <section class="surface-card compact-table"><div class="section-title"><div><span class="eyebrow">ملخص سريع</span><h2>آخر كروت المختبر</h2></div><button type="button" class="text-link" data-goto="vouchers">عرض الكل <svg class="ico"><use href="#i-chevron"/></svg></button></div><div class="table-wrap"><table><thead><tr><th>الكرت</th><th>الباقة</th><th>الحالة</th></tr></thead><tbody id="recentAccounts"><tr><td colspan="3">البيانات لم تُحمّل بعد</td></tr></tbody></table></div></section>
+          <section class="surface-card compact-table"><div class="section-title"><div><span class="eyebrow">ملخص سريع</span><h2>آخر كروت المختبر</h2></div><button type="button" class="text-link" data-goto="vouchers">عرض الكل <svg class="ico"><use href="#i-chevron"/></svg></button></div><div id="reactOverviewRecent" class="table-wrap" aria-live="polite"></div></section>
         </section>
 
         <section class="view" id="view-plans" data-page="plans" hidden>
