@@ -16,7 +16,7 @@ try:
     for label, suffix in (("primary", ""), ("contender", "_other")):
         master, slave = pty.openpty()
         cmd = ["docker", "compose", "-p", project, "-f", compose_file,
-               "run", "--rm", "--no-deps", "-it", "--entrypoint", "dotnet", "api",
+               "run", "--rm", "--no-deps", "-it", "--entrypoint", "dotnet", "admin-bootstrap",
                "RadiusManager.Api.dll", "--bootstrap-admin"]
         try:
             proc = subprocess.Popen(cmd, stdin=slave, stdout=slave, stderr=slave,

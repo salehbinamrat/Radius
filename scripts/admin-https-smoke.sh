@@ -62,10 +62,11 @@ python3 - "$RADIUS_HTTPS_SECRET_DIR" <<'PY'
 from pathlib import Path
 import secrets,sys
 root=Path(sys.argv[1])
-for name in ("runtime-db-password","runtime-user-password"):
+for name in ("runtime-db-password","runtime-user-password","api-db-password","bootstrap-db-password"):
     (root/name).write_text(secrets.token_hex(24),encoding="ascii")
 PY
 chmod 400 "$RADIUS_HTTPS_SECRET_DIR/radius-secret" "$RADIUS_HTTPS_SECRET_DIR/runtime-db-password" "$RADIUS_HTTPS_SECRET_DIR/runtime-user-password"
+chmod 444 "$RADIUS_HTTPS_SECRET_DIR/api-db-password" "$RADIUS_HTTPS_SECRET_DIR/bootstrap-db-password"
 unset RADIUS_HTTPS_PFX_PASSWORD
 # No database, Basic or PFX password should appear in the API container env.
 docker compose -p "$project" -f "$compose_file" config --format json | python3 -c '
@@ -78,12 +79,20 @@ assert "DB_PASSWORD" not in services["schema-init"]["environment"]
 assert services["schema-init"]["environment"]["DB_PASSWORD_FILE"]=="/run/radius-secrets/db-password"
 assert "Password=" not in env["ConnectionStrings__RadiusDb"]
 assert not {"RADIUS_ADMIN_PASSWORD","ASPNETCORE_Kestrel__Certificates__Default__Password","DB_PASSWORD"}.intersection(env)
-assert env["RADIUS_DB_PASSWORD_FILE"]=="/run/radius-secrets/db-password"
+assert env["RADIUS_DB_PASSWORD_FILE"]=="/run/radius-secrets/api-db-password"
+assert env["ConnectionStrings__RadiusDb"].endswith("Username=radius_api")
+assert all(v["target"] not in ("/run/radius-secrets/db-password","/run/radius-secrets/bootstrap-db-password","/run/radius-secrets/runtime-db-password")
+           for v in services["api"]["volumes"])
 assert env["RADIUS_TLS_PASSWORD_FILE"]=="/run/radius-secrets/tls-password"
 '
 
 docker compose -p "$project" -f "$compose_file" config --quiet
-docker compose -p "$project" -f "$compose_file" up -d
+# Complete schema initialization before creating the distinct login roles.
+docker compose -p "$project" -f "$compose_file" up -d db schema-init
+docker compose -p "$project" -f "$compose_file" wait schema-init
+bash scripts/api-runtime-role-smoke.sh "$project" "$compose_file"
+bash scripts/radius-runtime-role-smoke.sh "$project" "$compose_file"
+docker compose -p "$project" -f "$compose_file" up -d --no-deps api
 url="https://localhost:18443"
 https() {
   curl --silent --show-error --cacert "$tmp/tls/server.crt" \
@@ -96,8 +105,9 @@ for i in $(seq 1 45); do
   fi
   sleep 2
 done
-# Provision a distinct non-owner login in this disposable DB only.
-bash scripts/radius-runtime-role-smoke.sh "$project" "$compose_file"
+# Verify the running API really uses the restricted PostgreSQL login.
+docker compose -p "$project" -f "$compose_file" exec -T db psql -X -qAt -v ON_ERROR_STOP=1 -U radius -d radius \
+  -c "SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE datname='radius' AND usename='radius_api')" | grep -qx t
 out="$tmp/response"
 check() {
   local expected="$1"; shift
@@ -125,6 +135,13 @@ export LAB_ADMIN_PASSWORD="A!b$(python3 -c 'import secrets;print(secrets.token_u
 winner=$(python3 tests/concurrent_admin_bootstrap_smoke.py "$project" "$compose_file")
 [[ "$winner" == primary || "$winner" == contender ]]
 if [[ "$winner" == contender ]]; then export LAB_ADMIN_USER="${LAB_ADMIN_USER}_other"; fi
+# Bootstrap is finished: disable its login and require zero surviving connections.
+docker compose -p "$project" -f "$compose_file" exec -T db psql -X -qAt -v ON_ERROR_STOP=1 -U radius -d radius <<'SQL' | grep -qx BOOTSTRAP_DISABLED
+ALTER ROLE radius_bootstrap NOLOGIN;
+SELECT CASE WHEN NOT (SELECT rolcanlogin FROM pg_roles WHERE rolname='radius_bootstrap')
+ AND NOT EXISTS (SELECT 1 FROM pg_stat_activity WHERE usename='radius_bootstrap')
+ THEN 'BOOTSTRAP_DISABLED' ELSE 'BOOTSTRAP_STILL_ACTIVE' END;
+SQL
 # Verify there is precisely one account and role assignment, and one atomic audit.
 docker compose -p "$project" -f "$compose_file" exec -T db psql -U radius -d radius -At -v ON_ERROR_STOP=1 -c '
 SELECT count(*) FROM "AspNetUsers";

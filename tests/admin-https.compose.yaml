@@ -65,8 +65,8 @@ services:
       ASPNETCORE_Kestrel__Certificates__Default__Path: /run/radius-tls/server.pfx
       RADIUS_TLS_PASSWORD_FILE: /run/radius-secrets/tls-password
       RADIUS_ADMIN_DATA_PROTECTION_PATH: /var/lib/radius-admin-keys
-      ConnectionStrings__RadiusDb: "Host=db;Port=5432;Database=radius;Username=radius"
-      RADIUS_DB_PASSWORD_FILE: /run/radius-secrets/db-password
+      ConnectionStrings__RadiusDb: "Host=db;Port=5432;Database=radius;Username=radius_api"
+      RADIUS_DB_PASSWORD_FILE: /run/radius-secrets/api-db-password
       RADIUS_SERVICE_HISTORY_PERSIST: "1"
       RADIUS_ADMIN_AUTH_MODE: session
       RADIUS_ADMIN_USER: ${ADMIN_USER:-admin}
@@ -74,12 +74,32 @@ services:
       - "127.0.0.1:18443:8443/tcp"
     volumes:
       - ${RADIUS_HTTPS_FIXTURE_DIR:?Temporary fixture directory required}:/run/radius-tls:ro
-      - ${RADIUS_HTTPS_SECRET_DIR:?Private temporary secret directory required}/db-password:/run/radius-secrets/db-password:ro
+      - ${RADIUS_HTTPS_SECRET_DIR:?Private temporary secret directory required}/api-db-password:/run/radius-secrets/api-db-password:ro
       - ${RADIUS_HTTPS_SECRET_DIR:?Private temporary secret directory required}/tls-password:/run/radius-secrets/tls-password:ro
       - admin_dp_keys:/var/lib/radius-admin-keys
       - https_service_history:/var/lib/radius-service-history
     depends_on:
       schema-init: {condition: service_completed_successfully}
+    networks: [private]
+ 
+  # Console enrollment only; no published port or owner/runtime credential.
+  admin-bootstrap:
+    image: radius-stage3-ci-api:latest
+    profiles: ["bootstrap-test"]
+    restart: "no"
+    environment:
+      ASPNETCORE_URLS: https://+:8443
+      ASPNETCORE_Kestrel__Certificates__Default__Path: /run/radius-tls/server.pfx
+      RADIUS_TLS_PASSWORD_FILE: /run/radius-secrets/tls-password
+      RADIUS_ADMIN_DATA_PROTECTION_PATH: /var/lib/radius-admin-keys
+      ConnectionStrings__RadiusDb: "Host=db;Port=5432;Database=radius;Username=radius_bootstrap"
+      RADIUS_DB_PASSWORD_FILE: /run/radius-secrets/bootstrap-db-password
+      RADIUS_ADMIN_AUTH_MODE: session
+    volumes:
+      - ${RADIUS_HTTPS_FIXTURE_DIR:?Temporary fixture directory required}:/run/radius-tls:ro
+      - ${RADIUS_HTTPS_SECRET_DIR:?Private temporary secret directory required}/bootstrap-db-password:/run/radius-secrets/bootstrap-db-password:ro
+      - ${RADIUS_HTTPS_SECRET_DIR:?Private temporary secret directory required}/tls-password:/run/radius-secrets/tls-password:ro
+      - admin_dp_keys:/var/lib/radius-admin-keys
     networks: [private]
 
 volumes:
