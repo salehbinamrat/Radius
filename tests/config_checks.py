@@ -60,7 +60,7 @@ class ProjectConfigTests(unittest.TestCase):
         self.assertIn('radusergroup',routes)
         self.assertIn('existingSessionsMayContinue = true',routes)
         self.assertIn('quota_bytes IS NULL AND validity_days IS NULL',routes)
-        self.assertIn('MapLabAccountEndpoints()', (ROOT/'src/RadiusManager.Api/Program.cs').read_text())
+        self.assertIn('MapLabAccountEndpoints(sessionMode)', (ROOT/'src/RadiusManager.Api/Program.cs').read_text())
         self.assertNotIn('INSERT INTO radcheck', (ROOT/'database/002_lab_accounts.sql').read_text())
 
     def test_accounting_is_observational_not_a_balance_ledger(self):
