@@ -6,6 +6,7 @@ import { SessionLogin } from './SessionLogin';
 import { PlanEditor, PlansTable } from './PlanManagement';
 import { VoucherList } from './VoucherList';
 import { VoucherCreator } from './VoucherCreator';
+import { SessionTable } from './SessionTable';
 
 // Incremental migration: the original JavaScript dashboard still owns all
 // existing forms, routes, RADIUS workflows and operator interactions.
@@ -58,4 +59,9 @@ if (vouchersMount) {
 const voucherCreatorMount = document.getElementById('reactVoucherCreator');
 if (voucherCreatorMount) {
   createRoot(voucherCreatorMount).render(<StrictMode><VoucherCreator /></StrictMode>);
+}
+
+const sessionsMount = document.getElementById('reactSessionTable');
+if (sessionsMount) {
+  createRoot(sessionsMount).render(<StrictMode><SessionTable /></StrictMode>);
 }
