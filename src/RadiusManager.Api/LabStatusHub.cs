@@ -18,7 +18,7 @@ public static class LabStatusHubRules
 }
 
 public sealed record LabStatusSnapshot(string Scope, string Api, string Database,
-    double SessionCheckMs, DateTime ObservedAtUtc);
+    double SessionCheckMs, DateTime ObservedAtUtc, RadiusHealthSnapshot Radius);
 
 /// <summary>Bounded, read-only laboratory feed. No NAS actions or subscriber data.</summary>
 public sealed class LabStatusHub(IServiceScopeFactory scopes) : Hub
@@ -65,7 +65,7 @@ public sealed class LabStatusHub(IServiceScopeFactory scopes) : Hub
                 ct.ThrowIfCancellationRequested();
                 var elapsed = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
                 yield return new LabStatusSnapshot("lab", "running", "reachable",
-                    Math.Round(elapsed, 2), DateTime.UtcNow);
+                    Math.Round(elapsed, 2), DateTime.UtcNow, RadiusHealthEvidence.Read());
             }
         }
         finally

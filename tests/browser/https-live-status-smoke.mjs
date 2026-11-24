@@ -68,6 +68,8 @@ try {
   const latency = await live.locator('[data-session-check-ms]').getAttribute('data-session-check-ms');
   assert.ok(latency !== null && Number.isFinite(Number(latency)) && Number(latency) >= 0
     && Number(latency) <= 10000, 'Invalid displayed server duration');
+  assert.equal(await live.locator('[data-radius-state]').getAttribute('data-radius-state'), 'unknown',
+    'HTTPS fixture without a RADIUS mount must not claim availability');
   assert.ok(sockets.length > 0, 'Missing real browser WebSocket');
   step('navigate away');
   await page.locator('[data-view="plans"]').click();

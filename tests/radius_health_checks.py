@@ -17,7 +17,7 @@ class RadiusHealthChecks(unittest.TestCase):
 
     def test_healthcheck_is_bounded_and_not_a_new_network_listener(self):
         compose = (ROOT / "compose.yaml").read_text()
-        self.assertIn('test: ["CMD", "/usr/local/bin/radius-health-probe.sh"]', compose)
+        self.assertIn('test: ["CMD", "/usr/local/bin/radius-health-publish.sh"]', compose)
         self.assertIn('timeout: 5s', compose)
         self.assertNotIn('18121', compose)
         docker = (ROOT / "radius/Dockerfile").read_text()

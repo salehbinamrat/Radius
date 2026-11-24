@@ -226,6 +226,8 @@ api.MapGet("/summary", async (NpgsqlDataSource dataSource, CancellationToken ct)
     return Results.Ok(new { plans = reader.GetInt64(0), labAccounts = reader.GetInt64(1), phase = 1, accountingEnforced = false });
 });
 
+api.MapGet("/service-status/radius", () => Results.Ok(RadiusHealthEvidence.Read()));
+
 api.MapPlanEndpoints();
 
 // Independent laboratory voucher routes; protected by the same /api auth middleware.

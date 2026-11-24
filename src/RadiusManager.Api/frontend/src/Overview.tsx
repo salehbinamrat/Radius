@@ -166,7 +166,7 @@ export function OverviewServices() {
       </div>
       <div className="noc-service-row">
         <span><i className="noc-led unknown" /> محرك FreeRADIUS</span>
-        <strong>غير مفحوص من الواجهة</strong>
+        <strong>غير مفحوص من الواجهة دون البث اللحظي</strong>
       </div>
       <div className="noc-service-row">
         <span><i className="noc-led unknown" /> راوترات NAS / CoA</span>

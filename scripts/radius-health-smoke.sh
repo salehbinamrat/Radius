@@ -29,4 +29,14 @@ if docker compose exec -T radius bash -c '
   exit 1
 fi
 docker compose exec -T radius /usr/local/bin/radius-health-probe.sh
-echo 'FreeRADIUS Status-Server, Docker health and wrong-secret rejection PASS'
+# Confirm real publisher evidence crosses only the read-only mount.
+set -a; source .env; set +a
+umask 077
+netrc=$(mktemp)
+trap 'rm -f -- "$netrc"' EXIT
+printf 'machine 127.0.0.1 login %s password %s\n' "$ADMIN_USER" "$ADMIN_PASSWORD" > "$netrc"
+endpoint=http://127.0.0.1:8080/api/service-status/radius
+[[ "$(curl --silent --show-error --max-time 5 -o /dev/null -w '%{http_code}' "$endpoint")" == 401 ]]
+curl --fail --silent --show-error --max-time 5 --netrc-file "$netrc" "$endpoint" |
+  python3 -c 'import json,sys; x=json.load(sys.stdin); assert set(x)=={"state","checkedAtUtc"} and x["state"]=="responsive" and x["checkedAtUtc"]'
+echo 'FreeRADIUS Status-Server, Docker health, wrong-secret rejection and protected evidence endpoint PASS'
