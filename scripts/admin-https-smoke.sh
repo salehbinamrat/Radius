@@ -6,6 +6,11 @@ cd "$(dirname "$0")/.."
   echo "HTTPS acceptance requires isolated GitHub CI acknowledgement" >&2; exit 1;
 }
 [[ -f .env ]] || { echo "Isolated lab .env missing" >&2; exit 1; }
+# The secondary Compose file lives under tests/. Export the existing isolated
+# lab credentials explicitly so Compose does not search the wrong project dir.
+set -a
+source .env
+set +a
 command -v openssl >/dev/null
 command -v docker >/dev/null
 command -v python3 >/dev/null
