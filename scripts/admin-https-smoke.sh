@@ -215,9 +215,8 @@ check 200 -b "$jar" -c "$jar" -H "X-CSRF-TOKEN: $csrf" \
   -H "Content-Type: application/json" --data-binary @"$tmp/payload.json" "$url/api/admin/auth/login"
 check 200 -b "$jar" "$url/api/summary"
 cp "$jar" "$tmp/stale-after-logout.cookies"
-fetch_csrf
-check 200 -b "$jar" -c "$jar" -H "X-CSRF-TOKEN: $csrf" \
-  -H "Content-Type: application/json" -d '{}' "$url/api/admin/auth/logout"
+# Exercise /api/admin/auth/logout while a real SignalR stream is open.
+python3 tests/signalr_https_wire_smoke.py "$tmp/tls/server.crt" "$jar"
 check 401 -b "$tmp/stale-after-logout.cookies" "$url/api/summary"
 check 401 -b "$tmp/stale-after-logout.cookies" -H "Origin: $url" -X POST "$url/hubs/lab-status/negotiate?negotiateVersion=1"
 echo "Isolated HTTPS login, Secure cookies, key persistence, RBAC, CSRF, password rotation and logout revocation PASS."
