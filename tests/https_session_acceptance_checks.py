@@ -29,6 +29,18 @@ class HttpsSessionContracts(unittest.TestCase):
         self.assertNotIn("private-radius-lab", source)
         self.assertNotIn("radius:", source)
 
+    def test_https_api_uses_mounted_password_files_not_inline_secrets(self):
+        compose=(ROOT/"tests/admin-https.compose.yaml").read_text()
+        api=compose.split("\n  api:",1)[1]
+        self.assertIn("RADIUS_DB_PASSWORD_FILE: /run/radius-secrets/db-password",api)
+        self.assertIn("RADIUS_TLS_PASSWORD_FILE: /run/radius-secrets/tls-password",api)
+        self.assertNotIn("Password=",api)
+        self.assertNotIn("RADIUS_ADMIN_PASSWORD:",api)
+        self.assertNotIn("ASPNETCORE_Kestrel__Certificates__Default__Password:",api)
+        smoke=(ROOT/"scripts/admin-https-smoke.sh").read_text()
+        self.assertIn('mkdir -m 700 "$RADIUS_HTTPS_SECRET_DIR"',smoke)
+        self.assertIn("config --format json",smoke)
+
     def test_https_smoke_uses_real_tls_verification_and_ephemeral_credentials(self):
         source = (ROOT / "scripts/admin-https-smoke.sh").read_text(encoding="utf-8")
         for item in ("openssl", "pkcs12", "LAB_HTTPS_TEST_ACK",
