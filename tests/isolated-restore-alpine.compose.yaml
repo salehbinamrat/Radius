@@ -1,0 +1,21 @@
+# CI-only logical restoration to the exact scanned local image.
+# No published ports, bind mounts, or shared application volumes.
+services:
+  restore-db:
+    image: ${LAB_RESTORE_CANDIDATE_IMAGE:?Missing CI candidate image}
+    pull_policy: never
+    restart: 'no'
+    environment:
+      POSTGRES_USER: radius
+      POSTGRES_DB: radius
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?Run scripts/setup.sh for isolated lab}
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -h 127.0.0.1 -U radius -d radius']
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    networks:
+      - restore-private
+networks:
+  restore-private:
+    internal: true

@@ -106,6 +106,17 @@ if "$scanner" image --image-src docker --scanners vuln --severity HIGH,CRITICAL 
     --exit-code 1 --exit-on-eol 1 --format json \
     --output "$reports/candidate-alpine.vulnerabilities.json" "$candidate_id"; then
   echo 'Alpine candidate vulnerability gate passed'
+  # Repeat the encrypted logical restore drill with the scanned local image.
+  # Never mount or change the source database volume or its Compose definition.
+  candidate_tag="radius-postgres-candidate:${candidate_id#sha256:}"
+  docker tag "$candidate_id" "$candidate_tag"
+  if LAB_RESTORE_CANDIDATE_IMAGE="$candidate_tag" LAB_RESTORE_CANDIDATE_ID="$candidate_id" \
+      bash scripts/lab-recovery-smoke.sh; then
+    echo 'Alpine candidate encrypted logical restore acceptance PASS'
+  else
+    echo 'Alpine candidate encrypted logical restore acceptance FAILED' >&2
+    failed=1
+  fi
 else
   echo 'Alpine candidate vulnerability gate failed' >&2
   failed=1

@@ -38,6 +38,17 @@ if [[ $# == 3 ]]; then
 fi
 
 compose_file=tests/isolated-restore.compose.yaml
+candidate_image="${LAB_RESTORE_CANDIDATE_IMAGE:-}"
+candidate_id="${LAB_RESTORE_CANDIDATE_ID:-}"
+if [[ -n "$candidate_image" || -n "$candidate_id" ]]; then
+  [[ "${CI:-}" == true && "${LAB_SECURITY_SCAN_ACK:-}" == isolated-ci &&
+     "$candidate_id" =~ ^sha256:[a-f0-9]{64}$ &&
+     "$candidate_image" == "radius-postgres-candidate:${candidate_id#sha256:}" ]] || {
+    echo "Candidate restore requires exact local image and isolated CI acknowledgement" >&2; exit 1;
+  }
+  [[ "$(docker image inspect --format '{{.Id}}' "$candidate_image")" == "$candidate_id" ]] || exit 1
+  compose_file=tests/isolated-restore-alpine.compose.yaml
+fi
 restore_project="radiusrestore$(python3 -c 'import secrets;print(secrets.token_hex(4))')"
 cleanup() {
   # This down -v targets ONLY the fresh, randomly named restoration project.
@@ -108,5 +119,33 @@ if [[ -n "$audit_digest" ]]; then
 fi
 if [[ -n "$role_digest" ]]; then
   bash scripts/restore-runtime-roles-smoke.sh "$restore_project" "$compose_file" "$role_digest"
+fi
+# A candidate is never attached to the original volume. Confirm the exact
+# scanned image, non-root server process, and representative locale semantics.
+if [[ -n "$candidate_image" ]]; then
+  container=$(docker compose -p "$restore_project" -f "$compose_file" ps -q restore-db)
+  [[ "$(docker inspect --format '{{.Image}}' "$container")" == "$candidate_id" ]] || exit 1
+  docker compose -p "$restore_project" -f "$compose_file" exec -T restore-db sh -ec '
+    uid=$(id -u postgres)
+    test "$uid" != 0
+    test "$(awk "/^Uid:/{print \$2}" /proc/1/status)" = "$uid"
+  '
+  metadata_sql="SELECT datlocprovider, datcollate, datctype, COALESCE(pg_database_collation_actual_version(oid),'none') FROM pg_database WHERE datname=current_database()"
+  echo "Source locale metadata:"
+  docker compose exec -T db psql -X -qAt -v ON_ERROR_STOP=1 -U radius -d radius -c "$metadata_sql"
+  echo "Candidate locale metadata:"
+  docker compose -p "$restore_project" -f "$compose_file" exec -T restore-db \
+    psql -X -qAt -v ON_ERROR_STOP=1 -U radius -d radius -c "$metadata_sql"
+  # Arabic and Latin representative identifiers; deterministic tie-break.
+  order_sql="SELECT value FROM (VALUES ('a'),('A'),('z'),('Z'),('é'),('e'),('أ'),('ا'),('ب'),('ي'),('10'),('2')) AS samples(value) ORDER BY value, value COLLATE \"C\""
+  source_order=$(docker compose exec -T db psql -X -qAt -v ON_ERROR_STOP=1 -U radius -d radius -c "$order_sql" | sha256sum | cut -d ' ' -f1)
+  target_order=$(docker compose -p "$restore_project" -f "$compose_file" exec -T restore-db \
+    psql -X -qAt -v ON_ERROR_STOP=1 -U radius -d radius -c "$order_sql" | sha256sum | cut -d ' ' -f1)
+  echo "Representative source/candidate collation fingerprints: $source_order $target_order"
+  if [[ "$source_order" != "$target_order" ]]; then
+    echo "Default collation differs; explicit compatibility decision required before adoption" >&2
+    exit 1
+  fi
+  echo "Scanned candidate runtime UID and representative default collation PASS"
 fi
 echo "Encrypted backup restore verified in disposable PostgreSQL; elapsed seconds: $(($(date +%s)-started_at))"
