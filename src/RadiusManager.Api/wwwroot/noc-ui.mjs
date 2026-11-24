@@ -1,4 +1,4 @@
-import { buildSafeCsv, groupLoadedAccounts, searchLoadedRecords } from './noc-utils.mjs';
+import { buildSafeCsv, searchLoadedRecords } from './noc-utils.mjs';
 
 /** NOC-inspired presentation of EXISTING lab data. No backend simulation. */
 export function initializeNocUi({ getPlans, getAccounts, navigate, showToast }) {
@@ -106,48 +106,8 @@ export function initializeNocUi({ getPlans, getAccounts, navigate, showToast }) 
     renderActivity();
   }
   function status(connected) {
-    el('nocApiState').textContent = connected ? 'متصل (إدارة)' : 'فشل الاتصال';
-    el('nocApiLed').className = connected ? 'noc-led good' : 'noc-led bad';
+    // The React overview now owns the detailed health status and last-sync timestamp.
     el('nocTopStatusText').textContent = connected ? 'API متصل • مختبر' : 'API غير متصل • مختبر';
-    el('nocLastSync').textContent = connected
-      ? `آخر استعلام ناجح: ${new Date().toLocaleString('ar')}`
-      : 'آخر محاولة لم تنجح — لا نعرض بيانات محدثة';
-  }
-  function renderBars() {
-    const body = el('nocPackageBars');
-    body.replaceChildren();
-    const { groups, total } = groupLoadedAccounts(getAccounts());
-    if (total === 0) {
-      const blank = document.createElement('p');
-      blank.className = 'noc-empty-bars';
-      blank.textContent = 'لا توجد كروت مختبر مسجلة بعد.';
-      body.append(blank);
-      return;
-    }
-    for (const item of groups) {
-      const row = document.createElement('div');
-      row.className = 'noc-bar-row';
-      const title = document.createElement('div');
-      title.className = 'noc-bar-title';
-      const name = document.createElement('span');
-      name.textContent = item.name;
-      const count = document.createElement('strong');
-      count.textContent = `${item.count} كرت`;
-      title.append(name, count);
-      const track = document.createElement('div');
-      track.className = 'noc-bar-track';
-      track.setAttribute('role', 'meter');
-      track.setAttribute('aria-label', item.name);
-      track.setAttribute('aria-valuemin', '0');
-      track.setAttribute('aria-valuemax', String(total));
-      track.setAttribute('aria-valuenow', String(item.count));
-      const fill = document.createElement('div');
-      fill.className = 'noc-bar-fill';
-      fill.style.width = `${item.percent.toFixed(2)}%`;
-      track.append(fill);
-      row.append(title, track);
-      body.append(row);
-    }
   }
   function downloadFilteredCsv(type) {
     let header, rows, filename;
@@ -215,16 +175,12 @@ export function initializeNocUi({ getPlans, getAccounts, navigate, showToast }) 
   el('nocExportAccounts').addEventListener('click', () => downloadFilteredCsv('accounts'));
   renderActivity();
   return {
-    render() { renderBars(); if (!results.hidden) renderSearch(); },
+    render() { if (!results.hidden) renderSearch(); },
     status, record,
     onViewChanged() { closeSearch(); },
     reset() {
       activity = [];renderActivity();closeDrawer();closeSearch();search.value = '';
-      el('nocPackageBars').replaceChildren();
-      el('nocApiState').textContent = 'لم تُفحص بعد';
-      el('nocApiLed').className = 'noc-led';
       el('nocTopStatusText').textContent = 'مختبر • الحالة غير مفحوصة';
-      el('nocLastSync').textContent = 'آخر استعلام ناجح: لم يحدث بعد';
     }
   };
 }

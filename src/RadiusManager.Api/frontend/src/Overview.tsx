@@ -7,6 +7,8 @@ type Snapshot = {
   activeInLoadedAccounts: number;
   loadedAccountCount: number;
   recent: Card[];
+  groups: { name: string; count: number; percent: number }[];
+  lastSyncedAt: string;
   scope: 'first-100-loaded';
 };
 type OverviewEvent = { snapshot?: Snapshot | null; health?: 'unloaded' | 'online' | 'error' };
@@ -103,6 +105,78 @@ export function OverviewRecent() {
         </tbody>
       </table>
       <p className="section-note">هذه النتائج من أول 100 كرت مسترجع فقط، وليست كل حسابات الشبكة.</p>
+    </>
+  );
+}
+
+
+/** Only grouped records from the first 100 authenticated, loaded lab accounts. */
+export function OverviewPackages() {
+  const { snapshot, health } = useOverview();
+  const groups = snapshot?.groups ?? [];
+  const total = snapshot?.loadedAccountCount ?? 0;
+  return (
+    <>
+      {health === 'error' &&
+        <p role="status" className="section-note">تعذر التحديث؛ البيانات السابقة للعرض فقط.</p>}
+      {groups.length === 0
+        ? <p className="noc-empty-bars">{snapshot
+          ? 'لا توجد كروت مختبر مسجلة بعد.'
+          : 'سيتوفر التوزيع بعد قراءة بيانات الخادم.'}</p>
+        : groups.map((item, i) => (
+          <div key={item.name + '-' + i} className="noc-bar-row">
+            <div className="noc-bar-title">
+              <span>{item.name}</span><strong>{item.count} كرت</strong>
+            </div>
+            <div className="noc-bar-track" role="meter"
+              aria-label={item.name} aria-valuemin={0}
+              aria-valuemax={total} aria-valuenow={item.count}>
+              <div className="noc-bar-fill" style={{
+                width: Math.min(100, Math.max(0, item.percent)).toFixed(2) + '%',
+              }} />
+            </div>
+          </div>
+        ))}
+    </>
+  );
+}
+
+/** API health is NOT evidence that FreeRADIUS or MikroTik/NAS is reachable. */
+export function OverviewServices() {
+  const { snapshot, health } = useOverview();
+  const stateText = health === 'online' ? 'متصل (إدارة)'
+    : health === 'error' ? 'فشل الاتصال' : 'لم تُفحص بعد';
+  let lastQuery = 'آخر استعلام ناجح: لم يحدث بعد';
+  if (health === 'error') {
+    lastQuery = snapshot
+      ? 'آخر محاولة لم تنجح — البيانات السابقة لا تعكس الحالة الحالية'
+      : 'آخر محاولة لم تنجح — لا نعرض بيانات محدثة';
+  } else if (snapshot?.lastSyncedAt && health === 'online') {
+    const date = new Date(snapshot.lastSyncedAt);
+    if (!Number.isNaN(date.getTime())) {
+      lastQuery = 'آخر استعلام ناجح: ' + date.toLocaleString('ar');
+    }
+  }
+  return (
+    <>
+      <div className="noc-service-row">
+        <span><i className={'noc-led ' + (health === 'online' ? 'good'
+          : health === 'error' ? 'bad' : '')} /> واجهة API وقاعدة PostgreSQL</span>
+        <strong>{stateText}</strong>
+      </div>
+      <div className="noc-service-row">
+        <span><i className="noc-led unknown" /> محرك FreeRADIUS</span>
+        <strong>غير مفحوص من الواجهة</strong>
+      </div>
+      <div className="noc-service-row">
+        <span><i className="noc-led unknown" /> راوترات NAS / CoA</span>
+        <strong>غير مفعلة بعد</strong>
+      </div>
+      <p className="section-note noc-last-sync">{lastQuery}</p>
+      <div className="info-hint">
+        <svg className="ico" aria-hidden="true"><use href="#i-info" /></svg>
+        الحالة «متصل» تعني نجاح طلبات الإدارة وقاعدة البيانات فقط، ولا تعني اتصال أجهزة MikroTik.
+      </div>
     </>
   );
 }
