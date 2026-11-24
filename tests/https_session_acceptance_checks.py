@@ -58,6 +58,16 @@ class HttpsSessionContracts(unittest.TestCase):
         self.assertIn('--cacert "$tmp/old-server.crt"',smoke)
         self.assertIn("TLS key renewal preserved authenticated session",smoke)
 
+    def test_protection_rotation_retains_historical_decryptor(self):
+        server=(API/"Program.cs").read_text()
+        self.assertIn("dp.UnprotectKeysWithAnyCertificate(certificate, previous)",server)
+        self.assertIn("CertificateRules.ValidatePrevious",server)
+        self.assertIn(".ProtectKeysWithCertificate(certificate)",server)
+        smoke=(ROOT/"scripts/admin-https-smoke.sh").read_text()
+        self.assertIn("RADIUS_DP_PREVIOUS_CERTIFICATE_PATH=/run/radius-tls/previous-data-protection.pfx",smoke)
+        self.assertIn("Data Protection certificate rotation preserved historical authenticated session",smoke)
+        self.assertIn("up -d --no-deps --force-recreate api",smoke)
+
     def test_https_smoke_uses_real_tls_verification_and_ephemeral_credentials(self):
         source = (ROOT / "scripts/admin-https-smoke.sh").read_text(encoding="utf-8")
         for item in ("openssl", "pkcs12", "LAB_HTTPS_TEST_ACK",

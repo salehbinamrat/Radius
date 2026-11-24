@@ -5,6 +5,25 @@ namespace RadiusManager.Api;
 
 public static class CertificateRules
 {
+    public static void ValidatePrevious(X509Certificate2 tls, X509Certificate2 current,
+        X509Certificate2 previous, DateTimeOffset now)
+    {
+        using var oldKey = previous.GetRSAPublicKey();
+        using var tlsKey = tls.GetRSAPublicKey();
+        using var currentKey = current.GetRSAPublicKey();
+        if (!previous.HasPrivateKey || oldKey is null || oldKey.KeySize < 2048
+            || tlsKey is null || currentKey is null)
+            throw new InvalidOperationException("Previous Data Protection certificate requires a suitable RSA private key");
+        var oldPublicKey = oldKey.ExportSubjectPublicKeyInfo();
+        if (oldPublicKey.AsSpan().SequenceEqual(tlsKey.ExportSubjectPublicKeyInfo())
+            || oldPublicKey.AsSpan().SequenceEqual(currentKey.ExportSubjectPublicKeyInfo()))
+            throw new InvalidOperationException("Previous Data Protection key must differ from current TLS and protection keys");
+        // Expired historical certificates are permitted for decryption only.
+        // Legacy TLS-protected rings may have no encipherment extension.
+        if (now < new DateTimeOffset(previous.NotBefore.ToUniversalTime()))
+            throw new InvalidOperationException("Previous Data Protection certificate is not yet valid");
+    }
+
     // Local key suitability only; clients must verify TLS trust and hostname.
     public static void ValidatePair(X509Certificate2 tls, X509Certificate2 protection, DateTimeOffset now)
     {

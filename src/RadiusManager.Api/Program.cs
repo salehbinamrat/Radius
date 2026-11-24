@@ -54,10 +54,24 @@ if (sessionMode)
     using var tlsCertificate = X509CertificateLoader.LoadPkcs12FromFile(certificatePath, certificatePassword);
     var certificate = X509CertificateLoader.LoadPkcs12FromFile(protectionPath, protectionPassword);
     CertificateRules.ValidatePair(tlsCertificate, certificate, DateTimeOffset.UtcNow);
-    builder.Services.AddDataProtection()
+    var dp = builder.Services.AddDataProtection()
         .SetApplicationName("RadiusNocAdminSessions")
         .PersistKeysToFileSystem(new DirectoryInfo(keysPath))
         .ProtectKeysWithCertificate(certificate);
+    var previousPath = Environment.GetEnvironmentVariable("RADIUS_DP_PREVIOUS_CERTIFICATE_PATH");
+    var previousPasswordFile = Environment.GetEnvironmentVariable("RADIUS_DP_PREVIOUS_PASSWORD_FILE");
+    if (!string.IsNullOrEmpty(previousPath) || !string.IsNullOrEmpty(previousPasswordFile))
+    {
+        if (string.IsNullOrWhiteSpace(previousPath) || !Path.IsPathFullyQualified(previousPath)
+            || string.IsNullOrWhiteSpace(previousPasswordFile))
+            throw new InvalidOperationException("Previous Data Protection certificate requires both absolute path and password file");
+        var previousPassword = SecretInput.Resolve("Previous Data Protection certificate password", null, previousPasswordFile);
+        var previous = X509CertificateLoader.LoadPkcs12FromFile(previousPath, previousPassword);
+        CertificateRules.ValidatePrevious(tlsCertificate, certificate, previous, DateTimeOffset.UtcNow);
+        // Only the current certificate encrypts new keys. Keep both private
+        // keys available for decryption while existing key ring files need them.
+        dp.UnprotectKeysWithAnyCertificate(certificate, previous);
+    }
 }
 
 builder.Services.AddSingleton(NpgsqlDataSource.Create(connectionString));

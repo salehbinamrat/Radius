@@ -66,6 +66,8 @@ services:
       RADIUS_TLS_PASSWORD_FILE: /run/radius-secrets/tls-password
       RADIUS_DP_CERTIFICATE_PATH: /run/radius-tls/data-protection.pfx
       RADIUS_DP_PASSWORD_FILE: /run/radius-secrets/dp-password
+      RADIUS_DP_PREVIOUS_CERTIFICATE_PATH: ${RADIUS_DP_PREVIOUS_CERTIFICATE_PATH:-}
+      RADIUS_DP_PREVIOUS_PASSWORD_FILE: ${RADIUS_DP_PREVIOUS_PASSWORD_FILE:-}
       RADIUS_ADMIN_DATA_PROTECTION_PATH: /var/lib/radius-admin-keys
       ConnectionStrings__RadiusDb: "Host=db;Port=5432;Database=radius;Username=radius_api"
       RADIUS_DB_PASSWORD_FILE: /run/radius-secrets/api-db-password
@@ -79,6 +81,7 @@ services:
       - ${RADIUS_HTTPS_SECRET_DIR:?Private temporary secret directory required}/api-db-password:/run/radius-secrets/api-db-password:ro
       - ${RADIUS_HTTPS_SECRET_DIR:?Private temporary secret directory required}/tls-password:/run/radius-secrets/tls-password:ro
       - ${RADIUS_HTTPS_SECRET_DIR:?Private temporary secret directory required}/dp-password:/run/radius-secrets/dp-password:ro
+      - ${RADIUS_HTTPS_SECRET_DIR:?Private temporary secret directory required}/previous-dp-password:/run/radius-secrets/previous-dp-password:ro
       - admin_dp_keys:/var/lib/radius-admin-keys
       - https_service_history:/var/lib/radius-service-history
     depends_on:
