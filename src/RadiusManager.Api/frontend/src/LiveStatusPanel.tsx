@@ -6,7 +6,7 @@ type Status = 'connecting' | 'live' | 'stale' | 'unavailable';
 type View = { status: Status; sample: LabStatus | null };
 const initial: View = { status: 'connecting', sample: null };
 
-/** Authenticated read-only status, not a router, FreeRADIUS or subscriber monitor. */
+/** Authenticated read-only status, not a router or subscriber monitor. */
 export function LiveStatusPanel() {
   const [enabled, setEnabled] = useState(false);
   const [view, setView] = useState<View>(initial);
@@ -139,6 +139,8 @@ export function LiveStatusPanel() {
     : view.status === 'connecting' ? 'جار الاتصال بالبث اللحظي'
     : view.status === 'stale' ? 'البث منقطع — جار إعادة المحاولة'
     : 'البث غير متاح';
+  const radius = view.status === 'live' ? view.sample?.radius : undefined;
+  const radiusState = radius?.state ?? 'unknown';
   return (
     <div className="noc-service-row" data-live-status={view.status}>
       <div>
@@ -160,7 +162,13 @@ export function LiveStatusPanel() {
             ? view.sample.sessionCheckMs.toLocaleString('en-US', { maximumFractionDigits: 2 }) + ' ms'
             : '—'}
         </p>
-        <p className="section-note">قياس مسار القراءة والتحقق فقط، وليس زمن الشبكة أو حالة الراوترات أو FreeRADIUS.</p>
+        <p className="section-note" data-radius-state={radiusState}>
+          <i className={'noc-led ' + (radiusState === 'responsive' ? 'good' : radiusState === 'no-response' ? 'bad' : 'unknown')} />
+          {' FreeRADIUS: '}{radiusState === 'responsive' ? 'استجاب للفحص المحلي'
+            : radiusState === 'no-response' ? 'لم يستجب للفحص المحلي' : 'غير مؤكد'}
+          {radius?.checkedAtUtc && ' — آخر فحص: ' + new Date(radius.checkedAtUtc).toLocaleString('ar')}
+        </p>
+        <p className="section-note">فحص محرك RADIUS محليا، وليس إثباتا لاتصال MikroTik أو قبول كروت المشتركين.</p>
       </div>
       {view.status === 'unavailable' &&
         <button type="button" className="btn" onClick={() => setAttempt(value => value + 1)}>إعادة الاتصال</button>}

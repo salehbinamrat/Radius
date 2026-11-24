@@ -219,9 +219,11 @@ class Wire:
             require(kind == 2 and message.get("invocationId") == invocation,
                     "Missing current sample or unexpected old stream")
             item = message["item"]
-            require(set(item) == {"scope", "api", "database", "sessionCheckMs", "observedAtUtc"}, "Unexpected status fields")
+            require(set(item) == {"scope", "api", "database", "sessionCheckMs", "observedAtUtc", "radius"}, "Unexpected status fields")
             require(item["scope"] == "lab" and item["api"] == "running"
                     and item["database"] == "reachable", "Unexpected laboratory status")
+            require(item["radius"] == {"state": "unknown", "checkedAtUtc": None},
+                    "HTTPS fixture without RADIUS evidence must report unknown")
             elapsed = item["sessionCheckMs"]
             require(type(elapsed) in (int, float) and 0 <= elapsed <= 10000,
                     "Invalid measured session check duration")
