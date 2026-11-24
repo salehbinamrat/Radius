@@ -126,9 +126,18 @@ try {
   }
   assert.equal(await page.locator('[data-transfer-event]').count(),2);
   assert.ok((await page.locator('[data-transfer-result]').textContent()).includes('تم نقل الملكية بنجاح'));
+  step('audit read and filters');
+  await page.locator('#auditNav').click();
+  await page.locator('#reactAuditLog [data-audit-state="ready"]').waitFor({state:'visible'});
+  await page.locator('#auditAction').selectOption('voucher_owner_transferred');
+  await page.locator('#auditOutcome').selectOption('success');
+  await page.locator('#auditApply').click();
+  await page.waitForFunction(()=>document.querySelectorAll('[data-audit-action]').length>0
+    && [...document.querySelectorAll('[data-audit-action]')].every(r=>r.getAttribute('data-audit-action')==='voucher_owner_transferred'));
   step('navigate back');
   await page.locator('[data-view="overview"]').click();
-  await page.waitForFunction(()=>document.querySelector('#reactOwnership')?.childElementCount===0);
+  await page.waitForFunction(()=>document.querySelector('#reactOwnership')?.childElementCount===0
+    && document.querySelector('#reactAuditLog')?.childElementCount===0);
   await live.waitFor({ state: 'visible', timeout: 25000 });
   assert.ok(sockets.length >= 2, 'Missing new connection on overview return');
   await history.waitFor({ state: 'visible', timeout: 25000 });

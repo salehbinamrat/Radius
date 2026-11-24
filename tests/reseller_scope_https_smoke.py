@@ -231,6 +231,21 @@ def main():
         f"plan_created|plan|{plan_id}|success",f"plan_updated|plan|{plan_id}|success",
         f"voucher_created|lab_account|{voucher}|success",f"voucher_disabled|lab_account|{voucher}|success",
         f"nas_draft_created|nas_draft|{nas_id}|success",f"nas_draft_retired|nas_draft|{nas_id}|success"])
+    audit_page=admin("GET","/api/admin-audit?action=plan_created&outcome=success",200)
+    assert set(audit_page)=={"events","nextBefore","limit","labOnly"} and audit_page["labOnly"]
+    assert audit_page["limit"]==50 and any(r["subjectId"]==plan_id for r in audit_page["events"])
+    assert all(r["action"]=="plan_created" and r["outcome"]=="success" and isinstance(r["id"],str) for r in audit_page["events"])
+    assert all(set(r)=={"id","actorId","action","subjectKind","subjectId","outcome","occurredAt","correlationId"} for r in audit_page["events"])
+    actor=next(r["actorId"] for r in audit_page["events"] if r["subjectId"]==plan_id)
+    from urllib.parse import quote
+    filtered=admin("GET","/api/admin-audit?actor="+quote(actor,safe="")+"&action=plan_created",200)
+    assert all(r["actorId"]==actor for r in filtered["events"])
+    assert admin("GET","/api/admin-audit?from=2000-01-01&to=2000-01-02",200)["events"]==[]
+    admin("GET","/api/admin-audit?outcome=unknown",400)
+    admin("GET","/api/admin-audit?before=0",400)
+    admin("GET","/api/admin-audit?from=2026-12-01&to=2026-01-01",400)
+    reseller("GET","/api/admin-audit",403)
+    admin("POST","/api/admin-audit",403,{},csrf)
     print("Named administrative audit coverage and rollback on audit failure PASS")
     print("Two isolated reseller sessions: owner-only reads, forbidden writes, concurrent initial assignment and atomic audit PASS")
 

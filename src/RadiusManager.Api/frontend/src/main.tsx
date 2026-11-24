@@ -14,6 +14,7 @@ import { ServiceHistoryPanel } from './ServiceHistoryPanel';
 import { ServiceAlertsPanel } from './ServiceAlertsPanel';
 import { OwnershipPanel } from './OwnershipPanel';
 import { ResellerWorkspace } from './ResellerWorkspace';
+import { AuditLogPanel } from './AuditLogPanel';
 
 // Incremental migration: the original JavaScript dashboard still owns all
 // existing forms, routes, RADIUS workflows and operator interactions.
@@ -107,3 +108,6 @@ const resellerMount = document.getElementById('reactResellerWorkspace');
 if (resellerMount) {
   createRoot(resellerMount).render(<StrictMode><ResellerWorkspace /></StrictMode>);
 }
+
+const auditMount = document.getElementById('reactAuditLog');
+if (auditMount) createRoot(auditMount).render(<StrictMode><AuditLogPanel /></StrictMode>);

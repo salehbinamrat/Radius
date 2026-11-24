@@ -210,3 +210,11 @@ html.noc-dark .noc-activity-item{border-color:#31435b;background:#152640}
 .ownership-panel .ownership-history{overflow:auto;max-height:360px}
 .ownership-panel .ownership-history table{width:100%;border-collapse:collapse}
 .ownership-panel .ownership-history th,.ownership-panel .ownership-history td{padding:8px;text-align:start;white-space:nowrap;border-bottom:1px solid #8994a340}
+
+.audit-panel .audit-filters{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,180px),1fr));gap:12px;margin:16px 0}
+.audit-panel .audit-filters input,.audit-panel .audit-filters select{width:100%;min-width:0}
+.audit-panel .audit-filters button{align-self:end}
+.audit-panel .audit-table{overflow:auto;max-height:65vh}
+.audit-panel table{width:100%;border-collapse:collapse}
+.audit-panel th,.audit-panel td{padding:9px;text-align:start;white-space:nowrap;border-bottom:1px solid #8994a340}
+.audit-panel .audit-buttons{display:flex;flex-wrap:wrap;gap:10px;margin-top:12px}
