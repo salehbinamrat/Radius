@@ -34,6 +34,7 @@ services:
       - ./database/007_ownership_transfers.sql:/opt/radius/007_ownership_transfers.sql:ro
       - ./database/008_audit_append_only.sql:/opt/radius/008_audit_append_only.sql:ro
       - ./database/009_accounting_read_indexes.sql:/opt/radius/009_accounting_read_indexes.sql:ro
+      - ./database/010_accounting_quality.sql:/opt/radius/010_accounting_quality.sql:ro
     depends_on:
       db:
         condition: service_healthy

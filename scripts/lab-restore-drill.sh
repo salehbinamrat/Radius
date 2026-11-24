@@ -73,6 +73,8 @@ WHERE table_schema='public' AND table_name='app_lab_account_owners' AND column_n
 # Verify restored 009 index definitions and validity, not just table count.
 docker compose -p "$restore_project" -f "$compose_file" exec -T restore-db \
   psql -X -v ON_ERROR_STOP=1 -U radius -d radius < tests/accounting_indexes_verify.sql >/dev/null
+docker compose -p "$restore_project" -f "$compose_file" exec -T restore-db \
+  psql -X -v ON_ERROR_STOP=1 -U radius -d radius < tests/accounting_quality_verify.sql >/dev/null
 # Verify both restored statement-level guards are enabled ALWAYS, including
 # replication-role mode. The restore is isolated and contains no production database.
 docker compose -p "$restore_project" -f "$compose_file" exec -T restore-db \

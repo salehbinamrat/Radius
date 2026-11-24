@@ -110,13 +110,28 @@ fi
 assert_count "$db_one" "SELECT count(*) FROM app_schema_migrations" 8
 assert_count "$db_one" "SELECT count(*) FROM pg_class WHERE relname IN ('idx_app_radacct_recent','idx_app_radacct_user_recent')" 0
 assert_count "$db_one" "SELECT count(*) FROM radacct WHERE acctuniqueid='migration9-fixture' AND acctinputoctets=100 AND acctoutputoctets=200" 1
+# A failed 010 must leave the original function and ledger unchanged.
+docker compose exec -T db psql -X -v ON_ERROR_STOP=1 -U radius -d "$db_one" <<'SQL' >/dev/null
+INSERT INTO radacct(acctsessionid,acctuniqueid,username,nasipaddress,acctstarttime,acctstoptime,acctinputoctets,acctoutputoctets)
+VALUES ('migration10','migration10-fixture','lab_000000000010','10.255.70.21',now(),now(),NULL,NULL);
+SQL
+if docker compose run --rm --no-deps -e MIGRATION_DB_NAME="$db_one" \
+     -e LAB_MIGRATION_TEST_MODE=isolated-ci -e MIGRATION_FAIL_AFTER_SQL_VERSION=10 \
+     --entrypoint python3 schema-init /opt/radius/migrate.py >"$tmp/fail10.log" 2>&1; then
+  echo "Version 10 failure injection was unexpectedly accepted" >&2; exit 1;
+fi
+assert_count "$db_one" "SELECT count(*) FROM app_schema_migrations" 9
+assert_count "$db_one" "SELECT count(*) FROM pg_proc WHERE proname='app_accounting_row_anomalous'" 0
+assert_count "$db_one" "SELECT anomalous_sessions FROM app_lab_usage_snapshot('lab_000000000010')" 0
 run_migration "$db_one" >"$tmp/restart.log" 2>&1
+assert_count "$db_one" "SELECT anomalous_sessions FROM app_lab_usage_snapshot('lab_000000000010')" 1
+assert_count "$db_one" "SELECT count(*) FROM radacct WHERE acctuniqueid='migration10-fixture' AND acctinputoctets IS NULL AND acctoutputoctets IS NULL" 1
 assert_count "$db_one" "SELECT count(*) FROM radacct WHERE acctuniqueid='migration9-fixture' AND acctinputoctets=100 AND acctoutputoctets=200" 1
 docker compose exec -T db psql -X -v ON_ERROR_STOP=1 -U radius -d "$db_one" < tests/accounting_indexes_verify.sql >/dev/null
-assert_count "$db_one" "SELECT count(*) FROM app_schema_migrations" 9
+assert_count "$db_one" "SELECT count(*) FROM app_schema_migrations" 10
 assert_count "$db_one" "SELECT count(*) FROM app_plans WHERE id='$plan_id'::uuid" 1
 run_migration "$db_one" >"$tmp/replay.log" 2>&1
-assert_count "$db_one" "SELECT count(*) FROM app_schema_migrations" 9
+assert_count "$db_one" "SELECT count(*) FROM app_schema_migrations" 10
 docker compose run --rm --no-deps -e MIGRATION_DB_NAME="$db_one" \
   -e LAB_MIGRATION_TEST_MODE=isolated-ci --entrypoint python3 \
   schema-init /opt/radius/migrate.py --verify-only >"$tmp/verify.log" 2>&1
@@ -161,10 +176,11 @@ run_migration "$db_two" >"$tmp/concurrent2.log" 2>&1 &
 second=$!
 wait "$first"
 wait "$second"
-assert_count "$db_two" "SELECT count(*) FROM app_schema_migrations" 9
+assert_count "$db_two" "SELECT count(*) FROM app_schema_migrations" 10
 assert_count "$db_two" "SELECT count(*) FROM pg_catalog.pg_tables WHERE schemaname='public' AND tablename='app_admin_sessions'" 1
 assert_count "$db_two" "SELECT count(*) FROM pg_catalog.pg_tables WHERE schemaname='public' AND tablename='app_admin_audit_events'" 1
 assert_count "$db_two" "SELECT count(*) FROM app_schema_migrations WHERE filename LIKE '00%.sql'" 9
+assert_count "$db_two" "SELECT count(*) FROM app_schema_migrations WHERE filename='010_accounting_quality.sql'" 1
 
 # 4. Verification-only mode cannot initialize schema or a migration ledger.
 setup_database "$db_partial"

@@ -54,6 +54,9 @@ MIGRATIONS = (
         "index:public.idx_app_radacct_recent",
         "index:public.idx_app_radacct_user_recent",
     )),
+    (10, "010_accounting_quality.sql", (
+        "procedure:public.app_accounting_row_anomalous(public.radacct)",
+    )),
 )
 FREERADIUS_OBJECTS = (
     "radcheck", "radreply", "radgroupcheck", "radgroupreply",
