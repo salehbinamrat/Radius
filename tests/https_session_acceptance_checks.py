@@ -45,6 +45,19 @@ class HttpsSessionContracts(unittest.TestCase):
         self.assertIn('mkdir -m 700 "$RADIUS_HTTPS_SECRET_DIR"',smoke)
         self.assertIn("config --format json",smoke)
 
+    def test_separate_certificate_and_real_tls_renewal(self):
+        server=(API/"Program.cs").read_text()
+        self.assertIn("RADIUS_DP_CERTIFICATE_PATH",server)
+        self.assertIn("RADIUS_DP_PASSWORD_FILE",server)
+        self.assertIn("CertificateRules.ValidatePair",server)
+        compose=(ROOT/"tests/admin-https.compose.yaml").read_text()
+        self.assertEqual(compose.count("RADIUS_DP_PASSWORD_FILE: /run/radius-secrets/dp-password"),2)
+        smoke=(ROOT/"scripts/admin-https-smoke.sh").read_text()
+        self.assertNotIn('"$tmp/tls/server.key"',smoke)
+        self.assertIn('mv -f "$tmp/tls/renewed.pfx" "$tmp/tls/server.pfx"',smoke)
+        self.assertIn('--cacert "$tmp/old-server.crt"',smoke)
+        self.assertIn("TLS key renewal preserved authenticated session",smoke)
+
     def test_https_smoke_uses_real_tls_verification_and_ephemeral_credentials(self):
         source = (ROOT / "scripts/admin-https-smoke.sh").read_text(encoding="utf-8")
         for item in ("openssl", "pkcs12", "LAB_HTTPS_TEST_ACK",

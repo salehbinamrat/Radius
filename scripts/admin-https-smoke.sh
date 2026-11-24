@@ -39,23 +39,35 @@ docker tag "$api_image" radius-stage3-ci-api:latest
 export RADIUS_HTTPS_FIXTURE_DIR="$tmp/tls"
 RADIUS_HTTPS_PFX_PASSWORD=$(python3 -c 'import secrets;print(secrets.token_urlsafe(36))')
 openssl req -x509 -newkey rsa:3072 -sha256 -nodes -days 1 \
-  -keyout "$tmp/tls/server.key" -out "$tmp/tls/server.crt" \
+  -keyout "$tmp/server.key" -out "$tmp/tls/server.crt" \
   -subj "/CN=localhost" \
   -addext "basicConstraints=critical,CA:TRUE" \
   -addext "extendedKeyUsage=serverAuth" \
   -addext "subjectAltName=DNS:localhost,IP:127.0.0.1" >/dev/null 2>&1
 printf "%s" "$RADIUS_HTTPS_PFX_PASSWORD" > "$tmp/pfx-password"
 openssl pkcs12 -export -out "$tmp/tls/server.pfx" \
-  -inkey "$tmp/tls/server.key" -in "$tmp/tls/server.crt" \
+  -inkey "$tmp/server.key" -in "$tmp/tls/server.crt" \
   -passout "file:$tmp/pfx-password" >/dev/null 2>&1
 chmod 644 "$tmp/tls/server.pfx" "$tmp/tls/server.crt"
-chmod 600 "$tmp/tls/server.key" "$tmp/pfx-password"
+chmod 600 "$tmp/server.key" "$tmp/pfx-password"
+# A separate encryption key is never used as the HTTPS server key.
+dp_password=$(python3 -c 'import secrets;print(secrets.token_urlsafe(36))')
+printf '%s' "$dp_password" > "$tmp/dp-password"
+openssl req -x509 -newkey rsa:3072 -sha256 -nodes -days 30 \
+  -keyout "$tmp/dp.key" -out "$tmp/dp.crt" -subj "/CN=Radius CI Data Protection" \
+  -addext "keyUsage=critical,keyEncipherment" >/dev/null 2>&1
+openssl pkcs12 -export -out "$tmp/tls/data-protection.pfx" -inkey "$tmp/dp.key" \
+  -in "$tmp/dp.crt" -passout "file:$tmp/dp-password" >/dev/null 2>&1
+chmod 644 "$tmp/tls/data-protection.pfx"
+unset dp_password
 # Only the individual read-only files are mounted for the unprivileged API.
 # The host directory is 0700; its contents are not traversable by other host users.
 export RADIUS_HTTPS_SECRET_DIR="$tmp/secrets"
 mkdir -m 700 "$RADIUS_HTTPS_SECRET_DIR"
 printf '%s' "$DB_PASSWORD" > "$RADIUS_HTTPS_SECRET_DIR/db-password"
 printf '%s' "$RADIUS_HTTPS_PFX_PASSWORD" > "$RADIUS_HTTPS_SECRET_DIR/tls-password"
+cp "$tmp/dp-password" "$RADIUS_HTTPS_SECRET_DIR/dp-password"
+chmod 444 "$RADIUS_HTTPS_SECRET_DIR/dp-password"
 printf '%s' "$RADIUS_SECRET" > "$RADIUS_HTTPS_SECRET_DIR/radius-secret"
 chmod 444 "$RADIUS_HTTPS_SECRET_DIR/db-password" "$RADIUS_HTTPS_SECRET_DIR/tls-password"
 python3 - "$RADIUS_HTTPS_SECRET_DIR" <<'PY'
@@ -84,6 +96,8 @@ assert env["ConnectionStrings__RadiusDb"].endswith("Username=radius_api")
 assert all(v["target"] not in ("/run/radius-secrets/db-password","/run/radius-secrets/bootstrap-db-password","/run/radius-secrets/runtime-db-password")
            for v in services["api"]["volumes"])
 assert env["RADIUS_TLS_PASSWORD_FILE"]=="/run/radius-secrets/tls-password"
+assert env["RADIUS_DP_PASSWORD_FILE"]=="/run/radius-secrets/dp-password"
+assert env["RADIUS_DP_CERTIFICATE_PATH"]=="/run/radius-tls/data-protection.pfx"
 '
 
 docker compose -p "$project" -f "$compose_file" config --quiet
@@ -208,7 +222,23 @@ PY
 check 403 -b "$jar" -H "Content-Type: application/json" \
   -d '{"name":"NoCsrf","downloadKbps":1024,"uploadKbps":256}' "$url/api/plans"
 
-# Restart API; encrypted persisted Data Protection key ring must preserve cookie validity.
+# Replace HTTPS certificate and private key, but keep the Data Protection key.
+# The authenticated jar predates the certificate change.
+old_tls=$(openssl x509 -in "$tmp/tls/server.crt" -noout -fingerprint -sha256)
+dp_before=$(sha256sum "$tmp/tls/data-protection.pfx" | cut -d ' ' -f1)
+cp "$tmp/tls/server.crt" "$tmp/old-server.crt"
+openssl req -x509 -newkey rsa:3072 -sha256 -nodes -days 1 \
+  -keyout "$tmp/renewed.key" -out "$tmp/renewed.crt" -subj "/CN=localhost" \
+  -addext "basicConstraints=critical,CA:TRUE" \
+  -addext "extendedKeyUsage=serverAuth" \
+  -addext "subjectAltName=DNS:localhost,IP:127.0.0.1" >/dev/null 2>&1
+openssl pkcs12 -export -out "$tmp/tls/renewed.pfx" -inkey "$tmp/renewed.key" \
+  -in "$tmp/renewed.crt" -passout "file:$tmp/pfx-password" >/dev/null 2>&1
+chmod 644 "$tmp/tls/renewed.pfx" "$tmp/renewed.crt"
+mv -f "$tmp/tls/renewed.pfx" "$tmp/tls/server.pfx"
+mv -f "$tmp/renewed.crt" "$tmp/tls/server.crt"
+new_tls=$(openssl x509 -in "$tmp/tls/server.crt" -noout -fingerprint -sha256)
+[[ "$old_tls" != "$new_tls" && "$(sha256sum "$tmp/tls/data-protection.pfx" | cut -d ' ' -f1)" == "$dp_before" ]]
 docker compose -p "$project" -f "$compose_file" restart api >/dev/null
 for i in $(seq 1 30); do
   if https -b "$jar" --fail "$url/api/summary" >/dev/null 2>&1; then break; fi
@@ -217,6 +247,14 @@ for i in $(seq 1 30); do
   fi
   sleep 2
 done
+
+# An old trust anchor must fail; the new trusted certificate and original
+# authenticated cookie already succeeded above. No insecure TLS bypass.
+if curl --silent --max-time 5 --cacert "$tmp/old-server.crt" \
+    --resolve "localhost:18443:127.0.0.1" "$url/api/health/ready" >/dev/null 2>&1; then
+  echo "Old TLS trust anchor unexpectedly accepted renewed certificate" >&2; exit 1
+fi
+echo "TLS key renewal preserved authenticated session with independent Data Protection PASS"
 
 # Change only role membership in this disposable DB, without rotating the security stamp.
 # An existing stream must close even when the new role can itself read status.
