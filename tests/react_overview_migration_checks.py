@@ -14,8 +14,8 @@ class OverviewMigrationChecks(unittest.TestCase):
         self.assertIn('id="view-overview"', html)
         self.assertIn('id="reactOverviewKpis"', html)
         self.assertIn('id="reactOverviewRecent"', html)
-        self.assertIn('id="nocPackageBars"', html)
-        self.assertIn('id="nocApiState"', html)
+        self.assertIn('id="reactOverviewPackages"', html)
+        self.assertIn('id="reactOverviewServices"', html)
         self.assertIn('id="view-plans"', html)
         self.assertIn("OverviewKpis", main)
         self.assertIn("OverviewRecent", main)
@@ -43,7 +43,7 @@ class OverviewMigrationChecks(unittest.TestCase):
         jsx=(FRONT/"Overview.tsx").read_text(encoding="utf-8")
         self.assertIn("أول 100", jsx)
         self.assertIn("البيانات السابقة", jsx)
-        self.assertIn("غير مفحوص", (WEB/"index.html").read_text(encoding="utf-8"))
+        self.assertIn("غير مفحوص", (WEB/"index.html").read_text(encoding="utf-8") + jsx)
         self.assertIn("onOverviewError", (WEB/"app.mjs").read_text(encoding="utf-8"))
 
     def test_ci_covers_react_bundle_and_node_model_tests(self):
