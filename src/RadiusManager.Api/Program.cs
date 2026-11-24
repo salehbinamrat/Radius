@@ -51,6 +51,10 @@ builder.Services.AddSingleton(_ =>
     Environment.GetEnvironmentVariable("RADIUS_SERVICE_HISTORY_PERSIST") == "1"
         ? new ServiceObservationHistory(new ServiceHistoryStore("/var/lib/radius-service-history"))
         : new ServiceObservationHistory());
+builder.Services.AddSingleton(_ =>
+    Environment.GetEnvironmentVariable("RADIUS_SERVICE_HISTORY_PERSIST") == "1"
+        ? new ServiceIncidentArchive(new ServiceIncidentStore("/var/lib/radius-service-history"))
+        : new ServiceIncidentArchive());
 builder.Services.AddHostedService<ServiceObservationWorker>();
 builder.Services.AddDbContext<AdminIdentityDbContext>(o => o.UseNpgsql(connectionString));
 builder.Services.AddIdentity<IdentityUser, IdentityRole>(options =>
@@ -235,6 +239,7 @@ api.MapGet("/service-status/radius", () => Results.Ok(RadiusHealthEvidence.Read(
 api.MapGet("/service-status/history", (ServiceObservationHistory history) => Results.Ok(history.Snapshot()));
 api.MapGet("/service-status/alerts", (ServiceObservationHistory history) =>
     Results.Ok(ServiceAlertProjection.Build(history.Snapshot().Samples, DateTimeOffset.UtcNow)));
+api.MapGet("/service-status/incidents", (ServiceIncidentArchive archive) => Results.Ok(archive.Snapshot(DateTimeOffset.UtcNow)));
 
 api.MapPlanEndpoints();
 
