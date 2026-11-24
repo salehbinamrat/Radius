@@ -23,7 +23,7 @@ class UltraUiTests(unittest.TestCase):
         self.assertEqual(len(p.ids),len(set(p.ids)))
         self.assertEqual(p.onattrs,[])
     def test_real_existing_app_preserved(self):
-        for ident in ['view-overview','view-vouchers','view-plans','view-accounting','view-sessions','view-capacity','reactPlanEditor','reactVoucherCreator','usageReport']:
+        for ident in ['view-overview','view-vouchers','view-plans','view-accounting','view-sessions','view-capacity','reactPlanEditor','reactVoucherCreator','reactUsageReport']:
             self.assertIn(f'id="{ident}"',HTML)
         plan_ui=(ROOT.parent/'frontend/src/PlanManagement.tsx').read_text(encoding='utf-8')
         voucher_ui=(ROOT.parent/'frontend/src/VoucherCreator.tsx').read_text(encoding='utf-8')
