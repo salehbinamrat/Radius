@@ -138,6 +138,7 @@ SQL
       -e DB_PASSWORD -e RADIUS_SECRET -e RADIUS_CLIENT_CIDR=192.0.2.0/24 \
       --mount "type=bind,src=$PWD/radius,dst=/opt/radius,readonly" \
       --mount "type=bind,src=$PWD/tests/freeradius-source-runtime.sh,dst=/opt/source-runtime.sh,readonly" \
+      --mount "type=bind,src=$PWD/tests/freeradius-source-command.sh,dst=/opt/source-command.sh,readonly" \
       --entrypoint /bin/bash "$image" /opt/source-runtime.sh \
       > "$reports/radius-source-candidate.sql-runtime.txt" 2>&1; then
     failed=1

@@ -326,3 +326,35 @@ class SecurityIntegrityChecks(unittest.TestCase):
             self.assertNotIn(name, probe)
         result = subprocess.run(['bash', '-n', str(ROOT / 'tests/freeradius-source-runtime.sh')], capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_source_alias_preserves_native_config_name_and_arguments(self):
+        import json
+        import os
+        import tempfile
+        wrapper = ROOT / 'tests/freeradius-source-command.sh'
+        runtime = (ROOT / 'tests/freeradius-source-runtime.sh').read_text()
+        probe = (ROOT / 'scripts/freeradius-source-candidate-ci.sh').read_text()
+        self.assertNotIn('ln -s /opt/sbin/radiusd /usr/local/bin/freeradius', runtime)
+        self.assertIn('cp /opt/source-command.sh /usr/local/bin/freeradius', runtime)
+        self.assertIn('dst=/opt/source-command.sh,readonly', probe)
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            native = directory / 'radiusd'
+            native.write_text('''#!/usr/bin/env python3
+import json, pathlib, sys
+args = sys.argv[1:]
+name = args[args.index('-n') + 1] if '-n' in args else pathlib.Path(sys.argv[0]).name
+if name != 'radiusd':
+    raise SystemExit(42)
+print(json.dumps(args))
+''')
+            native.chmod(0o755)
+            alias = directory / 'freeradius'
+            alias.symlink_to(native)
+            env = {**os.environ, 'PATH': str(directory) + ':' + os.environ['PATH']}
+            for args in (['-C', '-l', 'stdout'], ['-f', '-l', 'stdout']):
+                old = subprocess.run([str(alias), *args], env=env, capture_output=True)
+                self.assertEqual(old.returncode, 42)
+                result = subprocess.run(['sh', str(wrapper), *args], env=env, capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(json.loads(result.stdout), ['-n', 'radiusd', '-d', '/opt/etc/raddb', *args])

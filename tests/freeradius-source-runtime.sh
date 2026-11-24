@@ -19,7 +19,11 @@ if ! grep -q '^freerad:' /etc/group; then addgroup -S freerad; fi
 if ! id freerad >/dev/null 2>&1; then adduser -S -D -H -G freerad freerad; fi
 mkdir -p /etc/freeradius
 ln -s /opt/etc/raddb /etc/freeradius/3.0
-ln -s /opt/sbin/radiusd /usr/local/bin/freeradius
+# A symlink changes argv[0] and upstream derives the config name from it.
+# Use the native command with an explicit config name and directory.
+test -f /opt/source-command.sh
+cp /opt/source-command.sh /usr/local/bin/freeradius
+chmod 755 /usr/local/bin/freeradius
 mkdir -p /opt/var/run/radiusd /opt/var/log/radius/radacct
 chown -R freerad:freerad /opt/var
 # Use upstream's native security settings, not a root-only test.
