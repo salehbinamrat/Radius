@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Security.Claims;
 using Microsoft.AspNetCore.SignalR;
@@ -16,7 +17,8 @@ public static class LabStatusHubRules
         && RequestOriginRules.IsAllowed("POST", origin, fetchSite, "https", host);
 }
 
-public sealed record LabStatusSnapshot(string Scope, string Database, DateTime ObservedAtUtc);
+public sealed record LabStatusSnapshot(string Scope, string Api, string Database,
+    double SessionCheckMs, DateTime ObservedAtUtc);
 
 /// <summary>Bounded, read-only laboratory feed. No NAS actions or subscriber data.</summary>
 public sealed class LabStatusHub(IServiceScopeFactory scopes) : Hub
@@ -47,14 +49,23 @@ public sealed class LabStatusHub(IServiceScopeFactory scopes) : Hub
             for (var i = 0; i < 6; i++)
             {
                 if (i != 0) await Task.Delay(Interval, ct);
-                if (!await IsCurrentSessionAllowedAsync(ct))
+                // Measure only the authenticated read path, not a network ping or
+                // a claim about general PostgreSQL/FreeRADIUS performance.
+                var started = Stopwatch.GetTimestamp();
+                using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                deadline.CancelAfter(TimeSpan.FromSeconds(5));
+                var allowed = false;
+                try { allowed = await IsCurrentSessionAllowedAsync(deadline.Token); }
+                catch (OperationCanceledException) when (!ct.IsCancellationRequested) { }
+                if (!allowed || deadline.IsCancellationRequested)
                 {
                     Context.Abort();
                     yield break;
                 }
                 ct.ThrowIfCancellationRequested();
-                // The successful, fresh DB query above verifies database reachability.
-                yield return new LabStatusSnapshot("lab", "reachable", DateTime.UtcNow);
+                var elapsed = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+                yield return new LabStatusSnapshot("lab", "running", "reachable",
+                    Math.Round(elapsed, 2), DateTime.UtcNow);
             }
         }
         finally

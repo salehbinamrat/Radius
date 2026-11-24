@@ -215,6 +215,8 @@ check 200 -b "$jar" -c "$jar" -H "X-CSRF-TOKEN: $csrf" \
   -H "Content-Type: application/json" --data-binary @"$tmp/payload.json" "$url/api/admin/auth/login"
 check 200 -b "$jar" "$url/api/summary"
 cp "$jar" "$tmp/stale-after-logout.cookies"
+# Real Chromium login and stream lifecycle, in a separate admin session.
+node tests/browser/https-live-status-smoke.mjs
 # Exercise /api/admin/auth/logout while a real SignalR stream is open.
 python3 tests/signalr_https_wire_smoke.py "$tmp/tls/server.crt" "$jar"
 check 401 -b "$tmp/stale-after-logout.cookies" "$url/api/summary"

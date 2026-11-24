@@ -219,9 +219,12 @@ class Wire:
             require(kind == 2 and message.get("invocationId") == invocation,
                     "Missing current sample or unexpected old stream")
             item = message["item"]
-            require(set(item) == {"scope", "database", "observedAtUtc"}, "Unexpected status fields")
-            require(item["scope"] == "lab" and item["database"] == "reachable",
-                    "Unexpected laboratory status")
+            require(set(item) == {"scope", "api", "database", "sessionCheckMs", "observedAtUtc"}, "Unexpected status fields")
+            require(item["scope"] == "lab" and item["api"] == "running"
+                    and item["database"] == "reachable", "Unexpected laboratory status")
+            elapsed = item["sessionCheckMs"]
+            require(type(elapsed) in (int, float) and 0 <= elapsed <= 10000,
+                    "Invalid measured session check duration")
             when = datetime.fromisoformat(item["observedAtUtc"].replace("Z", "+00:00"))
             require(abs((datetime.now(timezone.utc) - when).total_seconds()) < 30,
                     "Snapshot is not fresh")
