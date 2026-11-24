@@ -46,24 +46,43 @@ for service in api radius db; do
     failed=1
   fi
 done
+# Compare an official same-major PostgreSQL candidate without starting it,
+# mounting any volume, or replacing the deployed image. It cannot waive the
+# current runtime gate. Both results must remain visible.
+candidate='postgres:16.16-trixie@sha256:820b1558a744efeda508506fd85bff573cec8b6941ff4790ef4884a526dd6e86'
+docker pull "$candidate"
+candidate_id=$(docker image inspect --format '{{.Id}}' "$candidate")
+[[ "$candidate_id" =~ ^sha256:[a-f0-9]{64}$ ]] || exit 1
+printf '%s %s\n' candidate-db "$candidate_id" >> "$reports/image-identities.txt"
+"$scanner" image --image-src docker --format cyclonedx --output "$reports/candidate-db.cdx.json" "$candidate_id"
+if "$scanner" image --image-src docker --scanners vuln --severity HIGH,CRITICAL \
+    --exit-code 1 --exit-on-eol 1 --format json \
+    --output "$reports/candidate-db.vulnerabilities.json" "$candidate_id"; then
+  echo 'Candidate image vulnerability gate passed'
+else
+  echo 'Candidate image vulnerability gate failed' >&2
+  failed=1
+fi
 # Require actual SBOM component inventories and vulnerability reports.
 python3 - "$reports" <<'PY'
 import json
 import sys
 from pathlib import Path
 root = Path(sys.argv[1])
-for name in ("source", "api", "radius", "db"):
+for name in ("source", "api", "radius", "db", "candidate-db"):
     data = json.loads((root / (name + ".cdx.json")).read_text())
     if data.get("bomFormat") != "CycloneDX" or not data.get("components"):
         raise SystemExit("Missing component inventory: " + name)
     print("SBOM", name, len(data["components"]), "components")
-for name in ("api", "radius", "db"):
+for name in ("api", "radius", "db", "candidate-db"):
     data = json.loads((root / (name + ".vulnerabilities.json")).read_text())
     if not data.get("Results"):
         raise SystemExit("Missing image scan results: " + name)
     for result in data["Results"]:
         for vuln in result.get("Vulnerabilities") or []:
             print(name, vuln.get("VulnerabilityID"), vuln.get("PkgName"),
-                  vuln.get("InstalledVersion"), vuln.get("Severity"))
+                  vuln.get("InstalledVersion"), vuln.get("Severity"),
+                  "fixed-version:", vuln.get("FixedVersion") or "not-reported",
+                  "status:", vuln.get("Status") or "unknown")
 PY
 exit "$failed"

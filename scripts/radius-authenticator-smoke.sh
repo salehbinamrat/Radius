@@ -6,6 +6,11 @@ cd "$(dirname "$0")/.."
   echo 'Requires isolated CI acknowledgement' >&2; exit 1;
 }
 docker compose exec -T radius dpkg-query -W freeradius freeradius-postgresql freeradius-utils
+docker compose exec -T radius sh -ec '
+  for path in /etc/freeradius/3.0/mods-enabled/eap /etc/freeradius/3.0/sites-enabled/inner-tunnel; do
+    test ! -e "$path" && test ! -L "$path" || exit 1
+  done
+'
 docker compose exec -T radius python3 - <<'PY'
 import hashlib
 import hmac
@@ -23,11 +28,16 @@ password = secrets.token_hex(8).encode("ascii")
 def attr(kind, value):
     return bytes((kind, len(value) + 2)) + value
 
-def request(sock, signed):
+def request(sock, signed, eap=False):
     ident = secrets.randbelow(256)
     auth = secrets.token_bytes(16)
     encrypted = bytes(a ^ b for a, b in zip(password, hashlib.md5(secret + auth).digest()))
     attrs = attr(1, username) + attr(2, encrypted) + attr(4, socket.inet_aton("127.0.0.1"))
+    if eap:
+        # Ordinary synthetic EAP Identity Response, not an exploit payload.
+        identity = username
+        eap_message = struct.pack("!BBHB", 2, ident, 5 + len(identity), 1) + identity
+        attrs = attr(1, username) + attr(79, eap_message) + attr(4, socket.inet_aton("127.0.0.1"))
     if signed:
         attrs += attr(80, bytes(16))
     packet = struct.pack("!BBH", 1, ident, 20 + len(attrs)) + auth + attrs
@@ -54,5 +64,7 @@ with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
     sock.connect(("127.0.0.1", 1812))
     request(sock, False)
     request(sock, True)
+    request(sock, True, eap=True)
+print("Unused EAP path: signed EAP request rejected PASS")
 print("Strict lab Message-Authenticator policy: unsigned request dropped, signed unknown account rejected PASS")
 PY

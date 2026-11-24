@@ -146,3 +146,26 @@ class SecurityIntegrityChecks(unittest.TestCase):
         self.assertIn('exit "$failed"', scan)
         for option in ('--ignore-unfixed', '--skip-db-update', '--exit-code 0'):
             self.assertNotIn(option, scan)
+
+    def test_unused_eap_is_disabled_without_weakening_aaa(self):
+        start = (ROOT / 'radius/start.sh').read_text()
+        site = (ROOT / 'radius/default.site').read_text()
+        smoke = (ROOT / 'scripts/radius-authenticator-smoke.sh').read_text()
+        for path in ('/etc/freeradius/3.0/mods-enabled/eap',
+                     '/etc/freeradius/3.0/sites-enabled/inner-tunnel'):
+            self.assertIn(path, start)
+            self.assertIn(path, smoke)
+        self.assertIn('if (&EAP-Message) {', site)
+        self.assertLess(site.index('if (&EAP-Message) {'), site.index('    sql'))
+        for auth in ('PAP', 'CHAP', 'MS-CHAP'):
+            self.assertIn('Auth-Type ' + auth, site)
+        self.assertIn('signed EAP request rejected', smoke)
+
+    def test_candidate_scan_does_not_replace_current_runtime_gate(self):
+        scan = (ROOT / 'scripts/security-scan-ci.sh').read_text()
+        self.assertIn('postgres:16.16-trixie@sha256:820b1558a744efeda508506fd85bff573cec8b6941ff4790ef4884a526dd6e86', scan)
+        self.assertIn('candidate-db.vulnerabilities.json', scan)
+        self.assertIn('for service in api radius db;', scan)
+        self.assertIn('vuln.get("FixedVersion")', scan)
+        self.assertIn('exit "$failed"', scan)
+        self.assertNotIn('--ignore-unfixed', scan)
