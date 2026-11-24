@@ -13,6 +13,7 @@ import { LiveStatusPanel } from './LiveStatusPanel';
 import { ServiceHistoryPanel } from './ServiceHistoryPanel';
 import { ServiceAlertsPanel } from './ServiceAlertsPanel';
 import { OwnershipPanel } from './OwnershipPanel';
+import { ResellerWorkspace } from './ResellerWorkspace';
 
 // Incremental migration: the original JavaScript dashboard still owns all
 // existing forms, routes, RADIUS workflows and operator interactions.
@@ -100,4 +101,9 @@ if (serviceAlertsMount) {
 const ownershipMount = document.getElementById('reactOwnership');
 if (ownershipMount) {
   createRoot(ownershipMount).render(<StrictMode><OwnershipPanel /></StrictMode>);
+}
+
+const resellerMount = document.getElementById('reactResellerWorkspace');
+if (resellerMount) {
+  createRoot(resellerMount).render(<StrictMode><ResellerWorkspace /></StrictMode>);
 }
