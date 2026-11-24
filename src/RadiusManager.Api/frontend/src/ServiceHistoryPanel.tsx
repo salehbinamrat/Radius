@@ -1,59 +1,12 @@
-import { useEffect, useState } from 'react';
-import { parseServiceHistory, historyMetrics, latencySegments, type ServiceHistory } from '../../wwwroot/service-history-model.mjs';
+import { useServiceMonitor } from './useServiceMonitor';
+import { parseServiceHistory, historyMetrics, latencySegments } from '../../wwwroot/service-history-model.mjs';
 
-type State = {status:'loading'|'ready'|'error'|'denied';data:ServiceHistory|null};
-const initial:State={status:'loading',data:null};
 const labels = {reachable:'استجاب',responsive:'استجاب','no-response':'لم يستجب',unknown:'غير مؤكد'};
 const format = (n:number|null) => n===null?'—':n.toLocaleString('en-US',{maximumFractionDigits:2});
 function cssState(state:string) { return state==='no-response'?'history-bad':state==='unknown'?'':'history-good'; }
 
 export function ServiceHistoryPanel() {
-  const [enabled,setEnabled]=useState(false);
-  const [view,setView]=useState<State>(initial);
-  useEffect(()=>{
-    const scope=(event:Event)=>{
-      const active=(event as CustomEvent<{enabled?:boolean}>).detail?.enabled===true && location.protocol==='https:';
-      setEnabled(active);
-      if (!active) setView(initial);
-    };
-    const logout=()=>{setEnabled(false);setView(initial);};
-    window.addEventListener('radius-live-status-scope',scope);
-    window.addEventListener('radius-session-logged-out',logout);
-    window.dispatchEvent(new Event('radius-live-status-request'));
-    return ()=>{
-      window.removeEventListener('radius-live-status-scope',scope);
-      window.removeEventListener('radius-session-logged-out',logout);
-    };
-  },[]);
-  useEffect(()=>{
-    if (!enabled) return;
-    let disposed=false;
-    let timer:ReturnType<typeof setTimeout>|undefined;
-    let controller:AbortController|undefined;
-    async function read(){
-      controller=new AbortController();
-      const timeout=setTimeout(()=>controller?.abort(),5000);
-      let denied=false;
-      try {
-        const response=await fetch('/api/service-status/history',{credentials:'same-origin',cache:'no-store',signal:controller.signal});
-        if (disposed) return;
-        if (response.status===401||response.status===403) {
-          denied=true;setView({status:'denied',data:null});return;
-        }
-        if (!response.ok) throw new Error('history');
-        const data=parseServiceHistory(await response.json());
-        if (!data) throw new Error('history');
-        if (!disposed) setView({status:'ready',data});
-      } catch {
-        if (!disposed) setView({status:'error',data:null});
-      } finally {
-        clearTimeout(timeout);
-        if (!disposed&&!denied) timer=setTimeout(()=>{void read();},15000);
-      }
-    }
-    setView(initial);void read();
-    return ()=>{disposed=true;clearTimeout(timer);controller?.abort();};
-  },[enabled]);
+  const {enabled,view}=useServiceMonitor('/api/service-status/history',parseServiceHistory);
   if (!enabled) return null;
   const samples=view.data?.samples??[];
   const metrics=historyMetrics(samples);
