@@ -125,6 +125,45 @@ def main():
                            "psql","-X","-At","-v","ON_ERROR_STOP=1","-U","radius","-d","radius"],
                           input=check_sql,text=True,capture_output=True,check=True,timeout=20)
     assert result.stdout.strip()=="1"
+    # Transfer requires a fresh ownership version, and cannot be performed by a reseller.
+    path="/api/ownership/accounts/lab_0000000000a1"
+    first=admin("GET",path+"/owner",200)
+    assert first["ownerId"]=="ci-owner-a" and first["active"] and first["version"]
+    payload={"expectedOwnerId":"ci-owner-a","expectedVersion":first["version"],"newOwnerId":"ci-owner-b"}
+    reseller("GET",path+"/owner",403)
+    reseller("POST",path+"/transfer",403,payload,reseller_csrf)
+    admin("POST",path+"/transfer",403,payload)
+    admin("POST",path+"/transfer",400,{**payload,"newOwnerId":"ci-owner-a"},csrf)
+    admin("POST",path+"/transfer",409,{**payload,"newOwnerId":"missing-owner"},csrf)
+    admin("POST","/api/ownership/accounts/lab_0000000000d1/transfer",404,payload,csrf)
+    # Race the same expected version in two real admin sessions.
+    def transfer(request):
+        token=request("GET","/api/admin/auth/csrf",200)["requestToken"]
+        return request("POST",path+"/transfer",(200,409),payload,token)[0]
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        assert sorted(pool.map(transfer,[item[0] for item in contenders]))==[200,409]
+    second=admin("GET",path+"/owner",200)
+    assert second["ownerId"]=="ci-owner-b" and second["version"]!=first["version"]
+    assert "lab_0000000000a1" not in {r["username"] for r in reseller("GET","/api/reseller/accounts",200)["accounts"]}
+    other=session("ci_owner_b")
+    assert "lab_0000000000a1" in {r["username"] for r in other("GET","/api/reseller/accounts",200)["accounts"]}
+    reverse={"expectedOwnerId":"ci-owner-b","expectedVersion":second["version"],"newOwnerId":"ci-owner-a"}
+    admin("POST",path+"/transfer",200,reverse,csrf)
+    third=admin("GET",path+"/owner",200)
+    assert third["ownerId"]=="ci-owner-a" and third["version"] not in (first["version"],second["version"])
+    admin("POST",path+"/transfer",409,payload,csrf)
+    check_transfers="""
+    SELECT count(*) FROM app_lab_owner_transfers t
+    JOIN app_admin_audit_events a ON a.correlation_id=t.id AND a.actor_user_id=t.actor_user_id
+    WHERE t.username='lab_0000000000a1' AND a.action='voucher_owner_transferred'
+      AND a.subject_id=t.username AND a.outcome='success';
+    SELECT count(*) FROM app_lab_owner_transfers WHERE username='lab_0000000000a1';
+    """
+    result=subprocess.run(["docker","compose","-p",project,"-f",compose_file,"exec","-T","db",
+                           "psql","-X","-At","-v","ON_ERROR_STOP=1","-U","radius","-d","radius"],
+                          input=check_transfers,text=True,capture_output=True,check=True,timeout=20)
+    assert result.stdout.splitlines()==["2","2"]
+    print("Version-bound transfer race, owner isolation, stale ABA rejection and correlated audit PASS")
     # Leave exactly one active unassigned and one disabled unassigned voucher
     # in this disposable database for the subsequent real Chromium acceptance.
     browser_sql="""

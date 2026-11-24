@@ -108,7 +108,11 @@ public sealed class AdminSecurityRulesTests
         Assert.Equal(expected, AdminAuthorizationRules.IsAllowed(user, "POST", "/api/ownership/accounts/lab_0123456789ab/assign"));
         Assert.False(AdminAuthorizationRules.IsAllowed(user, "POST", "/api/ownership/accounts/external/assign"));
         Assert.False(AdminAuthorizationRules.IsAllowed(user, "DELETE", "/api/ownership/accounts/lab_0123456789ab/assign"));
-        Assert.False(AdminAuthorizationRules.IsAllowed(user, "POST", "/api/ownership/accounts/lab_0123456789ab/transfer"));
+        Assert.Equal(expected, AdminAuthorizationRules.IsAllowed(user, "POST", "/api/ownership/accounts/lab_0123456789ab/transfer"));
+        Assert.Equal(expected, AdminAuthorizationRules.IsAllowed(user, "GET", "/api/ownership/accounts/lab_0123456789ab/owner"));
+        Assert.False(AdminAuthorizationRules.IsAllowed(user, "GET", "/api/ownership/accounts/external/owner"));
+        Assert.False(AdminAuthorizationRules.IsAllowed(user, "GET", "/api/ownership/accounts/lab_0123456789ab/transfer"));
+        Assert.False(AdminAuthorizationRules.IsAllowed(user, "DELETE", "/api/ownership/accounts/lab_0123456789ab/owner"));
         Assert.False(AdminAuthorizationRules.IsAllowed(Principal("super-admin"), "GET", "/api/ownership/resellers"));
     }
 

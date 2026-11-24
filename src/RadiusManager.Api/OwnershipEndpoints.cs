@@ -4,6 +4,7 @@ using Npgsql;
 namespace RadiusManager.Api;
 
 public sealed record AssignOwnershipInput(string? OwnerId);
+public sealed record TransferOwnershipInput(string? ExpectedOwnerId, Guid ExpectedVersion, string? NewOwnerId);
 
 public static class OwnershipRules
 {
@@ -24,9 +25,10 @@ public static class OwnershipRules
         if (ActorId(user) is null) return false;
         if (path is "/api/ownership/resellers" or "/api/ownership/accounts") return method is "GET" or "HEAD";
         var parts = path.Split('/');
-        return method == "POST" && parts.Length == 6 && parts[1] == "api"
-            && parts[2] == "ownership" && parts[3] == "accounts"
-            && LabAccountRules.IsLabUsername(parts[4]) && parts[5] == "assign";
+        if (parts.Length != 6 || parts[1] != "api" || parts[2] != "ownership"
+            || parts[3] != "accounts" || !LabAccountRules.IsLabUsername(parts[4])) return false;
+        return (method is "GET" or "HEAD") && parts[5] == "owner"
+            || method == "POST" && (parts[5] is "assign" or "transfer");
     }
 }
 
@@ -135,6 +137,92 @@ public static class OwnershipEndpoints
             }
             await tx.CommitAsync(ct);
             return Results.Ok(new { username, ownerId = input.OwnerId, assigned = true, labOnly = true });
+        });
+        api.MapGet("/accounts/{username}/owner", async (string username, HttpContext ctx, NpgsqlDataSource db, CancellationToken ct) =>
+        {
+            if (!sessionMode || !ctx.Request.IsHttps || OwnershipRules.ActorId(ctx.User) is null)
+                return Results.StatusCode(403);
+            if (!LabAccountRules.IsLabUsername(username)) return Results.BadRequest();
+            await using var cmd = db.CreateCommand("""
+                SELECT a.active, o.owner_user_id, o.ownership_version
+                FROM app_lab_accounts a
+                LEFT JOIN app_lab_account_owners o ON o.username=a.username
+                WHERE a.username=@name
+                """);
+            cmd.Parameters.AddWithValue("name", username);
+            await using var reader = await cmd.ExecuteReaderAsync(ct);
+            if (!await reader.ReadAsync(ct)) return Results.NotFound();
+            return Results.Ok(new { username, active = reader.GetBoolean(0),
+                ownerId = reader.IsDBNull(1) ? null : reader.GetString(1),
+                version = reader.IsDBNull(2) ? (Guid?)null : reader.GetGuid(2), labOnly = true });
+        });
+
+        api.MapPost("/accounts/{username}/transfer", async (string username, TransferOwnershipInput input,
+            HttpContext ctx, NpgsqlDataSource db, CancellationToken ct) =>
+        {
+            var actor = sessionMode && ctx.Request.IsHttps ? OwnershipRules.ActorId(ctx.User) : null;
+            if (actor is null) return Results.StatusCode(403);
+            if (!LabAccountRules.IsLabUsername(username) || !OwnershipRules.ValidOwnerId(input.ExpectedOwnerId)
+                || !OwnershipRules.ValidOwnerId(input.NewOwnerId) || input.ExpectedVersion == Guid.Empty
+                || input.ExpectedOwnerId == input.NewOwnerId)
+                return Results.BadRequest(new { error = "بيانات نقل الملكية غير صالحة" });
+            await using var conn = await db.OpenConnectionAsync(ct);
+            await using var tx = await conn.BeginTransactionAsync(ct);
+            await using (var account = new NpgsqlCommand("""
+                SELECT active FROM app_lab_accounts WHERE username=@name FOR UPDATE
+                """, conn, tx))
+            {
+                account.Parameters.AddWithValue("name", username);
+                var active = await account.ExecuteScalarAsync(ct);
+                if (active is null) return Results.NotFound();
+                if (active is not true) return Results.Conflict(new { error = "الكرت التجريبي معطل" });
+            }
+            var next = Guid.NewGuid();
+            var correlation = Guid.NewGuid();
+            await using (var update = new NpgsqlCommand("""
+                UPDATE app_lab_account_owners o
+                SET owner_user_id=@newOwner, ownership_version=@next, assigned_at=now()
+                WHERE o.username=@name AND o.owner_user_id=@oldOwner AND o.ownership_version=@expected
+                AND EXISTS (SELECT 1 FROM (
+                """ + "\n" + EligibleResellers + """
+                ) eligible WHERE eligible."Id"=@newOwner)
+                RETURNING o.username
+                """, conn, tx))
+            {
+                update.Parameters.AddWithValue("name", username);
+                update.Parameters.AddWithValue("oldOwner", input.ExpectedOwnerId!);
+                update.Parameters.AddWithValue("newOwner", input.NewOwnerId!);
+                update.Parameters.AddWithValue("expected", input.ExpectedVersion);
+                update.Parameters.AddWithValue("next", next);
+                if (await update.ExecuteScalarAsync(ct) is null)
+                    return Results.Conflict(new { error = "تغيرت الملكية أو الوكيل غير مؤهل. أعد قراءة الحالة." });
+            }
+            await using (var history = new NpgsqlCommand("""
+                INSERT INTO app_lab_owner_transfers(id,username,previous_owner_id,new_owner_id,actor_user_id,previous_version,new_version)
+                VALUES (@correlation,@name,@oldOwner,@newOwner,@actor,@expected,@next)
+                """, conn, tx))
+            {
+                history.Parameters.AddWithValue("correlation", correlation);
+                history.Parameters.AddWithValue("name", username);
+                history.Parameters.AddWithValue("oldOwner", input.ExpectedOwnerId!);
+                history.Parameters.AddWithValue("newOwner", input.NewOwnerId!);
+                history.Parameters.AddWithValue("actor", actor);
+                history.Parameters.AddWithValue("expected", input.ExpectedVersion);
+                history.Parameters.AddWithValue("next", next);
+                await history.ExecuteNonQueryAsync(ct);
+            }
+            await using (var audit = new NpgsqlCommand("""
+                INSERT INTO app_admin_audit_events(actor_user_id,action,subject_kind,subject_id,outcome,correlation_id)
+                VALUES (@actor,'voucher_owner_transferred','lab_account',@name,'success',@correlation)
+                """, conn, tx))
+            {
+                audit.Parameters.AddWithValue("actor", actor);
+                audit.Parameters.AddWithValue("name", username);
+                audit.Parameters.AddWithValue("correlation", correlation);
+                await audit.ExecuteNonQueryAsync(ct);
+            }
+            await tx.CommitAsync(ct);
+            return Results.Ok(new { username, ownerId = input.NewOwnerId, version = next, transferred = true, labOnly = true });
         });
         return app;
     }
