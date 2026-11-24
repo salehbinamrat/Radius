@@ -15,6 +15,7 @@ import uuid
 from pathlib import Path
 
 import psycopg2
+from radius_secret_input import load_hex
 
 ENGINE_VERSION = "2.0.0"
 SQL_DIR = Path("/opt/radius")
@@ -186,9 +187,7 @@ def verified_prefix(connection, files):
 
 
 def run():
-    password = os.environ.get("DB_PASSWORD", "")
-    if not re.fullmatch(r"[a-f0-9]{48}", password):
-        raise RuntimeError("Missing/invalid DB_PASSWORD")
+    password = load_hex("DB_PASSWORD")
     dbname = os.environ.get("MIGRATION_DB_NAME", "radius")
     lab_mode = os.environ.get("LAB_MIGRATION_TEST_MODE") == "isolated-ci"
     if dbname != "radius" and not (

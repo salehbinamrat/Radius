@@ -56,12 +56,19 @@ export RADIUS_HTTPS_SECRET_DIR="$tmp/secrets"
 mkdir -m 700 "$RADIUS_HTTPS_SECRET_DIR"
 printf '%s' "$DB_PASSWORD" > "$RADIUS_HTTPS_SECRET_DIR/db-password"
 printf '%s' "$RADIUS_HTTPS_PFX_PASSWORD" > "$RADIUS_HTTPS_SECRET_DIR/tls-password"
+printf '%s' "$RADIUS_SECRET" > "$RADIUS_HTTPS_SECRET_DIR/radius-secret"
 chmod 444 "$RADIUS_HTTPS_SECRET_DIR/db-password" "$RADIUS_HTTPS_SECRET_DIR/tls-password"
+chmod 400 "$RADIUS_HTTPS_SECRET_DIR/radius-secret"
 unset RADIUS_HTTPS_PFX_PASSWORD
 # No database, Basic or PFX password should appear in the API container env.
 docker compose -p "$project" -f "$compose_file" config --format json | python3 -c '
 import json,sys
-env=json.load(sys.stdin)["services"]["api"]["environment"]
+services=json.load(sys.stdin)["services"]
+env=services["api"]["environment"]
+assert "POSTGRES_PASSWORD" not in services["db"]["environment"]
+assert services["db"]["environment"]["POSTGRES_PASSWORD_FILE"]=="/run/radius-secrets/db-password"
+assert "DB_PASSWORD" not in services["schema-init"]["environment"]
+assert services["schema-init"]["environment"]["DB_PASSWORD_FILE"]=="/run/radius-secrets/db-password"
 assert "Password=" not in env["ConnectionStrings__RadiusDb"]
 assert not {"RADIUS_ADMIN_PASSWORD","ASPNETCORE_Kestrel__Certificates__Default__Password","DB_PASSWORD"}.intersection(env)
 assert env["RADIUS_DB_PASSWORD_FILE"]=="/run/radius-secrets/db-password"
@@ -82,6 +89,9 @@ for i in $(seq 1 45); do
   fi
   sleep 2
 done
+# A one-off FreeRADIUS process on the same disposable network uses files
+# only; no host ports or health evidence are published by it.
+bash scripts/radius-file-secret-smoke.sh "$project" "$compose_file"
 out="$tmp/response"
 check() {
   local expected="$1"; shift

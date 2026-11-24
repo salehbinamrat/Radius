@@ -8,9 +8,10 @@ services:
     environment:
       POSTGRES_USER: radius
       POSTGRES_DB: radius
-      POSTGRES_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD via isolated .env}
+      POSTGRES_PASSWORD_FILE: /run/radius-secrets/db-password
     volumes:
       - https_pg_data:/var/lib/postgresql/data
+      - ${RADIUS_HTTPS_SECRET_DIR:?Private temporary secret directory required}/db-password:/run/radius-secrets/db-password:ro
       - ../database/001_app.sql:/docker-entrypoint-initdb.d/001_app.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U radius -d radius"]
@@ -23,9 +24,10 @@ services:
     image: radius-stage3-ci-schema:latest
     restart: "no"
     environment:
-      DB_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD}
+      DB_PASSWORD_FILE: /run/radius-secrets/db-password
     entrypoint: ["/bin/bash", "/usr/local/bin/schema-init.sh"]
     volumes:
+      - ${RADIUS_HTTPS_SECRET_DIR:?Private temporary secret directory required}/db-password:/run/radius-secrets/db-password:ro
       - ../database/001_app.sql:/opt/radius/001_app.sql:ro
       - ../database/002_lab_accounts.sql:/opt/radius/002_lab_accounts.sql:ro
       - ../database/003_accounting.sql:/opt/radius/003_accounting.sql:ro

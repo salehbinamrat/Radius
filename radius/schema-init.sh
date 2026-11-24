@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
-if [[ ! "${DB_PASSWORD:-}" =~ ^[a-f0-9]{48}$ ]]; then
-  echo 'Invalid DB_PASSWORD' >&2; exit 1
-fi
-export PGPASSWORD="$DB_PASSWORD"
+# Use a private libpq password file instead of exporting the password.
+umask 077
+pgpass=$(mktemp)
+trap 'rm -f -- "$pgpass"' EXIT
+db_password=$(python3 /opt/radius/radius_secret_input.py DB_PASSWORD)
+printf 'db:5432:radius:radius:%s\n' "$db_password" > "$pgpass"
+unset db_password PGPASSWORD
+export PGPASSFILE="$pgpass"
 SCHEMA=/etc/freeradius/3.0/mods-config/sql/main/postgresql/schema.sql
 if [[ ! -f "$SCHEMA" ]]; then
   echo "FreeRADIUS distribution does not include $SCHEMA" >&2; exit 1
