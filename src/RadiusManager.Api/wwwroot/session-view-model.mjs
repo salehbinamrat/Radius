@@ -20,13 +20,18 @@ function formattedBytes(value) {
   return mb >= 1024 ? (mb / 1024).toFixed(2) + ' GB' : mb.toFixed(2) + ' MB';
 }
 
-export function buildSessionViewSnapshot(sessions, term = '') {
+export function filterLoadedSessions(sessions, term = '') {
   const loaded = Array.isArray(sessions) ? sessions.slice(0, 100) : [];
   const query = String(term).trim().toLowerCase();
-  const filtered = loaded.filter(s =>
+  return loaded.filter(s =>
     (String(s.username) + ' ' + String(s.framedIp) + ' ' +
      String(s.callingStationId) + ' ' + String(s.nasIp))
       .toLowerCase().includes(query));
+}
+
+export function buildSessionViewSnapshot(sessions, term = '') {
+  const loaded = Array.isArray(sessions) ? sessions.slice(0, 100) : [];
+  const filtered = filterLoadedSessions(loaded, term);
   const visible = filtered.map(s => {
     const known = Object.hasOwn(labels, s.classification);
     return {
