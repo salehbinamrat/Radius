@@ -66,6 +66,26 @@ class MigrationLedgerContracts(unittest.TestCase):
                        "wait", "preserved"):
             self.assertIn(marker, smoke)
 
+    def test_accounting_index_migration_is_additive_and_verified(self):
+        sql=(ROOT/"database/009_accounting_read_indexes.sql").read_text()
+        self.assertEqual(sql.count("CREATE INDEX"),2)
+        self.assertIn("SET LOCAL lock_timeout",sql)
+        self.assertIn("SET LOCAL statement_timeout",sql)
+        self.assertNotIn("IF NOT EXISTS",sql)
+        engine=ENGINE.read_text()
+        for marker in ("009_accounting_read_indexes.sql","indisvalid","indisready","indislive",
+                       "pg_get_indexdef","Accounting index definition or validity mismatch"):
+            self.assertIn(marker,engine)
+        for path in ("compose.yaml","tests/admin-https.compose.yaml"):
+            self.assertIn("009_accounting_read_indexes.sql:/opt/radius/009_accounting_read_indexes.sql:ro",
+                          (ROOT/path).read_text())
+        smoke=(ROOT/"scripts/migration-ledger-smoke.sh").read_text()
+        self.assertIn("MIGRATION_FAIL_AFTER_SQL_VERSION=9",smoke)
+        self.assertIn("migration9-fixture",smoke)
+        self.assertIn("Incorrect accounting index definition was accepted",smoke)
+        self.assertIn("accounting_indexes_verify.sql",(ROOT/"scripts/lab-restore-drill.sh").read_text())
+        self.assertIn("remove_migrated_indexes_for_baseline",(ROOT/"tests/accounting_query_performance.py").read_text())
+
     def test_migration_acceptance_in_ci_after_existing_smoke_and_before_recovery(self):
         ci = (ROOT / ".github/workflows/ci.yml").read_text()
         self.assertIn("bash scripts/migration-ledger-smoke.sh", ci)
