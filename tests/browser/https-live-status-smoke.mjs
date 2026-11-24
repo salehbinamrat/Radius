@@ -15,7 +15,7 @@ const statuses = [];
 let pageErrors = 0, cspErrors = 0, failedRequests = 0;
 const allowedPaths = new Set(['/', '/modern/noc-react.mjs', '/app.mjs',
   '/api/admin/auth/mode', '/api/admin/auth/csrf', '/api/admin/auth/login',
-  '/api/admin/auth/me', '/api/admin/auth/logout', '/api/summary', '/api/plans', '/api/lab-accounts', '/api/service-status/history', '/api/service-status/alerts', '/api/service-status/incidents']);
+  '/api/admin/auth/me', '/api/admin/auth/logout', '/api/summary', '/api/plans', '/api/lab-accounts', '/api/service-status/history', '/api/service-status/alerts', '/api/service-status/incidents', '/api/ownership/resellers', '/api/ownership/accounts', '/api/ownership/accounts/lab_0000000000e1/assign']);
 const step = name => { stage = name; console.log('HTTPS Chromium step: ' + name); };
 try {
   browser = await chromium.launch({ headless: true,
@@ -98,8 +98,23 @@ try {
   for (let i = 0; i < 50 && sockets.some(s => !s.closed); i++)
     await new Promise(resolve => setTimeout(resolve, 100));
   assert.ok(sockets.every(s => s.closed), 'WebSocket remained after navigation');
+  step('ownership assignment');
+  await page.locator('[data-view="vouchers"]').click();
+  const ownership=page.locator('#reactOwnership [data-ownership-state="ready"]');
+  await ownership.waitFor({state:'visible',timeout:20000});
+  await ownership.locator('#ownershipCard').selectOption('lab_0000000000e1');
+  await ownership.locator('#ownershipReseller').selectOption('ci-owner-a');
+  assert.equal(await ownership.locator('option[value="lab_0000000000f1"]').count(),0);
+  page.once('dialog',dialog=>dialog.accept());
+  const assigned=page.waitForResponse(r=>r.url()===origin+'/api/ownership/accounts/lab_0000000000e1/assign'&&r.request().method()==='POST');
+  await ownership.locator('#ownershipAssign').click();
+  assert.equal((await assigned).status(),200);
+  await page.waitForFunction(()=>document.querySelector('[data-ownership-result]')?.textContent?.includes('تم إسناد الكرت بنجاح'));
+  await ownership.waitFor({state:'visible'});
+  assert.equal(await ownership.locator('option[value="lab_0000000000e1"]').count(),0);
   step('navigate back');
   await page.locator('[data-view="overview"]').click();
+  await page.waitForFunction(()=>document.querySelector('#reactOwnership')?.childElementCount===0);
   await live.waitFor({ state: 'visible', timeout: 25000 });
   assert.ok(sockets.length >= 2, 'Missing new connection on overview return');
   await history.waitFor({ state: 'visible', timeout: 25000 });

@@ -125,6 +125,20 @@ def main():
                            "psql","-X","-At","-v","ON_ERROR_STOP=1","-U","radius","-d","radius"],
                           input=check_sql,text=True,capture_output=True,check=True,timeout=20)
     assert result.stdout.strip()=="1"
+    # Leave exactly one active unassigned and one disabled unassigned voucher
+    # in this disposable database for the subsequent real Chromium acceptance.
+    browser_sql="""
+    INSERT INTO app_lab_accounts(username,plan_id)
+    VALUES ('lab_0000000000e1','00600000-0000-4000-8000-000000000001');
+    INSERT INTO app_lab_accounts(username,plan_id,active,disabled_at)
+    VALUES ('lab_0000000000f1','00600000-0000-4000-8000-000000000001',false,now());
+    """
+    subprocess.run(["docker","compose","-p",project,"-f",compose_file,"exec","-T","db",
+                    "psql","-X","-v","ON_ERROR_STOP=1","-U","radius","-d","radius"],
+                   input=browser_sql,text=True,capture_output=True,check=True,timeout=20)
+    options=admin("GET","/api/ownership/accounts",200)
+    assert [row["username"] for row in options["accounts"]]==["lab_0000000000e1"]
+    reseller("GET","/api/ownership/accounts",403)
     print("Two isolated reseller sessions: owner-only reads, forbidden writes, concurrent initial assignment and atomic audit PASS")
 
 if __name__=="__main__":

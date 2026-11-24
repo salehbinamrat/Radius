@@ -22,7 +22,7 @@ public static class OwnershipRules
     public static bool IsAllowed(ClaimsPrincipal user, string method, string path)
     {
         if (ActorId(user) is null) return false;
-        if (path == "/api/ownership/resellers") return method is "GET" or "HEAD";
+        if (path is "/api/ownership/resellers" or "/api/ownership/accounts") return method is "GET" or "HEAD";
         var parts = path.Split('/');
         return method == "POST" && parts.Length == 6 && parts[1] == "api"
             && parts[2] == "ownership" && parts[3] == "accounts"
@@ -62,6 +62,28 @@ public static class OwnershipEndpoints
                 rows.Add(new { id = reader.GetString(0), username = reader.IsDBNull(1) ? null : reader.GetString(1) });
             }
             return Results.Ok(new { resellers = rows, hasMore, limit = 100, labOnly = true });
+        });
+
+        api.MapGet("/accounts", async (HttpContext ctx, NpgsqlDataSource db, CancellationToken ct) =>
+        {
+            if (!sessionMode || !ctx.Request.IsHttps || OwnershipRules.ActorId(ctx.User) is null)
+                return Results.StatusCode(403);
+            var rows = new List<object>();
+            await using var cmd = db.CreateCommand("""
+                SELECT a.username, p.name FROM app_lab_accounts a
+                JOIN app_plans p ON p.id=a.plan_id
+                WHERE a.active AND NOT EXISTS (
+                    SELECT 1 FROM app_lab_account_owners o WHERE o.username=a.username)
+                ORDER BY a.created_at DESC, a.username LIMIT 101
+                """);
+            await using var reader = await cmd.ExecuteReaderAsync(ct);
+            bool hasMore = false;
+            while (await reader.ReadAsync(ct))
+            {
+                if (rows.Count == 100) { hasMore = true; break; }
+                rows.Add(new { username = reader.GetString(0), planName = reader.GetString(1) });
+            }
+            return Results.Ok(new { accounts = rows, hasMore, limit = 100, labOnly = true });
         });
 
         api.MapPost("/accounts/{username}/assign", async (string username, AssignOwnershipInput input,

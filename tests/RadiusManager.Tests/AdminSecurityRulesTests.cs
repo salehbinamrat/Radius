@@ -104,6 +104,7 @@ public sealed class AdminSecurityRulesTests
             new Claim(ClaimTypes.Role, role), new Claim(ClaimTypes.NameIdentifier, "actor")
         ], "test"));
         Assert.Equal(expected, AdminAuthorizationRules.IsAllowed(user, "GET", "/api/ownership/resellers"));
+        Assert.Equal(expected, AdminAuthorizationRules.IsAllowed(user, "GET", "/api/ownership/accounts"));
         Assert.Equal(expected, AdminAuthorizationRules.IsAllowed(user, "POST", "/api/ownership/accounts/lab_0123456789ab/assign"));
         Assert.False(AdminAuthorizationRules.IsAllowed(user, "POST", "/api/ownership/accounts/external/assign"));
         Assert.False(AdminAuthorizationRules.IsAllowed(user, "DELETE", "/api/ownership/accounts/lab_0123456789ab/assign"));
