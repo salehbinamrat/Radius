@@ -29,5 +29,9 @@ class BrowserCiContract(unittest.TestCase):
         self.assertIn('scripts/admin-https-smoke.sh',CI)
         self.assertIn('scripts/lab-recovery-smoke.sh',CI)
         self.assertIn('actions/setup-node@v4',CI)
+    def test_react_library_output_never_requires_node_process_in_chromium(self):
+        vite=(ROOT/'src/RadiusManager.Api/frontend/vite.config.ts').read_text(encoding='utf-8')
+        self.assertIn("'process.env.NODE_ENV': JSON.stringify('production')",vite)
+        self.assertIn('Vite library bundle retained Node process.env',CI)
 if __name__=='__main__':
     unittest.main(verbosity=2)
