@@ -15,6 +15,10 @@ RUN dotnet publish -c Release --no-restore -o /app/out
 FROM mcr.microsoft.com/dotnet/aspnet:10.0
 WORKDIR /app
 COPY --from=build /app/out ./
+# Empty Docker volumes copy this directory's secure ownership on first mount.
+RUN mkdir -p /var/lib/radius-admin-keys \
+    && chown "$APP_UID:$APP_UID" /var/lib/radius-admin-keys \
+    && chmod 700 /var/lib/radius-admin-keys
 USER $APP_UID
 EXPOSE 8080
 ENTRYPOINT ["dotnet", "RadiusManager.Api.dll"]
