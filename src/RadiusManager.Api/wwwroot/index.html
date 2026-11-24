@@ -178,7 +178,7 @@
             <label class="sr-only" for="ultraSessionSearch">بحث في النتائج المحملة</label><input id="ultraSessionSearch" type="search" placeholder="بحث: كرت، IP، MAC أو NAS" aria-label="بحث في النتائج المحملة">
             <button type="button" class="btn primary" id="ultraSessionsRefresh">قراءة من الخادم</button><button type="button" class="btn subtle" id="ultraSessionsExport">تصدير CSV المعروض</button></div>
             <div class="ultra-status">آخر استعلام: <strong id="ultraSessionUpdated">لم يتم الاستعلام</strong> • <span id="ultraSessionCount">لم تُحمّل سجلات</span></div>
-            <div class="ultra-table-wrap"><table class="ultra-table"><thead><tr><th>الكرت</th><th>IP</th><th>MAC</th><th>NAS</th><th>حالة السجل</th><th>بداية الجلسة</th><th>آخر تحديث</th><th>رفع / تنزيل</th><th>سبب الإنهاء</th></tr></thead><tbody id="ultraSessionsList"><tr><td colspan="9">اختر «قراءة من الخادم» لعرض البيانات.</td></tr></tbody></table></div>
+            <div id="reactSessionTable" class="ultra-table-wrap" aria-live="polite"></div>
             <p id="ultraSessionsWarning" class="ultra-note" role="status">سجلات المحاسبة لم تُحمّل بعد. الجلسة المفتوحة لا تثبت وجود اتصال فعلي.</p>
           </section>
         </section>
