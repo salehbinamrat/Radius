@@ -92,6 +92,25 @@ public sealed class AdminSecurityRulesTests
         Assert.Null(ResellerScope.OwnerId(mixed));
     }
 
+    [Theory]
+    [InlineData("super-admin", true)]
+    [InlineData("voucher-operator", false)]
+    [InlineData("reseller", false)]
+    [InlineData("auditor", false)]
+    [InlineData("noc-operator", false)]
+    public void OwnershipManagementRequiresNamedSuperAdmin(string role, bool expected)
+    {
+        var user = new ClaimsPrincipal(new ClaimsIdentity([
+            new Claim(ClaimTypes.Role, role), new Claim(ClaimTypes.NameIdentifier, "actor")
+        ], "test"));
+        Assert.Equal(expected, AdminAuthorizationRules.IsAllowed(user, "GET", "/api/ownership/resellers"));
+        Assert.Equal(expected, AdminAuthorizationRules.IsAllowed(user, "POST", "/api/ownership/accounts/lab_0123456789ab/assign"));
+        Assert.False(AdminAuthorizationRules.IsAllowed(user, "POST", "/api/ownership/accounts/external/assign"));
+        Assert.False(AdminAuthorizationRules.IsAllowed(user, "DELETE", "/api/ownership/accounts/lab_0123456789ab/assign"));
+        Assert.False(AdminAuthorizationRules.IsAllowed(user, "POST", "/api/ownership/accounts/lab_0123456789ab/transfer"));
+        Assert.False(AdminAuthorizationRules.IsAllowed(Principal("super-admin"), "GET", "/api/ownership/resellers"));
+    }
+
     [Fact]
     public void NoRoleDoesNotInheritAnyAccess() =>
         Assert.False(AdminAuthorizationRules.IsAllowed(Principal(), "GET", "/api/summary"));
