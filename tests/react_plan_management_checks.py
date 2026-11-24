@@ -46,12 +46,15 @@ class PlanMigrationContracts(unittest.TestCase):
         noc=(WEB/"noc-ui.mjs").read_text(encoding="utf-8")
         for token in ("el('planSearch')","el('nocExportPlans')","el('refresh')"):
             self.assertIn(token,js+noc)
-        for token in ("el('labForm')", "el('labSearch')", "el('labFilter')",
+        for token in ("radius-voucher-create-request", "el('labSearch')", "el('labFilter')",
                       "el('openPlanForm')", "el('refreshAll')"):
             self.assertIn(token,js)
         self.assertIn("buildSafeCsv",noc)
         self.assertIn("clearCredentials()",js)
         self.assertIn("sessionCsrf",js)
+        creator=(FRONT/'VoucherCreator.tsx').read_text(encoding='utf-8')
+        self.assertIn('id="labForm"',creator)
+        self.assertIn('id="labPlan"',creator)
 
     def test_smoke_validates_frontend_bundling(self):
         smoke=(ROOT/"scripts/ui-smoke.sh").read_text(encoding="utf-8")
