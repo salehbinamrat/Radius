@@ -37,7 +37,6 @@ api_image=$(docker compose images -q api)
 docker tag "$schema_image" radius-stage3-ci-schema:latest
 docker tag "$api_image" radius-stage3-ci-api:latest
 export RADIUS_HTTPS_FIXTURE_DIR="$tmp/tls"
-export RADIUS_HTTPS_PFX_PASSWORD
 RADIUS_HTTPS_PFX_PASSWORD=$(python3 -c 'import secrets;print(secrets.token_urlsafe(36))')
 openssl req -x509 -newkey rsa:3072 -sha256 -nodes -days 1 \
   -keyout "$tmp/tls/server.key" -out "$tmp/tls/server.crt" \
@@ -51,6 +50,23 @@ openssl pkcs12 -export -out "$tmp/tls/server.pfx" \
   -passout "file:$tmp/pfx-password" >/dev/null 2>&1
 chmod 644 "$tmp/tls/server.pfx" "$tmp/tls/server.crt"
 chmod 600 "$tmp/tls/server.key" "$tmp/pfx-password"
+# Only the individual read-only files are mounted for the unprivileged API.
+# The host directory is 0700; its contents are not traversable by other host users.
+export RADIUS_HTTPS_SECRET_DIR="$tmp/secrets"
+mkdir -m 700 "$RADIUS_HTTPS_SECRET_DIR"
+printf '%s' "$DB_PASSWORD" > "$RADIUS_HTTPS_SECRET_DIR/db-password"
+printf '%s' "$RADIUS_HTTPS_PFX_PASSWORD" > "$RADIUS_HTTPS_SECRET_DIR/tls-password"
+chmod 444 "$RADIUS_HTTPS_SECRET_DIR/db-password" "$RADIUS_HTTPS_SECRET_DIR/tls-password"
+unset RADIUS_HTTPS_PFX_PASSWORD
+# No database, Basic or PFX password should appear in the API container env.
+docker compose -p "$project" -f "$compose_file" config --format json | python3 -c '
+import json,sys
+env=json.load(sys.stdin)["services"]["api"]["environment"]
+assert "Password=" not in env["ConnectionStrings__RadiusDb"]
+assert not {"RADIUS_ADMIN_PASSWORD","ASPNETCORE_Kestrel__Certificates__Default__Password","DB_PASSWORD"}.intersection(env)
+assert env["RADIUS_DB_PASSWORD_FILE"]=="/run/radius-secrets/db-password"
+assert env["RADIUS_TLS_PASSWORD_FILE"]=="/run/radius-secrets/tls-password"
+'
 
 docker compose -p "$project" -f "$compose_file" config --quiet
 docker compose -p "$project" -f "$compose_file" up -d

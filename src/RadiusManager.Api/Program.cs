@@ -20,10 +20,14 @@ if (sessionMode && !(builder.Configuration["ASPNETCORE_URLS"] ?? "").Split(';')
     .Any(x => x.StartsWith("https://", StringComparison.OrdinalIgnoreCase)))
     throw new InvalidOperationException("Session mode requires a verified HTTPS Kestrel endpoint");
 var adminUser = Environment.GetEnvironmentVariable("RADIUS_ADMIN_USER") ?? "admin";
-var adminPassword = Environment.GetEnvironmentVariable("RADIUS_ADMIN_PASSWORD") ?? "";
-var connectionString = builder.Configuration.GetConnectionString("RadiusDb");
-if (adminUser.Length < 3 || adminPassword.Length < 24 || string.IsNullOrWhiteSpace(connectionString))
-    throw new InvalidOperationException("Provide strong admin credentials and a database connection string.");
+var adminPassword = sessionMode ? "" : SecretInput.Resolve("RADIUS_ADMIN_PASSWORD",
+    Environment.GetEnvironmentVariable("RADIUS_ADMIN_PASSWORD"),
+    Environment.GetEnvironmentVariable("RADIUS_ADMIN_PASSWORD_FILE")) ?? "";
+var connectionString = SecretInput.DatabaseConnection(
+    builder.Configuration.GetConnectionString("RadiusDb"),
+    Environment.GetEnvironmentVariable("RADIUS_DB_PASSWORD_FILE"));
+if (!sessionMode && (adminUser.Length < 3 || adminPassword.Length < 24))
+    throw new InvalidOperationException("Provide strong Basic lab administrator credentials.");
 
 // Session mode cannot start with ephemeral (restart-invalidating) cookie keys.
 // Protect the persistent key ring using a certificate with its private key,
@@ -31,7 +35,11 @@ if (adminUser.Length < 3 || adminPassword.Length < 24 || string.IsNullOrWhiteSpa
 if (sessionMode)
 {
     var certificatePath = Environment.GetEnvironmentVariable("ASPNETCORE_Kestrel__Certificates__Default__Path");
-    var certificatePassword = Environment.GetEnvironmentVariable("ASPNETCORE_Kestrel__Certificates__Default__Password");
+    var certificatePassword = SecretInput.Resolve("TLS certificate password",
+        builder.Configuration["Kestrel:Certificates:Default:Password"],
+        Environment.GetEnvironmentVariable("RADIUS_TLS_PASSWORD_FILE"));
+    // Configure Kestrel with the resolved value in memory, not an environment variable.
+    builder.Configuration["Kestrel:Certificates:Default:Password"] = certificatePassword;
     var keysPath = Environment.GetEnvironmentVariable("RADIUS_ADMIN_DATA_PROTECTION_PATH");
     if (string.IsNullOrWhiteSpace(certificatePath) || string.IsNullOrEmpty(certificatePassword)
         || string.IsNullOrWhiteSpace(keysPath) || !Path.IsPathFullyQualified(keysPath)
