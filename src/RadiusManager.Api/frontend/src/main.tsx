@@ -9,6 +9,7 @@ import { VoucherCreator } from './VoucherCreator';
 import { SessionTable } from './SessionTable';
 import { UsageReport } from './UsageReport';
 import { CapacityCalculator } from './CapacityCalculator';
+import { LiveStatusPanel } from './LiveStatusPanel';
 
 // Incremental migration: the original JavaScript dashboard still owns all
 // existing forms, routes, RADIUS workflows and operator interactions.
@@ -76,4 +77,9 @@ if (usageReportMount) {
 const capacityMount = document.getElementById('reactCapacityCalculator');
 if (capacityMount) {
   createRoot(capacityMount).render(<StrictMode><CapacityCalculator /></StrictMode>);
+}
+
+const liveStatusMount = document.getElementById('reactLiveStatus');
+if (liveStatusMount) {
+  createRoot(liveStatusMount).render(<StrictMode><LiveStatusPanel /></StrictMode>);
 }

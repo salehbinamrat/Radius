@@ -78,3 +78,17 @@ test('small mobile viewport keeps the login and offline planner usable', async (
   await expect(page.locator('#capPeakOut')).toHaveText('400');
   await expect(page.locator('#capResults')).toBeVisible();
 });
+
+test('Basic lab never opens a SignalR WebSocket even if the dashboard is shown', async ({ page }) => {
+  const sockets = [];
+  page.on('websocket', ws => sockets.push(ws.url()));
+  await page.goto('/', { waitUntil: 'domcontentloaded' });
+  await expect(page.locator('#reactCapacityCalculator #capForm')).toHaveCount(1);
+  await page.evaluate(() => {
+    document.getElementById('dashboard').hidden = false;
+    document.getElementById('loginPanel').hidden = true;
+    window.dispatchEvent(new CustomEvent('radius-live-status-scope', { detail: { enabled: true } }));
+  });
+  await expect(page.locator('#reactLiveStatus')).toBeEmpty();
+  expect(sockets.filter(url => url.includes('/hubs/lab-status'))).toEqual([]);
+});
