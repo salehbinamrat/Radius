@@ -60,4 +60,9 @@ x=json.load(open(sys.argv[1]));assert next(r for r in x['drafts'] if r['id']==sy
 PY
 after=$(docker compose exec -T db psql -X -U radius -d radius -tAc 'SELECT count(*) FROM nas' | tr -d '[:space:]')
 [[ "$before" == "$after" ]] || { echo 'Official FreeRADIUS NAS table changed unexpectedly' >&2;exit 1; }
+# Basic mode never invents an Identity actor for the shared laboratory credential.
+docker compose exec -T db psql -X -At -v ON_ERROR_STOP=1 -U radius -d radius -v draft="$id" <<'SQL' | python3 -c 'import sys; assert sys.stdin.read().splitlines()==["nas_draft_created|nas_draft|success|t","nas_draft_retired|nas_draft|success|t"]'
+SELECT action,subject_kind,outcome,actor_user_id IS NULL
+FROM app_admin_audit_events WHERE subject_id=:'draft' ORDER BY action;
+SQL
 echo 'NAS draft API authentication, validation, uniqueness, audit and isolation PASS'

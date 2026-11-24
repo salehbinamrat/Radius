@@ -17,7 +17,7 @@ class TestNasDraft(unittest.TestCase):
     def test_wiring_and_security(self):
         self.assertIn('004_nas_drafts.sql',(R/'compose.yaml').read_text())
         self.assertIn('004_nas_drafts.sql',(R/'radius/schema-init.sh').read_text())
-        self.assertIn('app.MapNasDraftEndpoints();',(R/'src/RadiusManager.Api/Program.cs').read_text())
+        self.assertIn('app.MapNasDraftEndpoints(sessionMode);',(R/'src/RadiusManager.Api/Program.cs').read_text())
         html=(R/'src/RadiusManager.Api/wwwroot/index.html').read_text()
         for x in ['nasDraftForm','nasDraftName','nasDraftIp','nasDraftSite','nasDraftList','nasDraftError','nasDraftRefresh']:
             self.assertIn(f'id="{x}"',html)

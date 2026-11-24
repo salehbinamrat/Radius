@@ -242,14 +242,14 @@ api.MapGet("/service-status/alerts", (ServiceObservationHistory history) =>
     Results.Ok(ServiceAlertProjection.Build(history.Snapshot().Samples, DateTimeOffset.UtcNow)));
 api.MapGet("/service-status/incidents", (ServiceIncidentArchive archive) => Results.Ok(archive.Snapshot(DateTimeOffset.UtcNow)));
 
-api.MapPlanEndpoints();
+api.MapPlanEndpoints(sessionMode);
 
 // Independent laboratory voucher routes; protected by the same /api auth middleware.
-app.MapLabAccountEndpoints();
+app.MapLabAccountEndpoints(sessionMode);
 app.MapLabUsageEndpoints();
 app.MapLabSessionEndpoints();
 // Phase 7A: metadata-only NAS drafts; no actual RADIUS client registration.
-app.MapNasDraftEndpoints();
+app.MapNasDraftEndpoints(sessionMode);
 app.MapAdminIdentityEndpoints(sessionMode);
 app.MapResellerEndpoints(sessionMode);
 app.MapOwnershipEndpoints(sessionMode);

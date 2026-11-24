@@ -50,7 +50,7 @@ public static class NasDraftRules
 
 public static class NasDraftEndpoints
 {
-    public static IEndpointRouteBuilder MapNasDraftEndpoints(this IEndpointRouteBuilder app)
+    public static IEndpointRouteBuilder MapNasDraftEndpoints(this IEndpointRouteBuilder app, bool sessionMode)
     {
         var api = app.MapGroup("/api/nas-drafts").RequireRateLimiting("admin");
         api.MapGet("", async (NpgsqlDataSource db, CancellationToken ct) =>
@@ -75,7 +75,7 @@ public static class NasDraftEndpoints
             });
         });
 
-        api.MapPost("", async (NasDraftInput input, NpgsqlDataSource db, CancellationToken ct) =>
+        api.MapPost("", async (NasDraftInput input, HttpContext ctx, NpgsqlDataSource db, CancellationToken ct) =>
         {
             var error = NasDraftRules.Validate(input);
             if (error is not null) return Results.BadRequest(new { error });
@@ -102,6 +102,7 @@ public static class NasDraftEndpoints
                     audit.Parameters.AddWithValue("id", id);
                     await audit.ExecuteNonQueryAsync(ct);
                 }
+                await LabMutationAudit.AppendAsync(conn, tx, ctx.User, sessionMode, LabMutation.NasDraftCreated, id.ToString("D"), ct);
                 await tx.CommitAsync(ct);
                 return Results.Created($"/api/nas-drafts/{id}", new {
                     id, name = input.Name!.Trim(), site = input.Site!.Trim(), vpnIp = input.VpnIp,
@@ -115,7 +116,7 @@ public static class NasDraftEndpoints
             }
         });
 
-        api.MapPost("/{id:guid}/retire", async (Guid id, NpgsqlDataSource db, CancellationToken ct) =>
+        api.MapPost("/{id:guid}/retire", async (Guid id, HttpContext ctx, NpgsqlDataSource db, CancellationToken ct) =>
         {
             await using var conn = await db.OpenConnectionAsync(ct);
             await using var tx = await conn.BeginTransactionAsync(ct);
@@ -138,6 +139,7 @@ public static class NasDraftEndpoints
                 audit.Parameters.AddWithValue("id",id);
                 await audit.ExecuteNonQueryAsync(ct);
             }
+            await LabMutationAudit.AppendAsync(conn, tx, ctx.User, sessionMode, LabMutation.NasDraftRetired, id.ToString("D"), ct);
             await tx.CommitAsync(ct);
             return Results.Ok(new { id, retired = true, radiusClientEnabled = false });
         });

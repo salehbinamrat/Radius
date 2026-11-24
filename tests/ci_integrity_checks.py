@@ -41,7 +41,7 @@ class CiIntegrityChecks(unittest.TestCase):
     def test_plans_extracted_without_changing_public_routes(self):
         program = (ROOT / 'src/RadiusManager.Api/Program.cs').read_text(encoding='utf-8')
         plans = (ROOT / 'src/RadiusManager.Api/PlanEndpoints.cs').read_text(encoding='utf-8')
-        self.assertIn('api.MapPlanEndpoints()', program)
+        self.assertIn('api.MapPlanEndpoints(sessionMode)', program)
         self.assertIn('api.MapGet("/plans"', plans)
         self.assertIn('api.MapPost("/plans"', plans)
         self.assertIn('api.MapPut("/plans/{id:guid}"', plans)
