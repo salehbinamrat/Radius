@@ -71,7 +71,7 @@ public sealed class ServiceIncidentArchiveTests : IDisposable
         }
         var rows = archive.Snapshot(Start.AddDays(1)).Incidents;
         Assert.Equal(ServiceIncidentArchive.ClosedCapacity + 1, rows.Length);
-        Assert.Equal(open, Assert.Single(rows.Where(x => x.RecoveryConfirmedAtUtc is null)));
+        Assert.Equal(open, Assert.Single(rows, x => x.RecoveryConfirmedAtUtc is null));
     }
 
     [Fact]
