@@ -35,3 +35,39 @@ export function parseServiceAlerts(value) {
   }
   return {scope:'lab',window:'retained-samples',confirmationCount:2,services,events};
 }
+
+export function parseServiceIncidents(value) {
+  if (!exact(value,['scope','retention','closedCapacity','services','incidents'])
+      || value.scope !== 'lab' || !['process-memory','volume-snapshot','storage-degraded'].includes(value.retention)
+      || value.closedCapacity !== 256 || !Array.isArray(value.incidents) || value.incidents.length > 258)
+    return null;
+  const status = parseServiceAlerts({scope:'lab',window:'retained-samples',confirmationCount:2,services:value.services,events:[]});
+  if (!status) return null;
+  const incidents=[], ids=new Set(), open=new Set();
+  let closed=0, previous=-Infinity;
+  for (const row of value.incidents) {
+    if (!exact(row,['id','service','failureConfirmedAtUtc','recoveryConfirmedAtUtc'])
+        || typeof row.id !== 'string'
+        || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(row.id)
+        || row.id === '00000000-0000-0000-0000-000000000000' || ids.has(row.id.toLowerCase())
+        || !isService(row.service) || !utc(row.failureConfirmedAtUtc)) return null;
+    const failure=Date.parse(row.failureConfirmedAtUtc);
+    if (failure<previous) return null;
+    previous=failure;
+    ids.add(row.id.toLowerCase());
+    if (row.recoveryConfirmedAtUtc===null) {
+      if (open.has(row.service)) return null;
+      open.add(row.service);
+    } else {
+      if (!utc(row.recoveryConfirmedAtUtc) || Date.parse(row.recoveryConfirmedAtUtc)<failure || ++closed>256)
+        return null;
+    }
+    incidents.push({id:row.id,service:row.service,failureConfirmedAtUtc:row.failureConfirmedAtUtc,
+      recoveryConfirmedAtUtc:row.recoveryConfirmedAtUtc});
+  }
+  for (const service of status.services) {
+    if (service.state==='failed'&&!open.has(service.service) || service.state==='healthy'&&open.has(service.service))
+      return null;
+  }
+  return {scope:'lab',retention:value.retention,closedCapacity:256,services:status.services,incidents};
+}
