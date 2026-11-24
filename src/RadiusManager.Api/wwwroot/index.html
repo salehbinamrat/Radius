@@ -159,7 +159,7 @@
               <div class="info-hint warn"><svg class="ico"><use href="#i-alert"/></svg> تعطيل الكرت يمنع الدخول الجديد فقط. لا يقطع اتصال جلسة بدأت سابقا.</div>
             </section><section class="surface-card"><div class="section-title"><div><span class="eyebrow">قائمة الكروت</span><h2>الحسابات المسجلة</h2><p class="section-note">أول 100 كرت حسب تاريخ الإنشاء</p></div></div>
               <div class="filter-toolbar"><label class="search-field"><svg class="ico"><use href="#i-search"/></svg><input id="labSearch" type="search" placeholder="ابحث برقم الكرت أو الباقة..." aria-label="البحث في الكروت"></label><select id="labFilter" class="filter-select" aria-label="تصفية الكروت"><option value="all">جميع الحالات</option><option value="active">المفعلة</option><option value="disabled">الموقوفة</option></select><button id="nocExportAccounts" type="button" class="btn subtle noc-export-btn" title="تصدير الكروت المعروضة بدون كلمات المرور"><svg class="ico"><use href="#i-download"/></svg>CSV</button></div>
-              <div class="table-wrap"><table><thead><tr><th>رقم الكرت</th><th>الباقة</th><th>الحالة</th><th>الإجراءات</th></tr></thead><tbody id="labList"><tr><td colspan="4">لا توجد بيانات محملة</td></tr></tbody></table></div><p id="labCount" class="table-caption"></p>
+              <div id="reactVoucherList" class="table-wrap" aria-live="polite"></div>
             </section></div>
         </section>
 

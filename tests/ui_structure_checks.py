@@ -60,7 +60,10 @@ class UiStructureChecks(unittest.TestCase):
         self.assertIn('لا تستخدم كروت فعلية',HTML)
         self.assertIn('لم يتم تفعيلها بعد',HTML)
         self.assertIn('قيد التطوير',HTML)
-        self.assertIn('حد القراءة: 100',JS)
+        plan_react=(ROOT/'src/RadiusManager.Api/frontend/src/PlanManagement.tsx').read_text(encoding='utf-8')
+        voucher_react=(ROOT/'src/RadiusManager.Api/frontend/src/VoucherList.tsx').read_text(encoding='utf-8')
+        self.assertIn('حد القراءة: 100',plan_react)
+        self.assertIn('حد القراءة: 100',voucher_react)
     def test_mobile_responsive_and_accessibility(self):
         self.assertIn('@media(max-width:950px)',CSS)
         self.assertIn('@media(max-width:680px)',CSS)
