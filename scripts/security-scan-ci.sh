@@ -29,6 +29,7 @@ done
 "$scanner" fs --format cyclonedx --output "$reports/source.cdx.json" "$tmp/locks"
 failed=0
 db_scan_ok=0
+radius_scan_failed=0
 for service in api radius db; do
   container=$(docker compose ps -q "$service")
   [[ -n "$container" && "$container" != *$'\n'* ]] || { echo "Missing unique container: $service" >&2; exit 1; }
@@ -46,6 +47,7 @@ for service in api radius db; do
   else
     echo "Image vulnerability gate failed: $service" >&2
     failed=1
+    if [[ "$service" == radius ]]; then radius_scan_failed=1; fi
   fi
 done
 # The proven Alpine candidate is now the actual database runtime image.
@@ -117,4 +119,12 @@ for name in ("api", "radius", "db"):
                   "status:", vuln.get("Status") or "unknown",
                   "target:", result.get("Target") or "unknown")
 PY
+# Investigate the only unresolved runtime image with a verified source build.
+# Passing the candidate cannot clear a failure of any deployed service.
+if [[ "$radius_scan_failed" == 1 ]]; then
+  if ! bash scripts/freeradius-source-candidate-ci.sh "$scanner" "$reports"; then
+    echo 'FreeRADIUS source candidate did not pass; runtime remains blocked' >&2
+    failed=1
+  fi
+fi
 exit "$failed"

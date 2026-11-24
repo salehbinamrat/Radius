@@ -280,3 +280,28 @@ class SecurityIntegrityChecks(unittest.TestCase):
         self.assertIn('datcollversion=pg_database_collation_actual_version(oid)', marker_source)
         self.assertIn('[ "$actual" = ICU_LOCALE_OK ]', marker_source)
         self.assertIn('mv "$PGDATA/.radius-pg16-icu.tmp" "$PGDATA/.radius-pg16-icu"', marker_source)
+
+    def test_freeradius_source_probe_preserves_mandatory_runtime_gate(self):
+        scan = (ROOT / 'scripts/security-scan-ci.sh').read_text()
+        probe = (ROOT / 'scripts/freeradius-source-candidate-ci.sh').read_text()
+        self.assertIn('if [[ "$radius_scan_failed" == 1 ]]; then', scan)
+        self.assertIn('bash scripts/freeradius-source-candidate-ci.sh "$scanner" "$reports"', scan)
+        self.assertIn('exit "$failed"', scan)
+        self.assertEqual(scan.count('failed=0\n'), 2)  # failed and radius_scan_failed initialization
+        for revision in ('00abf778c6c0af0320879c2b1ade9cf252a42506',
+                         '8e8a991c040cbb30f21f928f2b406c702e171b2e',
+                         '064567a08f3b9d9b4863fab6060fafe296ac7de9'):
+            self.assertIn(revision, probe)
+        self.assertIn('merge-base --is-ancestor "$fix" "$revision"', probe)
+        self.assertIn('rev-parse HEAD)" == "$revision"', probe)
+        self.assertIn('alpine:3.24.4@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf', probe)
+        self.assertIn('scripts/docker/dists/alpine/Dockerfile', probe)
+        self.assertIn('docker run --rm --network none --entrypoint /bin/sh', probe)
+        self.assertIn('rlm_sql_postgresql.so', probe)
+        self.assertIn('--exit-code 1 --exit-on-eol 1', probe)
+        self.assertIn('radius-source-candidate.provenance.txt', probe)
+        self.assertIn('NOT runtime approval', probe)
+        for option in ('--ignore-unfixed', '--skip-db-update', '--exit-code 0', '--privileged', '--network host'):
+            self.assertNotIn(option, probe)
+        result = subprocess.run(['bash', '-n', str(ROOT / 'scripts/freeradius-source-candidate-ci.sh')], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
