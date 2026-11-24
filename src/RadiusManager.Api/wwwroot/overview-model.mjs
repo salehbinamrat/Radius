@@ -1,3 +1,5 @@
+import { groupLoadedAccounts } from './noc-utils.mjs';
+
 // Existing authenticated API is the only source of operator dashboard figures.
 // Produce an allowlisted, credential-free snapshot for React (never expose account objects).
 function asCount(value) {
@@ -15,7 +17,11 @@ export function buildOverviewSnapshot(summary, accounts) {
     planName: String(account.planName ?? '—'),
     active: Boolean(account.active),
   }));
+  // Reuse the proven NOC aggregator, but pass ONLY allowlisted plan labels.
+  const { groups } = groupLoadedAccounts(loaded.map(a => ({ planName: a.planName })));
   return {
+    groups,
+    lastSyncedAt: new Date().toISOString(),
     plans: asCount(summary?.plans),
     labAccounts: asCount(summary?.labAccounts),
     activeInLoadedAccounts: loaded.filter(account => account.active).length,
