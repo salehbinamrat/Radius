@@ -192,3 +192,15 @@ html.noc-dark .noc-activity-item{border-color:#31435b;background:#152640}
 .ownership-panel .ownership-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,230px),1fr));gap:12px;margin:12px 0}
 .ownership-panel .ownership-fields select{width:100%;min-width:0}
 .ownership-panel .ownership-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+
+.reseller-workspace{width:min(1100px,100%);margin:0 auto;padding:clamp(12px,3vw,32px);display:grid;gap:16px}
+.reseller-header{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px}
+.reseller-header h1{margin:6px 0}
+.reseller-panel .reseller-summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,150px),1fr));gap:10px;margin:12px 0}
+.reseller-panel .reseller-stat{border:1px solid #8994a350;border-radius:10px;padding:12px}
+.reseller-panel .reseller-stat strong{display:block;font-size:1.4rem}
+.reseller-panel .reseller-toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:12px 0}
+.reseller-panel .reseller-toolbar label{flex:1;min-width:170px}
+.reseller-panel .reseller-toolbar input{width:100%}
+.reseller-panel .table-wrap{overflow:auto}
+.reseller-panel td,.reseller-panel th{white-space:nowrap;text-align:start}

@@ -136,6 +136,50 @@ try {
   assert.equal((await context.request.get(origin + '/api/service-status/incidents')).status(), 401,
     'Incident endpoint accepted revoked session');
   console.log('HTTPS Chromium live status, navigation disposal, reconnect and logout PASS');
+  step('reseller workspace');
+  // Reuse the same browser context after server logout: no previous-owner data
+  // must carry over into either reseller session.
+  const resellerRequests=[];
+  page.on('request', request=>{
+    const url=new URL(request.url());
+    if(url.origin===origin&&(url.pathname.startsWith('/api/')||url.pathname.startsWith('/hubs/')))
+      resellerRequests.push(url.pathname);
+  });
+  const socketBaseline=sockets.length;
+  async function resellerLogin(name){
+    await page.locator('#sessionLoginUser').fill(name);
+    await page.locator('#sessionLoginPass').fill(password);
+    await page.locator('#reactAdminLogin button[type=submit]').click();
+    await page.locator('#resellerWorkspace').waitFor({state:'visible'});
+    await page.locator('#reactResellerWorkspace [data-reseller-status="ready"]').waitFor({state:'visible'});
+    assert.equal(await page.locator('#dashboard').isVisible(),false);
+  }
+  const visibleCards=()=>page.locator('#reactResellerWorkspace [data-reseller-card]').evaluateAll(rows=>rows.map(row=>row.getAttribute('data-reseller-card')));
+  await resellerLogin('ci_owner_a');
+  let own=await visibleCards();
+  assert.ok(own.includes('lab_0000000000a1')&&own.includes('lab_0000000000e1')&&!own.includes('lab_0000000000b1'));
+  await page.locator('#resellerSearch').fill('lab_0000000000e1');
+  assert.deepEqual(await visibleCards(),['lab_0000000000e1']);
+  await page.reload({waitUntil:'domcontentloaded'});
+  await page.locator('#resellerWorkspace').waitFor({state:'visible'});
+  await page.locator('#reactResellerWorkspace [data-reseller-status="ready"]').waitFor({state:'visible'});
+  assert.ok((await visibleCards()).includes('lab_0000000000a1'));
+  await page.locator('#resellerLogout').click();
+  await page.locator('#loginPanel').waitFor({state:'visible'});
+  await page.waitForFunction(()=>document.querySelector('#reactResellerWorkspace')?.childElementCount===0);
+  assert.equal((await context.request.get(origin+'/api/reseller/accounts')).status(),401);
+  await resellerLogin('ci_owner_b');
+  own=await visibleCards();
+  assert.ok(own.includes('lab_0000000000b1')&&!own.includes('lab_0000000000a1')&&!own.includes('lab_0000000000e1'));
+  await page.locator('#resellerLogout').click();
+  await page.locator('#loginPanel').waitFor({state:'visible'});
+  await page.waitForFunction(()=>document.querySelector('#reactResellerWorkspace')?.childElementCount===0);
+  const permitted=new Set(['/api/health/live','/api/admin/auth/mode','/api/admin/auth/csrf',
+    '/api/admin/auth/me','/api/admin/auth/login','/api/admin/auth/logout','/api/reseller/accounts']);
+  assert.ok(resellerRequests.includes('/api/reseller/accounts')&&resellerRequests.every(path=>permitted.has(path)),
+    'Reseller workspace requested shared data');
+  assert.equal(sockets.length,socketBaseline,'Reseller opened a shared status socket');
+  console.log('HTTPS Chromium two isolated reseller workspaces, reload, filter and logout PASS');
 } catch (error) {
   // Only fixed stage names, allowlisted HTTP status metadata and booleans.
   // Never print Playwright messages, DOM text, URLs with query strings, credentials or frames.

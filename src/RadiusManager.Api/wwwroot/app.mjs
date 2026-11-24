@@ -13,6 +13,7 @@ const el = id => document.getElementById(id);
 let auth = '';
 let sessionMode = false;
 let sessionCsrf = '';
+let sessionGeneration = 0;
 let planHealth = 'unloaded';
 let voucherHealth = 'unloaded';
 const voucherSecretGate = createOneTimeRevealGate();
@@ -78,6 +79,12 @@ function publishLiveStatusScope() {
   window.dispatchEvent(new CustomEvent('radius-live-status-scope', { detail: { enabled, ownershipEnabled } }));
 }
 window.addEventListener('radius-live-status-request', publishLiveStatusScope);
+function publishResellerScope() {
+  window.dispatchEvent(new CustomEvent('radius-reseller-scope', {
+    detail: { enabled: sessionMode && !el('resellerWorkspace').hidden }
+  }));
+}
+window.addEventListener('radius-reseller-request', publishResellerScope);
 function switchView(view, focusId = '') {
   if (!Object.hasOwn(viewLabels, view)) return;
   for (const section of document.querySelectorAll('[data-page]')) section.hidden = section.dataset.page !== view;
@@ -118,7 +125,7 @@ async function call(url, options = {}) {
   });
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {
-    if (response.status === 401 && !el('dashboard').hidden) {
+    if (response.status === 401 && (!el('dashboard').hidden || !el('resellerWorkspace').hidden)) {
       logout(false);
       throw new Error('انتهت صلاحية بيانات المسؤول. أعد تسجيل الدخول.');
     }
@@ -250,6 +257,9 @@ async function logout(showToast = true) {
       return;
     }
   }
+  sessionGeneration += 1;
+  el('resellerWorkspace').hidden = true;
+  publishResellerScope();
   auth = '';plans = [];accounts = [];clearCredentials();resetUsage();
   window.dispatchEvent(new Event('radius-plan-clear-edit'));
   planHealth = 'unloaded';publishPlans();
@@ -272,17 +282,35 @@ async function logout(showToast = true) {
 window.addEventListener('radius-session-ready', async event => {
   const token = event.detail?.csrf;
   if (typeof token !== 'string' || token.length < 20) return;
+  if (location.protocol !== 'https:') return;
+  const generation = ++sessionGeneration;
   sessionMode = true;
   sessionCsrf = token;
   auth = '';
   setError('loginError');
   try {
+    // Never select the workspace using a role supplied by a browser event.
+    const me = await call('/api/admin/auth/me');
+    if (generation !== sessionGeneration) return;
+    if (me?.authenticated !== true || !Array.isArray(me.roles)
+        || !me.roles.length || !me.roles.every(role => typeof role === 'string'))
+      throw new Error('تعذر التحقق من صلاحيات الجلسة.');
+    if (me.roles.includes('reseller')) {
+      if (me.roles.length !== 1) throw new Error('تعارض أدوار الوكيل؛ لا يسمح بفتح لوحة مشتركة.');
+      el('dashboard').hidden = true;
+      publishLiveStatusScope();
+      el('loginPanel').hidden = true;
+      el('resellerWorkspace').hidden = false;
+      publishResellerScope();
+      return;
+    }
     await reload();
+    if (generation !== sessionGeneration) return;
     el('loginPanel').hidden = true;
     el('dashboard').hidden = false;
     switchView('overview');
   } catch (err) {
-    setError('loginError', err.message);
+    if (generation === sessionGeneration) setError('loginError', err.message);
   }
 });
 
@@ -303,6 +331,10 @@ el('loginForm').addEventListener('submit', async event => {
   finally { loading(submit, false); }
 });
 el('logout').addEventListener('click', () => { void logout(); });
+el('resellerLogout').addEventListener('click', () => { void logout(); });
+window.addEventListener('radius-reseller-expired', () => {
+  if (!el('resellerWorkspace').hidden) void logout(false);
+});
 el('refreshAll').addEventListener('click', () => reload().then(() => toast('تم تحديث البيانات.')).catch(err => toast(err.message, 'error')));
 el('refresh').addEventListener('click', () => reload().then(() => toast('تم تحديث الباقات.')).catch(err => toast(err.message, 'error')));
 el('menuToggle').addEventListener('click', () => {
