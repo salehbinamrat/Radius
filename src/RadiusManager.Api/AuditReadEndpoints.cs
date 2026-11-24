@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Security.Claims;
 using Npgsql;
 using NpgsqlTypes;
 
@@ -12,6 +13,15 @@ public static class AuditReadRules
         "voucher_disabled", "nas_draft_created", "nas_draft_retired",
         "voucher_owner_assigned", "voucher_owner_transferred"
     ];
+    public static string? ActorId(ClaimsPrincipal? user)
+    {
+        if (!AdminAuthorizationRules.CanAccessSharedLab(user)) return null;
+        if (user!.IsInRole("super-admin")) return OwnershipRules.ActorId(user);
+        if (!user.IsInRole("auditor")) return null;
+        var ids = user.FindAll(ClaimTypes.NameIdentifier).Select(c => c.Value).ToArray();
+        return ids.Length == 1 && OwnershipRules.ValidOwnerId(ids[0]) ? ids[0] : null;
+    }
+
     public static bool ValidAction(string? action) => action is null || Actions.Contains(action, StringComparer.Ordinal);
     public static bool ValidOutcome(string? outcome) => outcome is null || outcome is "success" or "denied" or "error";
     public static bool TryDate(string? value, out DateTime? result)
@@ -32,7 +42,7 @@ public static class AuditReadEndpoints
         app.MapGet("/api/admin-audit", async (HttpContext ctx, NpgsqlDataSource db, CancellationToken ct,
             string? action, string? outcome, string? actor, string? from, string? to, string? before) =>
         {
-            if (!sessionMode || !ctx.Request.IsHttps || OwnershipRules.ActorId(ctx.User) is null)
+            if (!sessionMode || !ctx.Request.IsHttps || AuditReadRules.ActorId(ctx.User) is null)
                 return Results.StatusCode(403);
             if (!AuditReadRules.ValidAction(action) || !AuditReadRules.ValidOutcome(outcome)
                 || (actor is not null && !OwnershipRules.ValidOwnerId(actor))

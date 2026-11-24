@@ -78,7 +78,8 @@ function publishLiveStatusScope() {
   const enabled = sessionMode && !el('dashboard').hidden && !el('view-overview').hidden;
   const ownershipEnabled = sessionMode && !el('dashboard').hidden && !el('view-vouchers').hidden;
   window.dispatchEvent(new CustomEvent('radius-live-status-scope', { detail: { enabled, ownershipEnabled,
-    auditEnabled: auditEnabled && !el('dashboard').hidden && !el('view-audit').hidden } }));
+    auditEnabled: auditEnabled && !el('dashboard').hidden && !el('view-audit').hidden,
+    auditorEnabled: sessionMode && !el('auditorWorkspace').hidden } }));
 }
 window.addEventListener('radius-live-status-request', publishLiveStatusScope);
 function publishResellerScope() {
@@ -127,7 +128,7 @@ async function call(url, options = {}) {
   });
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {
-    if (response.status === 401 && (!el('dashboard').hidden || !el('resellerWorkspace').hidden)) {
+    if (response.status === 401 && (!el('dashboard').hidden || !el('resellerWorkspace').hidden || !el('auditorWorkspace').hidden)) {
       logout(false);
       throw new Error('انتهت صلاحية بيانات المسؤول. أعد تسجيل الدخول.');
     }
@@ -263,6 +264,7 @@ async function logout(showToast = true) {
   auditEnabled = false;
   el('auditNav').hidden = true;
   el('resellerWorkspace').hidden = true;
+  el('auditorWorkspace').hidden = true;
   publishResellerScope();
   auth = '';plans = [];accounts = [];clearCredentials();resetUsage();
   window.dispatchEvent(new Event('radius-plan-clear-edit'));
@@ -308,6 +310,14 @@ window.addEventListener('radius-session-ready', async event => {
       publishResellerScope();
       return;
     }
+    if (me.roles.includes('auditor')) {
+      if (me.roles.length !== 1) throw new Error('تعارض أدوار المراجع؛ لا يسمح بفتح لوحة مشتركة.');
+      el('dashboard').hidden = true;
+      el('loginPanel').hidden = true;
+      el('auditorWorkspace').hidden = false;
+      publishLiveStatusScope();
+      return;
+    }
     await reload();
     if (generation !== sessionGeneration) return;
     auditEnabled = me.roles.includes('super-admin');
@@ -338,6 +348,10 @@ el('loginForm').addEventListener('submit', async event => {
 });
 el('logout').addEventListener('click', () => { void logout(); });
 el('resellerLogout').addEventListener('click', () => { void logout(); });
+el('auditorLogout').addEventListener('click', () => { void logout(); });
+window.addEventListener('radius-audit-expired', () => {
+  if (!el('auditorWorkspace').hidden || !el('dashboard').hidden) void logout(false);
+});
 window.addEventListener('radius-reseller-expired', () => {
   if (!el('resellerWorkspace').hidden) void logout(false);
 });

@@ -20,9 +20,9 @@ def main():
     INSERT INTO "AspNetUsers" ("Id","UserName","NormalizedUserName","PasswordHash","SecurityStamp","ConcurrencyStamp")
       SELECT v.id,v.name,upper(v.name),u."PasswordHash",gen_random_uuid()::text,gen_random_uuid()::text
       FROM "AspNetUsers" u JOIN "AspNetUserRoles" r ON r."UserId"=u."Id"
-      CROSS JOIN (VALUES ('ci-owner-a','ci_owner_a'),('ci-owner-b','ci_owner_b')) v(id,name)
+      CROSS JOIN (VALUES ('ci-owner-a','ci_owner_a'),('ci-owner-b','ci_owner_b'),('ci-auditor','ci_auditor')) v(id,name)
       WHERE r."RoleId"='role-super-admin';
-    INSERT INTO "AspNetUserRoles" ("UserId","RoleId") VALUES ('ci-owner-a','role-reseller'),('ci-owner-b','role-reseller');
+    INSERT INTO "AspNetUserRoles" ("UserId","RoleId") VALUES ('ci-owner-a','role-reseller'),('ci-owner-b','role-reseller'),('ci-auditor','role-auditor');
     INSERT INTO app_plans(id,name,upload_kbps,download_kbps)
       VALUES ('00600000-0000-4000-8000-000000000001','CI Ownership Test',256,1024);
     INSERT INTO app_lab_accounts(username,plan_id)
@@ -265,6 +265,24 @@ def main():
     assert len(set(ids))==55 and ids==sorted(ids,reverse=True)
     assert all(r["occurredAt"].startswith("2001-01-01T") for r in first_page["events"]+next_page["events"])
     print("Audit cursor paging, UTC day boundary and unique ordered IDs PASS")
+    reviewer=session("ci_auditor")
+    assert reviewer("GET","/api/admin/auth/me",200)["roles"]==["auditor"]
+    review_page=reviewer("GET",day,200)
+    assert review_page==first_page
+    review_csrf=reviewer("GET","/api/admin/auth/csrf",200)["requestToken"]
+    for method,path,body in (
+        ("POST","/api/plans",plan),
+        ("POST","/api/lab-accounts",{"planId":plan_id}),
+        ("POST","/api/nas-drafts",draft),
+        ("POST","/api/ownership/accounts/lab_0000000000e1/assign",{"ownerId":"ci-owner-a"}),
+        ("POST","/api/ownership/accounts/lab_0000000000a1/transfer",payload),
+        ("POST","/api/admin-audit",{})):
+        reviewer(method,path,403,body,review_csrf)
+    for path in ("/api/plans","/api/lab-accounts","/api/ownership/accounts","/api/reseller/accounts"):
+        reviewer("GET",path,403)
+    reviewer("POST","/api/admin/auth/logout",200,{},review_csrf)
+    reviewer("GET","/api/admin-audit",401)
+    print("Named auditor read-only access, denied writes and revoked access PASS")
     print("Named administrative audit coverage and rollback on audit failure PASS")
     print("Two isolated reseller sessions: owner-only reads, forbidden writes, concurrent initial assignment and atomic audit PASS")
 

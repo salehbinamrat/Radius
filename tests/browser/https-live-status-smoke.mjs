@@ -215,6 +215,41 @@ try {
     'Reseller workspace requested shared data');
   assert.equal(sockets.length,socketBaseline,'Reseller opened a shared status socket');
   console.log('HTTPS Chromium two isolated reseller workspaces, reload, filter and logout PASS');
+  step('auditor independent workspace');
+  const auditorRequests=[];
+  page.on('request',request=>{
+    const url=new URL(request.url());
+    if(url.origin===origin&&(url.pathname.startsWith('/api/')||url.pathname.startsWith('/hubs/')))
+      auditorRequests.push(url.pathname);
+  });
+  await page.locator('#sessionLoginUser').fill('ci_auditor');
+  await page.locator('#sessionLoginPass').fill(password);
+  await page.locator('#reactAdminLogin button[type=submit]').click();
+  await page.locator('#auditorWorkspace').waitFor({state:'visible'});
+  const audit=page.locator('#reactAuditorWorkspace [data-audit-state="ready"]');
+  await audit.waitFor({state:'visible'});
+  assert.equal(await page.locator('#dashboard').isVisible(),false);
+  assert.equal(await page.locator('#resellerWorkspace').isVisible(),false);
+  await audit.locator('#auditAction').selectOption('voucher_owner_transferred');
+  await audit.locator('#auditApply').click();
+  await page.waitForFunction(()=>{
+    const rows=[...document.querySelectorAll('#reactAuditorWorkspace [data-audit-action]')];
+    return rows.length===4&&rows.every(r=>r.getAttribute('data-audit-action')==='voucher_owner_transferred');
+  });
+  step('auditor reload and logout');
+  await page.reload({waitUntil:'domcontentloaded'});
+  await page.locator('#auditorWorkspace').waitFor({state:'visible'});
+  await audit.waitFor({state:'visible'});
+  await page.locator('#auditorLogout').click();
+  await page.locator('#loginPanel').waitFor({state:'visible'});
+  await page.waitForFunction(()=>document.querySelector('#reactAuditorWorkspace')?.childElementCount===0);
+  assert.equal((await context.request.get(origin+'/api/admin-audit')).status(),401);
+  const auditorPermitted=new Set(['/api/health/live','/api/admin/auth/mode','/api/admin/auth/csrf',
+    '/api/admin/auth/me','/api/admin/auth/login','/api/admin/auth/logout','/api/admin-audit']);
+  assert.ok(auditorRequests.includes('/api/admin-audit')&&auditorRequests.every(p=>auditorPermitted.has(p)),
+    'Auditor workspace requested shared data');
+  assert.equal(sockets.length,socketBaseline);
+  console.log('HTTPS Chromium independent auditor workspace, filtering, reload and logout PASS');
 } catch (error) {
   // Only fixed stage names, allowlisted HTTP status metadata and booleans.
   // Never print Playwright messages, DOM text, URLs with query strings, credentials or frames.

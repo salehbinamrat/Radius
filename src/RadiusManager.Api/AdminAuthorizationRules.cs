@@ -10,7 +10,7 @@ public static class AdminAuthorizationRules
         if (path is not null && (path == "/api/ownership" || path.StartsWith("/api/ownership/", StringComparison.Ordinal)))
             return OwnershipRules.IsAllowed(user, method, path);
         if (path == "/api/admin-audit")
-            return (method is "GET" or "HEAD") && OwnershipRules.ActorId(user) is not null;
+            return (method is "GET" or "HEAD") && AuditReadRules.ActorId(user) is not null;
         if (path == "/api/reseller/accounts")
             return (method is "GET" or "HEAD") && ResellerScope.OwnerId(user) is not null;
         if (!CanAccessSharedLab(user)) return false;
@@ -39,6 +39,8 @@ public static class AdminAuthorizationRules
 
     // Reseller ownership is separate. A reseller membership must not inherit shared
     // laboratory resources from another role, including via the monitoring hub.
+    // A reviewer must not inherit operator writes from another role.
     public static bool CanAccessSharedLab(ClaimsPrincipal? user) =>
-        user?.Identity?.IsAuthenticated == true && !user.IsInRole("reseller");
+        user?.Identity?.IsAuthenticated == true && !user.IsInRole("reseller")
+        && (!user.IsInRole("auditor") || user.FindAll(ClaimTypes.Role).Select(c => c.Value).Distinct(StringComparer.Ordinal).Count() == 1);
 }
