@@ -29,8 +29,15 @@ class OverviewMigrationChecks(unittest.TestCase):
         for token in ("buildOverviewSnapshot", "radius-overview-updated",
                       "radius-overview-request", "accounts", "summary"):
             self.assertIn(token, js+model+jsx)
-        self.assertIn("call('/api/summary')", js)
-        self.assertIn("call('/api/lab-accounts')", js)
+        # Stage 04B2C1 preserves the authenticated API source and passes
+        # the session-scoped cancellation signal to every dashboard read.
+        for path in ("/api/summary", "/api/plans", "/api/lab-accounts"):
+            self.assertIn(f"call('{path}', {{ signal }})", js)
+        self.assertIn("credentials: 'same-origin'", js)
+        self.assertIn("Authorization: `Basic ${auth}`", js)
+        self.assertIn("generation !== sessionGeneration || options.signal?.aborted", js)
+        self.assertIn("if (!current() || signal.aborted)", js)
+        self.assertIn("renderAll(summary)", js)
         self.assertIn("first-100-loaded", model)
         self.assertIn("addEventListener", jsx)
         self.assertIn("removeEventListener", jsx)

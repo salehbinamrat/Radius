@@ -1,3 +1,4 @@
+import { createRefreshCoordinator } from './refresh-coordinator.mjs';
 import { normalizedPlan } from './plan-utils.mjs';
 import { buildOverviewSnapshot } from './overview-model.mjs';
 import { buildUsageViewSnapshot } from './usage-view-model.mjs';
@@ -24,7 +25,7 @@ let overviewSnapshot = null;
 let overviewHealth = 'unloaded';
 let usageGeneration = 0;
 let usageDisplay = { kind: 'unloaded' };
-let pendingRequest = false;
+const dashboardRefresh = createRefreshCoordinator(8000);
 let toastTimeout = null;
 let noc = null;
 let ultra = null;
@@ -116,6 +117,7 @@ function encodeAuth(user, pass) {
   return btoa(encoded);
 }
 async function call(url, options = {}) {
+  const generation = sessionGeneration;
   const method = (options.method || 'GET').toUpperCase();
   const headers = sessionMode ? { ...(options.headers || {}) }
     : { Authorization: `Basic ${auth}`, ...(options.headers || {}) };
@@ -127,6 +129,9 @@ async function call(url, options = {}) {
     ...options, headers, cache: 'no-store', credentials: 'same-origin',
   });
   const body = await response.json().catch(() => ({}));
+  // Never let an old session's response (including a 401) affect a new login.
+  if (generation !== sessionGeneration || options.signal?.aborted)
+    throw new DOMException('تم إلغاء الطلب السابق.', 'AbortError');
   if (!response.ok) {
     if (response.status === 401 && (!el('dashboard').hidden || !el('resellerWorkspace').hidden || !el('auditorWorkspace').hidden)) {
       logout(false);
@@ -197,26 +202,41 @@ function renderAll(summary) {
   noc?.render();
   publishOverview();
 }
-async function reload() {
-  if (pendingRequest) return;
-  pendingRequest = true;loading(el('refreshAll'), true);loading(el('refresh'), true);
-  el('pageError').hidden = true;
-  try {
-    const [summary, all, lab] = await Promise.all([call('/api/summary'), call('/api/plans'), call('/api/lab-accounts')]);
-    plans = all; accounts = lab;
-    renderAll(summary);
-    noc?.status(true);
-  } catch (err) {
-    noc?.status(false);
-    onOverviewError();
-    planHealth = 'error';publishPlans();
-    voucherHealth = 'error';publishVouchers();
-    el('pageError').textContent = err.message;
-    el('pageError').hidden = false;
-    throw err;
-  } finally {
-    pendingRequest = false;loading(el('refreshAll'), false);loading(el('refresh'), false);
-  }
+function resetDashboardRefresh() {
+  dashboardRefresh.invalidate();
+  loading(el('refreshAll'), false);loading(el('refresh'), false);
+}
+function reload({ fresh = false } = {}) {
+  const generation = sessionGeneration;
+  return dashboardRefresh.run(async ({ signal, isCurrent }) => {
+    loading(el('refreshAll'), true);loading(el('refresh'), true);
+    el('pageError').hidden = true;
+    const current = () => generation === sessionGeneration && isCurrent();
+    try {
+      const [summary, all, lab] = await Promise.all([
+        call('/api/summary', { signal }), call('/api/plans', { signal }),
+        call('/api/lab-accounts', { signal }),
+      ]);
+      if (!current() || signal.aborted) throw new DOMException('تم إلغاء التحديث.', 'AbortError');
+      plans = all; accounts = lab;
+      renderAll(summary);
+      noc?.status(true);
+    } catch (err) {
+      if (!current()) throw new DOMException('تم إلغاء التحديث السابق.', 'AbortError');
+      const message = signal.aborted ? 'انتهت مهلة تحديث البيانات. أعد المحاولة.' : err.message;
+      noc?.status(false);
+      onOverviewError();
+      planHealth = 'error';publishPlans();
+      voucherHealth = 'error';publishVouchers();
+      el('pageError').textContent = message;
+      el('pageError').hidden = false;
+      throw new Error(message);
+    } finally {
+      if (current()) {
+        loading(el('refreshAll'), false);loading(el('refresh'), false);
+      }
+    }
+  }, { fresh });
 }
 async function disableAccount(username) {
   if (!window.confirm(`تعطيل الكرت ${username}؟ سيُمنع تسجيل الدخول الجديد فقط، ولا تُفصل جلسة حالية.`)) return;
@@ -225,7 +245,7 @@ async function disableAccount(username) {
     await call(`/api/lab-accounts/${encodeURIComponent(username)}/disable`, { method: 'POST' });
     toast('تم تعطيل الكرت للدخول الجديد فقط.', 'success');
     noc?.record(`تعطيل تسجيل الدخول الجديد للكرت ${username}`);
-    await reload();
+    await reload({ fresh: true });
   } catch (err) { setError('labError', err.message);toast(err.message, 'error'); }
 }
 async function queryUsage(username) {
@@ -261,6 +281,7 @@ async function logout(showToast = true) {
     }
   }
   sessionGeneration += 1;
+  resetDashboardRefresh();
   auditEnabled = false;
   el('auditNav').hidden = true;
   el('resellerWorkspace').hidden = true;
@@ -290,6 +311,7 @@ window.addEventListener('radius-session-ready', async event => {
   if (typeof token !== 'string' || token.length < 20) return;
   if (location.protocol !== 'https:') return;
   const generation = ++sessionGeneration;
+  resetDashboardRefresh();
   sessionMode = true;
   sessionCsrf = token;
   auth = '';
@@ -334,16 +356,19 @@ el('loginForm').addEventListener('submit', async event => {
   event.preventDefault();setError('loginError');
   if (sessionMode) return; // No Basic fallback when HTTPS Identity is enabled.
   if (!el('loginForm').reportValidity()) return;
+  const generation = ++sessionGeneration;
+  resetDashboardRefresh();
   auth = encodeAuth(el('loginUser').value, el('loginPass').value);
   const submit = el('loginForm').querySelector('button[type="submit"]');
   loading(submit, true);
   try {
     await reload();
+    if (generation !== sessionGeneration) return;
     el('loginPanel').hidden = true;
     el('dashboard').hidden = false;
     el('loginPass').value = '';
     switchView('overview');
-  } catch (err) { auth = '';setError('loginError', err.message); }
+  } catch (err) { if (generation === sessionGeneration) { auth = '';setError('loginError', err.message); } }
   finally { loading(submit, false); }
 });
 el('logout').addEventListener('click', () => { void logout(); });
@@ -355,8 +380,16 @@ window.addEventListener('radius-audit-expired', () => {
 window.addEventListener('radius-reseller-expired', () => {
   if (!el('resellerWorkspace').hidden) void logout(false);
 });
-el('refreshAll').addEventListener('click', () => reload().then(() => toast('تم تحديث البيانات.')).catch(err => toast(err.message, 'error')));
-el('refresh').addEventListener('click', () => reload().then(() => toast('تم تحديث الباقات.')).catch(err => toast(err.message, 'error')));
+function refreshWithFeedback(message) {
+  const generation = sessionGeneration;
+  return reload().then(() => {
+    if (generation === sessionGeneration) toast(message);
+  }).catch(err => {
+    if (generation === sessionGeneration && err.name !== 'AbortError') toast(err.message, 'error');
+  });
+}
+el('refreshAll').addEventListener('click', () => refreshWithFeedback('تم تحديث البيانات.'));
+el('refresh').addEventListener('click', () => refreshWithFeedback('تم تحديث الباقات.'));
 el('menuToggle').addEventListener('click', () => {
   const open = !el('sidebar').classList.contains('is-open');
   el('sidebar').classList.toggle('is-open', open);
@@ -416,7 +449,7 @@ window.addEventListener('radius-plan-save-request', async event => {
     respond({ ok: true });
     toast(changing ? 'تم تعديل الباقة بنجاح.' : 'تم إنشاء الباقة التجريبية.', 'success');
     noc?.record(changing ? 'تعديل إعدادات باقة تجريبية' : 'إنشاء باقة تجريبية');
-    try { await reload(); }
+    try { await reload({ fresh: true }); }
     catch { toast('تم الحفظ، لكن تعذر تحديث القائمة. استخدم تحديث البيانات.', 'error'); }
   } catch (err) {
     respond({ ok: false, error: err instanceof Error ? err.message : 'تعذر حفظ الباقة.' });
@@ -474,7 +507,7 @@ window.addEventListener('radius-voucher-create-request', async event => {
     if (shown) toast('تم إنشاء الكرت. احفظ كلمة المرور الآن؛ لن تظهر ثانية.', 'success');
     else toast('تم إنشاء الكرت، لكن لم تعرض كلمة المرور لأنك غادرت الصفحة أو بدأت طلبا آخر. لا يمكن استعادتها.', 'error');
     noc?.record(`إنشاء كرت مختبر ${data.username}`);
-    try { await reload(); }
+    try { await reload({ fresh: true }); }
     catch { toast('تم إنشاء الكرت، لكن تعذر تحديث القائمة. لا تعاود الطلب قبل التحقق.', 'error'); }
   } catch (err) {
     respond({ ok: false, error: err instanceof Error ? err.message : 'تعذر إنشاء كرت الاختبار.' });
