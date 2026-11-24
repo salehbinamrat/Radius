@@ -1,15 +1,16 @@
 import { normalizedPlan } from './plan-utils.mjs';
 import { buildOverviewSnapshot } from './overview-model.mjs';
+import { buildPlanViewSnapshot } from './plan-view-model.mjs';
 import { initializeNocUi } from './noc-ui.mjs';
 import { initializeUltraFeatures } from './ultra-features.mjs';
 import { initializeNasDrafts } from './nas-drafts.mjs';
-import { filterPlans, filterAccounts, formatBytes, formatKbps } from './dashboard-utils.mjs';
+import { filterAccounts, formatBytes } from './dashboard-utils.mjs';
 
 const el = id => document.getElementById(id);
 let auth = '';
 let sessionMode = false;
 let sessionCsrf = '';
-let editingId = null;
+let planHealth = 'unloaded';
 let plans = [];
 let accounts = [];
 let overviewSnapshot = null;
@@ -122,22 +123,14 @@ function button(label, className, onClick) {
   element.addEventListener('click', onClick);
   return element;
 }
-function renderPlans() {
-  const body = el('plansList');
-  const visible = filterPlans(plans, el('planSearch').value);
-  body.replaceChildren();
-  if (!visible.length) rowMessage(body, 5, plans.length ? 'لا توجد باقات مطابقة للبحث.' : 'لا توجد باقات حتى الآن.');
-  for (const p of visible) {
-    const row = body.insertRow();
-    appendCell(row, p.name);
-    appendCell(row, formatKbps(p.downloadKbps));
-    appendCell(row, formatKbps(p.uploadKbps));
-    appendPill(row, p.active);
-    const actions = row.insertCell();
-    actions.append(button('تعديل', 'subtle', () => editPlan(p)));
-  }
-  el('planCount').textContent = `المعروض ${visible.length} من ${plans.length} باقة محملة (حد القراءة: 100)`;
+// The existing authenticated API client is the ONLY source of plan data in React.
+function publishPlans() {
+  const payload = planHealth === 'unloaded'
+    ? { data: null, health: 'unloaded' }
+    : { data: buildPlanViewSnapshot(plans, el('planSearch').value), health: planHealth };
+  window.dispatchEvent(new CustomEvent('radius-plans-updated', { detail: payload }));
 }
+window.addEventListener('radius-plans-request', publishPlans);
 function renderAccounts() {
   const visible = filterAccounts(accounts, el('labSearch').value, el('labFilter').value);
   const body = el('labList'); body.replaceChildren();
@@ -189,7 +182,8 @@ function onOverviewError() {
 function renderAll(summary) {
   overviewSnapshot = buildOverviewSnapshot(summary, accounts);
   overviewHealth = 'online';
-  renderSelectors();renderPlans();renderAccounts();
+  planHealth = 'online';
+  renderSelectors();publishPlans();renderAccounts();
   noc?.render();
   publishOverview();
 }
@@ -205,31 +199,13 @@ async function reload() {
   } catch (err) {
     noc?.status(false);
     onOverviewError();
+    planHealth = 'error';publishPlans();
     el('pageError').textContent = err.message;
     el('pageError').hidden = false;
     throw err;
   } finally {
     pendingRequest = false;loading(el('refreshAll'), false);loading(el('refresh'), false);
   }
-}
-function clearEdit() {
-  editingId = null;
-  el('planFormTitle').textContent = 'إنشاء باقة تجريبية';
-  el('planForm').reset();
-  el('savePlan').textContent = 'حفظ الباقة';
-  el('cancelEdit').hidden = true;
-}
-function editPlan(p) {
-  editingId = p.id;
-  el('planFormTitle').textContent = 'تعديل الباقة: ' + p.name;
-  el('planName').value = p.name;
-  el('planDown').value = p.downloadKbps;
-  el('planUp').value = p.uploadKbps;
-  el('planQuota').value = p.quotaBytes === null ? '' : String(Math.floor(p.quotaBytes / 1048576));
-  el('planDays').value = p.validityDays ?? '';
-  el('savePlan').textContent = 'حفظ التعديل';
-  el('cancelEdit').hidden = false;
-  switchView('plans', 'planName');
 }
 async function disableAccount(username) {
   if (!window.confirm(`تعطيل الكرت ${username}؟ سيُمنع تسجيل الدخول الجديد فقط، ولا تُفصل جلسة حالية.`)) return;
@@ -277,7 +253,9 @@ async function logout(showToast = true) {
       return;
     }
   }
-  auth = '';plans = [];accounts = [];clearCredentials();resetUsage();clearEdit();
+  auth = '';plans = [];accounts = [];clearCredentials();resetUsage();
+  window.dispatchEvent(new Event('radius-plan-clear-edit'));
+  planHealth = 'unloaded';publishPlans();
   overviewSnapshot = null;overviewHealth = 'unloaded';publishOverview();
   el('loginPass').value = '';
   el('dashboard').hidden = true;
@@ -338,29 +316,48 @@ el('mobileBackdrop').addEventListener('click', closeMenu);
 document.addEventListener('keydown', event => { if (event.key === 'Escape') closeMenu(); });
 for (const nav of document.querySelectorAll('[data-view]')) nav.addEventListener('click', () => switchView(nav.dataset.view));
 for (const go of document.querySelectorAll('[data-goto]')) go.addEventListener('click', () => switchView(go.dataset.goto, go.dataset.focus || ''));
-el('planSearch').addEventListener('input', renderPlans);
+el('planSearch').addEventListener('input', publishPlans);
 el('labSearch').addEventListener('input', renderAccounts);
 el('labFilter').addEventListener('change', renderAccounts);
-el('cancelEdit').addEventListener('click', clearEdit);
-el('openPlanForm').addEventListener('click', () => { clearEdit();el('planName').focus(); });
+el('openPlanForm').addEventListener('click', () => {
+  window.dispatchEvent(new Event('radius-plan-clear-edit'));
+  requestAnimationFrame(() => el('planName')?.focus());
+});
 el('loadUsage').addEventListener('click', () => queryUsage(el('usageAccount').value));
 el('usageAccount').addEventListener('change', resetUsage);
 
-el('planForm').addEventListener('submit', async event => {
-  event.preventDefault();setError('planError');
-  let data;
-  try { data = normalizedPlan(el('planName').value, el('planDown').value, el('planUp').value, el('planQuota').value, el('planDays').value); }
-  catch (err) {setError('planError', err.message);return;}
-  const saveButton = el('savePlan');loading(saveButton, true);
+// React submits only the raw form fields. This controller preserves the original
+// normalizedPlan validation, CSRF session mode, API URLs, and POST/PUT behavior.
+window.addEventListener('radius-plan-save-request', async event => {
+  const { id, fields, respond } = event.detail ?? {};
+  if (typeof respond !== 'function') return;
+  if (el('dashboard').hidden) {
+    respond({ ok: false, error: 'سجل الدخول قبل تعديل الباقات.' });
+    return;
+  }
   try {
-    const changing = Boolean(editingId);
-    await call(changing ? `/api/plans/${editingId}` : '/api/plans', { method: changing ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
-    clearEdit();
+    const data = normalizedPlan(fields?.name, fields?.down, fields?.up, fields?.quota, fields?.days);
+    const changing = typeof id === 'string' && id.length > 0;
+    if (changing && !plans.some(p => p.id === id)) {
+      throw new Error('هذه الباقة غير موجودة في البيانات المحملة. حدث القائمة وأعد المحاولة.');
+    }
+    if (id !== null && id !== undefined && !changing) throw new Error('معرف الباقة غير صالح.');
+    await call(changing ? `/api/plans/${encodeURIComponent(id)}` : '/api/plans', {
+      method: changing ? 'PUT' : 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    respond({ ok: true });
     toast(changing ? 'تم تعديل الباقة بنجاح.' : 'تم إنشاء الباقة التجريبية.', 'success');
     noc?.record(changing ? 'تعديل إعدادات باقة تجريبية' : 'إنشاء باقة تجريبية');
-    try { await reload(); } catch { toast('تم الحفظ، لكن تعذر تحديث القائمة. استخدم تحديث البيانات.', 'error'); }
-  } catch (err) { setError('planError', err.message); }
-  finally {loading(saveButton, false);}
+    try { await reload(); }
+    catch { toast('تم الحفظ، لكن تعذر تحديث القائمة. استخدم تحديث البيانات.', 'error'); }
+  } catch (err) {
+    respond({ ok: false, error: err instanceof Error ? err.message : 'تعذر حفظ الباقة.' });
+  }
+});
+window.addEventListener('radius-plan-edit', () => {
+  switchView('plans', 'planName');
 });
 
 el('labForm').addEventListener('submit', async event => {
