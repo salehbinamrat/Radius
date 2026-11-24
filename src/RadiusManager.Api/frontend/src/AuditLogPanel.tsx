@@ -5,7 +5,8 @@ const actions:Record<string,string>={
   password_changed:'تغيير كلمة المرور',password_change_rejected:'رفض تغيير كلمة المرور',
   plan_created:'إنشاء باقة',plan_updated:'تعديل باقة',voucher_created:'إنشاء كرت',voucher_disabled:'تعطيل كرت',
   nas_draft_created:'إنشاء مسودة NAS',nas_draft_retired:'إغلاق مسودة NAS',
-  voucher_owner_assigned:'إسناد ملكية',voucher_owner_transferred:'نقل ملكية'
+  voucher_owner_assigned:'إسناد ملكية',voucher_owner_transferred:'نقل ملكية',
+  authorization_denied:'رفض الصلاحيات',csrf_denied:'رفض حماية الطلب'
 };
 const outcomes:Record<string,string>={success:'ناجح',denied:'مرفوض',error:'خطأ'};
 type Filters={action:string;outcome:string;actor:string;from:string;to:string};
@@ -85,7 +86,7 @@ function AuditTable(){
   function search(e:FormEvent){e.preventDefault();setQuery({filters:{...draft,actor:draft.actor.trim()},before:null});}
   return <section className="surface-card audit-panel" data-audit-state={state}>
     <h2>مراجعة الأحداث الإدارية</h2>
-    <p className="section-note">آخر الأحداث المسجلة حسب معرف التسجيل. التواريخ المرشحة بتوقيت UTC. لا يعرض هذا السجل كل المحاولات المرفوضة بعد.</p>
+    <p className="section-note">آخر الأحداث المسجلة حسب معرف التسجيل. التواريخ المرشحة بتوقيت UTC. يتضمن رفض الصلاحيات وحماية CSRF للعمليات المعروفة، ولا يشمل كل الطلبات المرفوضة.</p>
     {state==='denied'?<p role="alert">لا توجد صلاحية لقراءة السجل. أعد تسجيل الدخول.</p>:<>
       <form className="audit-filters" onSubmit={search}>
         <label>العملية<select id="auditAction" value={draft.action} onChange={e=>change('action',e.target.value)}><option value="">الكل</option>{Object.entries(actions).map(([k,v])=><option key={k} value={k}>{v}</option>)}</select></label>

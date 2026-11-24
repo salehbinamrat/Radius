@@ -117,9 +117,9 @@ public static class AdminIdentityEndpoints
             AdminIdentityDbContext db) =>
         {
             if (!identityEnabled) return Results.NotFound();
-            if (!ctx.Request.IsHttps || !await csrf.IsRequestValidAsync(ctx))
-                return Results.StatusCode(403);
+            if (!ctx.Request.IsHttps) return Results.StatusCode(403);
             if (ctx.User.Identity?.IsAuthenticated != true) return Results.Unauthorized();
+            if (!await csrf.IsRequestValidAsync(ctx)) return Results.StatusCode(403);
             var uid = ctx.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
             if (!OwnershipRules.ValidOwnerId(uid)) return Results.Unauthorized();
             if (string.IsNullOrEmpty(input.CurrentPassword) || input.CurrentPassword.Length > 256

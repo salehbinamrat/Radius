@@ -213,12 +213,9 @@ check 200 -b "$jar" "$url/api/summary"
 docker compose -p "$project" -f "$compose_file" exec -T db psql -X -v ON_ERROR_STOP=1 -U radius -d radius \
   -c 'ALTER TABLE app_admin_audit_events DROP CONSTRAINT ci_reject_password_audit' >/dev/null
 echo 'Password rotation rollback on forced audit failure PASS'
-fetch_csrf
-build_body change
 cp "$jar" "$tmp/stale-after-change.cookies"
-check 200 -b "$jar" -c "$jar" -H "X-CSRF-TOKEN: $csrf" \
-  -H "Content-Type: application/json" --data-binary @"$tmp/payload.json" \
-  "$url/api/admin/auth/change-password"
+# Two independent authenticated clients contend for the same change.
+python3 tests/password_change_race_smoke.py "$tmp/tls/server.crt"
 # Check revocation directly BEFORE attempting the old cookie, so lazy validation
 # cannot mask a missing transactional revocation.
 docker compose -p "$project" -f "$compose_file" exec -T db psql -X -At -v ON_ERROR_STOP=1 -U radius -d radius <<'SQL' | python3 -c 'import sys; assert sys.stdin.read().splitlines()==["0","1","1"]'
@@ -227,6 +224,9 @@ SELECT count(*) FROM app_admin_audit_events WHERE action='password_changed' AND 
 SELECT count(*) FROM app_admin_audit_events WHERE action='password_change_rejected' AND outcome='denied';
 SQL
 check 401 -b "$tmp/stale-after-change.cookies" "$url/api/summary"
+# The original cookie was not the racing client; discard it locally only
+# after demonstrating its server-side revocation.
+rm -f "$jar"
 
 # New password signs in; logout then must reject a stolen pre-logout cookie.
 fetch_csrf
