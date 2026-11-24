@@ -41,7 +41,11 @@ SQL
 fingerprint() {
   sql < tests/audit_recovery_fingerprint.sql | sha256sum | cut -d ' ' -f1
 }
+role_fingerprint() {
+  sql < tests/runtime_role_fingerprint.sql | sha256sum | cut -d ' ' -f1
+}
 before=$(fingerprint)
+roles_before=$(role_fingerprint)
 archive="$tmp/audit-snapshot.pgp"
 # Scope Compose selection to this one backup invocation. The helper uses the
 # normal encrypted pipeline, with no plaintext archive or production target.
@@ -49,7 +53,7 @@ COMPOSE_PROJECT_NAME="$project" COMPOSE_FILE="$compose_file" bash scripts/lab-ba
 [[ "$(fingerprint)" == "$before" ]] || {
   echo 'Source audit changed during backup; comparison refused' >&2; exit 1;
 }
-LAB_AUDIT_RESTORE_SHA256="$before" bash scripts/lab-restore-drill.sh "$archive"
+LAB_ROLE_RESTORE_SHA256="$roles_before" LAB_AUDIT_RESTORE_SHA256="$before" bash scripts/lab-restore-drill.sh "$archive"
 # Negative control: a valid archive but an incorrect expected content digest
 # must fail specifically at the comparison, not at decryption or schema checks.
 wrong=$(python3 - "$before" <<'PY'
@@ -64,5 +68,8 @@ fi
 grep -Fxq 'Restored audit content fingerprint mismatch' "$tmp/wrong.log"
 [[ "$(fingerprint)" == "$before" ]] || {
   echo 'Source audit changed during restore drill' >&2; exit 1;
+}
+[[ "$(role_fingerprint)" == "$roles_before" ]] || {
+  echo 'Source role policy changed during restore drill' >&2; exit 1;
 }
 echo 'Populated HTTPS audit recovery, mismatch rejection and unchanged source PASS'

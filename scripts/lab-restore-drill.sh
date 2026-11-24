@@ -13,6 +13,13 @@ if [[ -n "$audit_digest" ]]; then
     echo "Audit content comparison requires isolated HTTPS CI and a valid digest" >&2; exit 1;
   }
 fi
+# Role restoration is opt-in and restricted to the same isolated HTTPS drill.
+role_digest="${LAB_ROLE_RESTORE_SHA256:-}"
+if [[ -n "$role_digest" ]]; then
+  [[ "${CI:-}" == true && "${LAB_HTTPS_TEST_ACK:-}" == isolated-ci && -n "$audit_digest" && "$role_digest" =~ ^[a-f0-9]{64}$ ]] || {
+    echo "Role restoration requires isolated HTTPS CI and valid content/role digests" >&2; exit 1;
+  }
+fi
 [[ -n "${BACKUP_PASSPHRASE_FILE:-}" && -f "$BACKUP_PASSPHRASE_FILE" && ! -L "$BACKUP_PASSPHRASE_FILE" ]] || { echo "Private passphrase file required" >&2; exit 1; }
 mode=$(stat -c %a "$BACKUP_PASSPHRASE_FILE")
 [[ "$mode" =~ ^[0-7]{3,4}$ ]] && (( (8#$mode & 0077) == 0 )) || { echo "Insecure passphrase file permissions" >&2; exit 1; }
@@ -93,5 +100,8 @@ if [[ -n "$audit_digest" ]]; then
     echo "Restored audit content fingerprint mismatch" >&2; exit 1;
   }
   echo "Restored populated audit and ownership content fingerprint PASS"
+fi
+if [[ -n "$role_digest" ]]; then
+  bash scripts/restore-runtime-roles-smoke.sh "$restore_project" "$compose_file" "$role_digest"
 fi
 echo "Encrypted backup restore verified in disposable PostgreSQL; elapsed seconds: $(($(date +%s)-started_at))"
