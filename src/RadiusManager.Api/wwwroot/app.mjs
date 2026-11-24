@@ -71,6 +71,12 @@ function closeMenu() {
   el('mobileBackdrop').hidden = true;
   el('menuToggle').setAttribute('aria-expanded', 'false');
 }
+// This event is a lifecycle hint only; the hub validates its own server session.
+function publishLiveStatusScope() {
+  const enabled = sessionMode && !el('dashboard').hidden && !el('view-overview').hidden;
+  window.dispatchEvent(new CustomEvent('radius-live-status-scope', { detail: { enabled } }));
+}
+window.addEventListener('radius-live-status-request', publishLiveStatusScope);
 function switchView(view, focusId = '') {
   if (!Object.hasOwn(viewLabels, view)) return;
   for (const section of document.querySelectorAll('[data-page]')) section.hidden = section.dataset.page !== view;
@@ -85,6 +91,7 @@ function switchView(view, focusId = '') {
   if (view !== 'vouchers') clearCredentials();
   if (view !== 'accounting') resetUsage();
   window.dispatchEvent(new CustomEvent('radius-view-changed', { detail: { view } }));
+  publishLiveStatusScope();
   if (view === 'networks' && !el('dashboard').hidden) nasDrafts?.refresh(); // one-time password must not linger across navigation
   closeMenu();
   noc?.onViewChanged();
@@ -249,6 +256,7 @@ async function logout(showToast = true) {
   overviewSnapshot = null;overviewHealth = 'unloaded';publishOverview();
   el('loginPass').value = '';
   el('dashboard').hidden = true;
+  publishLiveStatusScope();
   el('loginPanel').hidden = false;
   closeMenu();noc?.reset();ultra?.reset();nasDrafts?.reset();
   if (sessionMode) {

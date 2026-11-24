@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import * as fs from 'node:fs';
 
 const root = new URL('../../src/RadiusManager.Api/frontend/', import.meta.url);
 const pkg = JSON.parse(readFileSync(new URL('package.json', root), 'utf8'));
@@ -38,4 +39,28 @@ test('same supported Node LTS major on CI and Docker, no bypassed TS checks', ()
   assert.match(docker, /npm run check && npm run build/);
   assert.match(pipeline, /npm run check/);
   assert.match(pipeline, /node --check/);
+});
+
+test('Docker UI stage includes every shared wwwroot model imported by React and its types', () => {
+  const { readdirSync } = fs;
+  const stage = docker.split(/\nFROM /)[0];
+  const copied = new Set(stage.split('\n')
+    .filter(line => line.startsWith('COPY ') && line.endsWith(' /ui/wwwroot/'))
+    .flatMap(line => line.trim().split(/\s+/).slice(1, -1)));
+  const src = new URL('src/', root);
+  const modules = readdirSync(src, { recursive: true }).filter(name => /\.[cm]?[jt]sx?$/.test(name));
+  const dependencies = new Set();
+  for (const file of modules) {
+    const code = readFileSync(new URL(file, src), 'utf8');
+    for (const match of code.matchAll(/['"](?:\.\.\/)+wwwroot\/([^'"]+\.mjs)['"]/g))
+      dependencies.add(match[1]);
+  }
+  assert.ok(dependencies.has('capacity-utils.mjs'));
+  assert.ok(dependencies.has('live-status-model.mjs'));
+  for (const name of dependencies) {
+    assert.ok(copied.has('wwwroot/' + name), name + ' missing from Docker UI build stage');
+    const declarations = name.replace(/\.mjs$/, '.d.mts');
+    assert.ok(copied.has('wwwroot/' + declarations), declarations + ' missing from Docker UI build stage');
+    assert.ok(fs.existsSync(new URL('../wwwroot/' + declarations, root)));
+  }
 });

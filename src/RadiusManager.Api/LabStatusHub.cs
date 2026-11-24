@@ -1,0 +1,92 @@
+using System.Runtime.CompilerServices;
+using System.Security.Claims;
+using Microsoft.AspNetCore.SignalR;
+using Microsoft.EntityFrameworkCore;
+
+namespace RadiusManager.Api;
+
+public static class LabStatusHubRules
+{
+    public const string Policy = "lab-status-read";
+    public static bool IsReadRole(string? role) =>
+        role is "super-admin" or "noc-operator" or "auditor";
+
+    public static bool IsTrustedTransport(bool https, string? origin, string? fetchSite, string? host) =>
+        https && !string.IsNullOrWhiteSpace(origin)
+        && RequestOriginRules.IsAllowed("POST", origin, fetchSite, "https", host);
+}
+
+public sealed record LabStatusSnapshot(string Scope, string Database, DateTime ObservedAtUtc);
+
+/// <summary>Bounded, read-only laboratory feed. No NAS actions or subscriber data.</summary>
+public sealed class LabStatusHub(IServiceScopeFactory scopes) : Hub
+{
+    private const string ActiveKey = "lab-status-stream-active";
+    private const string LastStartKey = "lab-status-stream-start";
+    private static readonly TimeSpan Interval = TimeSpan.FromSeconds(10);
+
+    public async IAsyncEnumerable<LabStatusSnapshot> Watch(
+        [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        var items = Context.Items;
+        lock (items)
+        {
+            if (items.ContainsKey(ActiveKey)
+                || (items.TryGetValue(LastStartKey, out var previous)
+                    && previous is long ticks && Environment.TickCount64 - ticks < 10_000))
+                throw new HubException("Status stream is limited.");
+            items[ActiveKey] = true;
+            items[LastStartKey] = Environment.TickCount64;
+        }
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(
+            cancellationToken, Context.ConnectionAborted);
+        var ct = linked.Token;
+        try
+        {
+            // A subscription is finite; no replay or background task outlives it.
+            for (var i = 0; i < 6; i++)
+            {
+                if (i != 0) await Task.Delay(Interval, ct);
+                if (!await IsCurrentSessionAllowedAsync(ct))
+                {
+                    Context.Abort();
+                    yield break;
+                }
+                ct.ThrowIfCancellationRequested();
+                // The successful, fresh DB query above verifies database reachability.
+                yield return new LabStatusSnapshot("lab", "reachable", DateTime.UtcNow);
+            }
+        }
+        finally
+        {
+            lock (items) items.Remove(ActiveKey);
+        }
+    }
+
+    private async Task<bool> IsCurrentSessionAllowedAsync(CancellationToken ct)
+    {
+        var principal = Context.User;
+        var uid = principal?.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        var token = principal?.FindFirst("radius-session")?.Value;
+        if (principal?.Identity?.IsAuthenticated != true
+            || string.IsNullOrEmpty(uid) || string.IsNullOrEmpty(token))
+            return false;
+
+        // A new scope for every sample: never rely on the connection's stale role claims
+        // or a tracked session entity. Reads do not extend the idle timeout.
+        await using var scope = scopes.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AdminIdentityDbContext>();
+        var hash = AdminSessionSecurity.HashToken(token);
+        var now = DateTime.UtcNow;
+        return await (from s in db.AdminSessions.AsNoTracking()
+                      join u in db.Users.AsNoTracking() on s.UserId equals u.Id
+                      join ur in db.UserRoles.AsNoTracking() on u.Id equals ur.UserId
+                      join role in db.Roles.AsNoTracking() on ur.RoleId equals role.Id
+                      where s.UserId == uid && s.SessionTokenHash == hash
+                          && s.RevokedAt == null && s.IdleExpiresAt > now
+                          && s.AbsoluteExpiresAt > now && u.SecurityStamp != null
+                          && s.SecurityStamp == u.SecurityStamp
+                          && (role.Name == "super-admin" || role.Name == "noc-operator" || role.Name == "auditor")
+                      select s.Id).AnyAsync(ct);
+    }
+}
