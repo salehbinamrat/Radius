@@ -168,6 +168,20 @@ for i in $(seq 1 30); do
   sleep 2
 done
 
+# Change only role membership in this disposable DB, without rotating the security stamp.
+# An existing stream must close even when the new role can itself read status.
+cp "$jar" "$tmp/stale-after-role.cookies"
+python3 tests/admin_role_change_wire_smoke.py "$tmp/tls/server.crt" "$jar" "$project" "$compose_file"
+check 401 -b "$tmp/stale-after-role.cookies" "$url/api/summary"
+check 401 -b "$tmp/stale-after-role.cookies" -H "Origin: $url" -X POST "$url/hubs/lab-status/negotiate?negotiateVersion=1"
+# Membership is restored by the fixture, but the observed stale cookie must remain revoked.
+fetch_csrf
+build_body login
+check 200 -b "$jar" -c "$jar" -H "X-CSRF-TOKEN: $csrf" \
+  -H "Content-Type: application/json" --data-binary @"$tmp/payload.json" "$url/api/admin/auth/login"
+check 200 -b "$jar" "$url/api/admin/auth/me"
+grep -q "super-admin" "$out"
+
 # Changing password must revoke all old sessions immediately.
 fetch_csrf
 export LAB_ADMIN_PASSWORD_NEXT="Z!n$(python3 -c 'import secrets;print(secrets.token_urlsafe(28))')8"

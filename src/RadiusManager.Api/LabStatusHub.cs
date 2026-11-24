@@ -2,7 +2,6 @@ using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Security.Claims;
 using Microsoft.AspNetCore.SignalR;
-using Microsoft.EntityFrameworkCore;
 
 namespace RadiusManager.Api;
 
@@ -83,21 +82,11 @@ public sealed class LabStatusHub(IServiceScopeFactory scopes) : Hub
             || string.IsNullOrEmpty(uid) || string.IsNullOrEmpty(token))
             return false;
 
-        // A new scope for every sample: never rely on the connection's stale role claims
-        // or a tracked session entity. Reads do not extend the idle timeout.
+        // A new scope for each sample. Same role/stamp validation as HTTP,
+        // without extending idle expiry from a background subscription.
         await using var scope = scopes.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<AdminIdentityDbContext>();
-        var hash = AdminSessionSecurity.HashToken(token);
-        var now = DateTime.UtcNow;
-        return await (from s in db.AdminSessions.AsNoTracking()
-                      join u in db.Users.AsNoTracking() on s.UserId equals u.Id
-                      join ur in db.UserRoles.AsNoTracking() on u.Id equals ur.UserId
-                      join role in db.Roles.AsNoTracking() on ur.RoleId equals role.Id
-                      where s.UserId == uid && s.SessionTokenHash == hash
-                          && s.RevokedAt == null && s.IdleExpiresAt > now
-                          && s.AbsoluteExpiresAt > now && u.SecurityStamp != null
-                          && s.SecurityStamp == u.SecurityStamp
-                          && (role.Name == "super-admin" || role.Name == "noc-operator" || role.Name == "auditor")
-                      select s.Id).AnyAsync(ct);
+        var session = await AdminSessionSecurity.GetCurrentAsync(db, principal, DateTime.UtcNow, ct);
+        return session is not null && principal.FindAll(ClaimTypes.Role).Any(c => LabStatusHubRules.IsReadRole(c.Value));
     }
 }
