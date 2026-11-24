@@ -63,18 +63,34 @@ else
   echo 'Candidate image vulnerability gate failed' >&2
   failed=1
 fi
+# Second official candidate: PostgreSQL 16.16 on Alpine 3.24. No run or
+# volumes; a different libc requires an isolated logical restore before use.
+candidate='postgres:16.16-alpine3.24@sha256:f2f98726820d0342055351c6e9d36e705f5bfffb3dd53ff556325114b08afb6d'
+docker pull "$candidate"
+candidate_id=$(docker image inspect --format '{{.Id}}' "$candidate")
+[[ "$candidate_id" =~ ^sha256:[a-f0-9]{64}$ ]] || exit 1
+printf '%s %s\n' candidate-alpine "$candidate_id" >> "$reports/image-identities.txt"
+"$scanner" image --image-src docker --format cyclonedx --output "$reports/candidate-alpine.cdx.json" "$candidate_id"
+if "$scanner" image --image-src docker --scanners vuln --severity HIGH,CRITICAL \
+    --exit-code 1 --exit-on-eol 1 --format json \
+    --output "$reports/candidate-alpine.vulnerabilities.json" "$candidate_id"; then
+  echo 'Alpine candidate vulnerability gate passed'
+else
+  echo 'Alpine candidate vulnerability gate failed' >&2
+  failed=1
+fi
 # Require actual SBOM component inventories and vulnerability reports.
 python3 - "$reports" <<'PY'
 import json
 import sys
 from pathlib import Path
 root = Path(sys.argv[1])
-for name in ("source", "api", "radius", "db", "candidate-db"):
+for name in ("source", "api", "radius", "db", "candidate-db", "candidate-alpine"):
     data = json.loads((root / (name + ".cdx.json")).read_text())
     if data.get("bomFormat") != "CycloneDX" or not data.get("components"):
         raise SystemExit("Missing component inventory: " + name)
     print("SBOM", name, len(data["components"]), "components")
-for name in ("api", "radius", "db", "candidate-db"):
+for name in ("api", "radius", "db", "candidate-db", "candidate-alpine"):
     data = json.loads((root / (name + ".vulnerabilities.json")).read_text())
     if not data.get("Results"):
         raise SystemExit("Missing image scan results: " + name)
