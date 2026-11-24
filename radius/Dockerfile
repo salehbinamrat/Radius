@@ -1,7 +1,9 @@
-FROM debian:bookworm-slim
+FROM debian:trixie-slim
 ENV DEBIAN_FRONTEND=noninteractive
+# Debian stable package with BlastRADIUS fixes; intentional updates require CI.
+ARG FREERADIUS_VERSION=3.2.7+dfsg-1+deb13u2
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    freeradius freeradius-postgresql freeradius-utils postgresql-client ca-certificates python3 python3-psycopg2 \
+    freeradius="${FREERADIUS_VERSION}" freeradius-postgresql="${FREERADIUS_VERSION}" freeradius-utils="${FREERADIUS_VERSION}" postgresql-client ca-certificates python3 python3-psycopg2 \
     && rm -rf /var/lib/apt/lists/*
 COPY sql.template /opt/radius/sql.template
 COPY clients.template /opt/radius/clients.template
