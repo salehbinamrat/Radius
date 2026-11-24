@@ -2,6 +2,8 @@ import { normalizedPlan } from './plan-utils.mjs';
 import { buildOverviewSnapshot } from './overview-model.mjs';
 import { buildPlanViewSnapshot } from './plan-view-model.mjs';
 import { buildVoucherViewSnapshot } from './voucher-view-model.mjs';
+import { eligibleVoucherPlans } from './voucher-create-model.mjs';
+import { createOneTimeRevealGate } from './voucher-secret-gate.mjs';
 import { initializeNocUi } from './noc-ui.mjs';
 import { initializeUltraFeatures } from './ultra-features.mjs';
 import { initializeNasDrafts } from './nas-drafts.mjs';
@@ -13,6 +15,7 @@ let sessionMode = false;
 let sessionCsrf = '';
 let planHealth = 'unloaded';
 let voucherHealth = 'unloaded';
+const voucherSecretGate = createOneTimeRevealGate();
 let plans = [];
 let accounts = [];
 let overviewSnapshot = null;
@@ -45,8 +48,10 @@ function resetUsage() {
   el('usageEmpty').hidden = false;
 }
 function clearCredentials() {
-  el('labCredentials').textContent = '';
-  el('labCredentials').hidden = true;
+  voucherSecretGate.invalidate();
+  const secret = el('labCredentials');
+  if (secret) { secret.textContent = ''; secret.hidden = true; }
+  window.dispatchEvent(new Event('radius-voucher-creator-clear'));
 }
 function closeMenu() {
   el('sidebar').classList.remove('is-open');
@@ -65,6 +70,7 @@ function switchView(view, focusId = '') {
   el('breadcrumbCurrent').textContent = viewLabels[view];
   el('pageError').hidden = true;
   if (view !== 'vouchers') clearCredentials();
+  window.dispatchEvent(new CustomEvent('radius-view-changed', { detail: { view } }));
   if (view === 'networks' && !el('dashboard').hidden) nasDrafts?.refresh(); // one-time password must not linger across navigation
   closeMenu();
   noc?.onViewChanged();
@@ -115,22 +121,26 @@ function publishVouchers() {
   window.dispatchEvent(new CustomEvent('radius-vouchers-updated', { detail: payload }));
 }
 window.addEventListener('radius-vouchers-request', publishVouchers);
+// Only active plans with no unenforced quota/expiry are offered for lab vouchers.
+function publishVoucherPlans() {
+  window.dispatchEvent(new CustomEvent('radius-voucher-plans-updated', {
+    detail: { plans: eligibleVoucherPlans(plans) },
+  }));
+}
+window.addEventListener('radius-voucher-plans-request', publishVoucherPlans);
 function renderSelectors() {
-  const planSelect = el('labPlan');
-  const currentPlan = planSelect.value;
-  planSelect.replaceChildren();
-  for (const p of plans.filter(p => p.active && p.quotaBytes === null && p.validityDays === null)) {
-    const opt = document.createElement('option');opt.value = p.id;opt.textContent = p.name;planSelect.append(opt);
-  }
-  if ([...planSelect.options].some(o => o.value === currentPlan)) planSelect.value = currentPlan;
-  el('generateLab').disabled = planSelect.options.length === 0;
+  publishVoucherPlans();
   const usageSelect = el('usageAccount');
   const currentUser = usageSelect.value;
   usageSelect.replaceChildren();
   for (const a of accounts) {
-    const opt = document.createElement('option');opt.value = a.username;opt.textContent = `${a.username} — ${a.planName}`;usageSelect.append(opt);
+    const opt = document.createElement('option');
+    opt.value = a.username;
+    opt.textContent = `${a.username} — ${a.planName}`;
+    usageSelect.append(opt);
   }
-  if ([...usageSelect.options].some(o => o.value === currentUser)) usageSelect.value = currentUser;
+  if ([...usageSelect.options].some(o => o.value === currentUser))
+    usageSelect.value = currentUser;
   el('loadUsage').disabled = usageSelect.options.length === 0;
 }
 function publishOverview() {
@@ -345,20 +355,59 @@ window.addEventListener('radius-plan-edit', () => {
   switchView('plans', 'planName');
 });
 
-el('labForm').addEventListener('submit', async event => {
-  event.preventDefault();setError('labError');clearCredentials();
-  if (!el('labPlan').value) {setError('labError', 'اختر باقة اختبار بدون حجم أو مدة.');return;}
-  const createButton = el('generateLab');loading(createButton, true);
+// No credential ever crosses React props/state: app.mjs alone receives the
+// one-time API response and writes it directly to an ephemeral React-owned <pre>.
+window.addEventListener('radius-voucher-secret-reset-request', clearCredentials);
+window.addEventListener('radius-voucher-create-request', async event => {
+  const { planId, respond, isCurrent } = event.detail ?? {};
+  if (typeof respond !== 'function') return;
+  if (el('dashboard').hidden) {
+    respond({ ok: false, error: 'سجل الدخول قبل إنشاء الكرت.' }); return;
+  }
+  if (typeof planId !== 'string' ||
+      !eligibleVoucherPlans(plans).some(p => p.id === planId)) {
+    respond({ ok: false, error: 'اختر باقة اختبار بدون حجم أو مدة.' }); return;
+  }
+  const generation = voucherSecretGate.begin();
   try {
-    const data = await call('/api/lab-accounts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({planId:el('labPlan').value}) });
-    // Secrets are shown once in memory, never written to browser storage or the URL.
-    el('labCredentials').textContent = `رقم الكرت: ${data.username}\nكلمة المرور (تظهر مرة واحدة): ${data.password}`;
-    el('labCredentials').hidden = false;
-    toast('تم إنشاء كرت اختبار. احفظ كلمة المرور الآن؛ لن تظهر ثانية.', 'success');
+    const data = await call('/api/lab-accounts', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ planId }),
+    });
+    const validReply = data?.labOnly === true &&
+      data?.passwordDisplayedOnce === true &&
+      typeof data.username === 'string' && typeof data.password === 'string';
+    let shown = false;
+    const viewActive = !el('view-vouchers').hidden && !el('dashboard').hidden;
+    // Only the current active screen can display the password. A late reply
+    // after navigation/logout/new attempt is discarded, never cached.
+    if (validReply && voucherSecretGate.isCurrent(generation) &&
+        typeof isCurrent === 'function' && isCurrent() && viewActive) {
+      const secret = el('labCredentials');
+      if (secret) {
+        secret.textContent = `رقم الكرت: ${data.username}\nكلمة المرور (تظهر مرة واحدة): ${data.password}`;
+        secret.hidden = false;
+        shown = true;
+        window.dispatchEvent(new Event('radius-voucher-created-visible'));
+      }
+    }
+    // Drop the parsed network response's secret as soon as the once-only
+    // DOM write has completed. JS strings themselves cannot be zeroized.
+    if (data && Object.hasOwn(data, 'password')) delete data.password;
+    if (!validReply) {
+      respond({ ok: false, error: 'اكتمل طلب الإنشاء لكن استجابة بيانات الدخول غير صالحة. لا يمكن استعادة الكلمة.' });
+      toast('تعذر التحقق من استجابة كرت الاختبار. لا تعاود المحاولة قبل مراجعة السجل.', 'error');
+      return;
+    }
+    respond({ ok: true, shown });
+    if (shown) toast('تم إنشاء الكرت. احفظ كلمة المرور الآن؛ لن تظهر ثانية.', 'success');
+    else toast('تم إنشاء الكرت، لكن لم تعرض كلمة المرور لأنك غادرت الصفحة أو بدأت طلبا آخر. لا يمكن استعادتها.', 'error');
     noc?.record(`إنشاء كرت مختبر ${data.username}`);
-    try { await reload(); } catch { toast('تم إنشاء الكرت، لكن تعذر تحديث القائمة. احتفظ بكلمة المرور المعروضة.', 'error'); }
-  } catch (err) {setError('labError', err.message);}
-  finally {loading(createButton, false);}
+    try { await reload(); }
+    catch { toast('تم إنشاء الكرت، لكن تعذر تحديث القائمة. لا تعاود الطلب قبل التحقق.', 'error'); }
+  } catch (err) {
+    respond({ ok: false, error: err instanceof Error ? err.message : 'تعذر إنشاء كرت الاختبار.' });
+  }
 });
 
 // NOC presentation wiring is independent of API, database and RADIUS authentication.
