@@ -3,9 +3,15 @@ client loopback_lab {
   ipaddr = 127.0.0.1
   secret = __RADIUS_SECRET__
   nastype = other
+  # Strict isolated-lab policy; unknown legacy NASes are not enrolled.
+  require_message_authenticator = yes
+  limit_proxy_state = yes
 }
 client vpn_lab {
   ipaddr = __RADIUS_CLIENT_CIDR__
   secret = __RADIUS_SECRET__
   nastype = other
+  # Strict isolated-lab policy; unknown legacy NASes are not enrolled.
+  require_message_authenticator = yes
+  limit_proxy_state = yes
 }

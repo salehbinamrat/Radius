@@ -108,6 +108,10 @@ docker compose -p "$project" -f "$compose_file" config --quiet
 # Complete schema initialization before creating the distinct login roles.
 docker compose -p "$project" -f "$compose_file" up -d db schema-init
 docker compose -p "$project" -f "$compose_file" wait schema-init
+# HTTPS fixtures must use the same exact tested database image as the main lab.
+primary_db_image=$(docker inspect --format '{{.Image}}' "$(docker compose ps -q db)")
+https_db_image=$(docker inspect --format '{{.Image}}' "$(docker compose -p "$project" -f "$compose_file" ps -q db)")
+[[ "$primary_db_image" == "$https_db_image" ]] || { echo 'HTTPS database image differs from primary lab' >&2; exit 1; }
 bash scripts/api-runtime-role-smoke.sh "$project" "$compose_file"
 bash scripts/radius-runtime-role-smoke.sh "$project" "$compose_file"
 docker compose -p "$project" -f "$compose_file" up -d --no-deps api

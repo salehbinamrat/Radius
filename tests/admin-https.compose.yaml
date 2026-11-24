@@ -3,7 +3,8 @@
 # Never bring up under the production Radius project.
 services:
   db:
-    image: postgres:16-bookworm
+    image: radius-postgres-local:16.16-icu
+    pull_policy: never
     restart: "no"
     environment:
       POSTGRES_USER: radius

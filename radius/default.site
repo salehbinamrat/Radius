@@ -11,6 +11,10 @@ server default {
     port = 1813
   }
   authorize {
+    # This lab profile intentionally does not support EAP authentication.
+    if (&EAP-Message) {
+      reject
+    }
     preprocess
     chap
     mschap

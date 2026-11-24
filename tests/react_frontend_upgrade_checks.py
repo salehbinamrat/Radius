@@ -21,7 +21,7 @@ class FrontendUpgradeChecks(unittest.TestCase):
                      'bash scripts/ui-smoke.sh'):
             self.assertIn(line,ci)
         self.assertIn('needs: [dotnet-tests, config-tests]',ci)
-        self.assertIn('node:24-bookworm-slim',docker)
+        self.assertRegex(docker, r'(?m)^FROM node:24-bookworm-slim@sha256:[a-f0-9]{64} AS ui-build$')
         self.assertIn('npm run check && npm run build',docker)
     def test_stage_execution_doc_is_present(self):
         doc=(ROOT/'STAGE3K_FRONTEND_DEPENDENCIES_AR.md').read_text(encoding='utf-8')

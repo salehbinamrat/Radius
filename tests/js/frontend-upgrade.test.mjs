@@ -35,7 +35,11 @@ test('retain TS strict mode and offline single entrypoint for CSP', () => {
 });
 test('same supported Node LTS major on CI and Docker, no bypassed TS checks', () => {
   assert.match(pipeline, /node-version:\s*'24'/);
-  assert.match(docker, /FROM node:24-bookworm-slim AS ui-build/);
+  const pinnedNodeImage = /^FROM node:24-bookworm-slim@sha256:[a-f0-9]{64} AS ui-build$/m;
+  assert.match(docker, pinnedNodeImage);
+  assert.doesNotMatch('FROM node:24-bookworm-slim AS ui-build', pinnedNodeImage);
+  assert.doesNotMatch('FROM node:24-bookworm-slim@sha256:123 AS ui-build', pinnedNodeImage);
+  assert.doesNotMatch('FROM node:22-bookworm-slim@sha256:' + 'a'.repeat(64) + ' AS ui-build', pinnedNodeImage);
   assert.match(docker, /npm run check && npm run build/);
   assert.match(pipeline, /npm run check/);
   assert.match(pipeline, /node --check/);

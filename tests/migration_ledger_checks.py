@@ -51,7 +51,12 @@ class MigrationLedgerContracts(unittest.TestCase):
         dockerfile = (ROOT / "radius/Dockerfile").read_text()
         compose = (ROOT / "compose.yaml").read_text()
         init = (ROOT / "radius/schema-init.sh").read_text()
-        self.assertIn("python3-psycopg2", dockerfile)
+        # Alpine names the same PostgreSQL driver py3-psycopg2.
+        # Verify the final runtime stage rather than the build dependencies.
+        runtime = dockerfile.rsplit("\nFROM ", 1)[-1]
+        self.assertRegex(runtime, r"(?m)^FROM |^alpine:3\.24\.4@sha256:[a-f0-9]{64}")
+        self.assertRegex(runtime, r"\bpy3-psycopg2\b")
+        self.assertIn("python3 -c 'import psycopg2'", runtime)
         self.assertIn("COPY migrate.py", dockerfile)
         self.assertIn("./database/001_app.sql:/opt/radius/001_app.sql:ro", compose)
         self.assertIn("postgres_data:/var/lib/postgresql/data", compose)
