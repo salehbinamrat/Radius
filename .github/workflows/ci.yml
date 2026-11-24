@@ -17,7 +17,7 @@ jobs:
         run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
       - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # actions/setup-dotnet@v4
         with: { dotnet-version: '10.0.x' }
-      - run: dotnet restore tests/RadiusManager.Tests/RadiusManager.Tests.csproj --locked-mode
+      - run: dotnet restore tests/RadiusManager.Tests/RadiusManager.Tests.csproj --locked-mode -p:NuGetAudit=true -p:NuGetAuditMode=all -p:NuGetAuditLevel=low
       - name: Verify NuGet lockfiles unchanged
         run: git diff --exit-code -- src/RadiusManager.Api/packages.lock.json tests/RadiusManager.Tests/packages.lock.json
       - run: dotnet test tests/RadiusManager.Tests/RadiusManager.Tests.csproj --no-restore -c Release
@@ -39,6 +39,7 @@ jobs:
         run: |
           cd src/RadiusManager.Api/frontend
           npm ci --no-audit --no-fund --ignore-scripts
+          npm audit --audit-level=high --include=dev --include=optional
           npm run check
           npm run build
           node --check ../wwwroot/modern/noc-react.mjs
@@ -46,6 +47,8 @@ jobs:
             echo 'Vite library bundle retained Node process.env; browser startup unsafe' >&2
             exit 1
           fi
+      - name: Audit browser-test dependencies
+        run: npm audit --prefix tests/browser --package-lock-only --audit-level=high --include=dev --include=optional
       - name: Verify frontend lockfile unchanged
         run: git diff --exit-code -- src/RadiusManager.Api/frontend/package-lock.json
   compose-integration:
@@ -131,6 +134,19 @@ jobs:
         env:
           LAB_HTTPS_TEST_ACK: isolated-ci
         run: bash scripts/admin-https-smoke.sh
+      - name: Mandatory image vulnerability scan and SBOM
+        id: security_scan
+        env:
+          LAB_SECURITY_SCAN_ACK: isolated-ci
+        run: bash scripts/security-scan-ci.sh
+      - name: Retain security reports
+        if: always() && (steps.security_scan.outcome == 'success' || steps.security_scan.outcome == 'failure')
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: radius-security-reports
+          path: ${{ runner.temp }}/radius-security-reports/
+          if-no-files-found: error
+          retention-days: 14
       - name: Diagnose failed RADIUS integration
         if: failure()
         run: |

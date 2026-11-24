@@ -10,7 +10,7 @@ class SecurityIntegrityChecks(unittest.TestCase):
         ci = (ROOT / '.github/workflows/ci.yml').read_text()
         import re
         actions = re.findall(r'(?m)^\s*- uses: (\S+)', ci)
-        self.assertEqual(len(actions), 6)
+        self.assertEqual(len(actions), 7)
         for action in actions:
             self.assertRegex(action, r'^[^@]+@[a-f0-9]{40}$')
         self.assertEqual(ci.count('persist-credentials: false'), 3)
@@ -107,3 +107,23 @@ class SecurityIntegrityChecks(unittest.TestCase):
         self.assertNotIn('npm install ', docker)
         self.assertIn('git diff --exit-code --', ci)
 
+
+    def test_security_scan_and_sbom_are_mandatory(self):
+        ci = (ROOT / '.github/workflows/ci.yml').read_text()
+        scan = (ROOT / 'scripts/security-scan-ci.sh').read_text()
+        self.assertIn('-p:NuGetAudit=true -p:NuGetAuditMode=all -p:NuGetAuditLevel=low', ci)
+        self.assertIn('npm audit --audit-level=high --include=dev --include=optional', ci)
+        self.assertIn('npm audit --prefix tests/browser --package-lock-only --audit-level=high', ci)
+        self.assertIn('run: bash scripts/security-scan-ci.sh', ci)
+        self.assertIn('LAB_SECURITY_SCAN_ACK: isolated-ci', ci)
+        self.assertIn('actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02', ci)
+        self.assertNotIn('continue-on-error:', ci)
+        self.assertIn('sha256sum -c -', scan)
+        self.assertIn('for service in api radius db;', scan)
+        self.assertIn("--format '{{.Image}}'", scan)
+        self.assertIn('--image-src docker --scanners vuln --severity HIGH,CRITICAL', scan)
+        self.assertIn('--exit-code 1 --exit-on-eol 1', scan)
+        self.assertIn('--format cyclonedx', scan)
+        self.assertIn('exit "$failed"', scan)
+        for option in ('--ignore-unfixed', '--skip-db-update', '--exit-code 0'):
+            self.assertNotIn(option, scan)
