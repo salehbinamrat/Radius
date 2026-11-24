@@ -130,12 +130,22 @@ if [[ -n "$candidate_image" ]]; then
     test "$uid" != 0
     test "$(awk "/^Uid:/{print \$2}" /proc/1/status)" = "$uid"
   '
-  metadata_sql="SELECT datlocprovider, datcollate, datctype, COALESCE(pg_database_collation_actual_version(oid),'none') FROM pg_database WHERE datname=current_database()"
+  metadata_sql="SELECT datlocprovider, datcollate, datctype, COALESCE(daticulocale,'none'), COALESCE(pg_database_collation_actual_version(oid),'none') FROM pg_database WHERE datname=current_database()"
   echo "Source locale metadata:"
   docker compose exec -T db psql -X -qAt -v ON_ERROR_STOP=1 -U radius -d radius -c "$metadata_sql"
   echo "Candidate locale metadata:"
   docker compose -p "$restore_project" -f "$compose_file" exec -T restore-db \
     psql -X -qAt -v ON_ERROR_STOP=1 -U radius -d radius -c "$metadata_sql"
+  # A new cluster must actually use the chosen ICU provider and a valid
+  # catalog version. No silent fallback to musl or rewriting catalog metadata.
+  docker compose -p "$restore_project" -f "$compose_file" exec -T restore-db \
+    psql -X -qAt -v ON_ERROR_STOP=1 -U radius -d radius -c "
+SELECT CASE WHEN datlocprovider='i' AND daticulocale='en-US'
+  AND pg_encoding_to_char(encoding)='UTF8'
+  AND datcollversion IS NOT NULL
+  AND datcollversion=pg_database_collation_actual_version(oid)
+THEN 'ICU_LOCALE_OK' ELSE 'ICU_LOCALE_INVALID' END
+FROM pg_database WHERE datname=current_database()" | grep -qx ICU_LOCALE_OK
   # Arabic and Latin representative identifiers; deterministic tie-break.
   order_sql="SELECT value FROM (VALUES ('a'),('A'),('z'),('Z'),('é'),('e'),('أ'),('ا'),('ب'),('ي'),('10'),('2')) AS samples(value) ORDER BY value, value COLLATE \"C\""
   source_order=$(docker compose exec -T db psql -X -qAt -v ON_ERROR_STOP=1 -U radius -d radius -c "$order_sql" | sha256sum | cut -d ' ' -f1)
@@ -146,6 +156,20 @@ if [[ -n "$candidate_image" ]]; then
     echo "Default collation differs; explicit compatibility decision required before adoption" >&2
     exit 1
   fi
+  # Compare application ordering on restored records too. Only fingerprints
+  # are emitted; neither account names nor plan names leave the database.
+  for order_sql in \
+      'SELECT jsonb_build_array(id,name)::text FROM app_plans ORDER BY name,id' \
+      'SELECT jsonb_build_array(username,plan_id)::text FROM app_lab_accounts ORDER BY username,plan_id'; do
+    source_order=$(docker compose exec -T db psql -X -qAt -v ON_ERROR_STOP=1 -U radius -d radius -c "$order_sql" | sha256sum | cut -d ' ' -f1)
+    target_order=$(docker compose -p "$restore_project" -f "$compose_file" exec -T restore-db \
+      psql -X -qAt -v ON_ERROR_STOP=1 -U radius -d radius -c "$order_sql" | sha256sum | cut -d ' ' -f1)
+    [[ "$source_order" == "$target_order" ]] || {
+      echo "Restored application ordering differs; candidate adoption refused" >&2
+      exit 1
+    }
+  done
   echo "Scanned candidate runtime UID and representative default collation PASS"
+  echo "Restored application plan and account ordering fingerprints PASS"
 fi
 echo "Encrypted backup restore verified in disposable PostgreSQL; elapsed seconds: $(($(date +%s)-started_at))"

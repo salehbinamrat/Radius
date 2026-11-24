@@ -8,6 +8,9 @@ services:
     environment:
       POSTGRES_USER: radius
       POSTGRES_DB: radius
+      # Explicit portable locale for the new, disposable cluster only.
+      # Existing Debian volumes must never be initialized or mounted here.
+      POSTGRES_INITDB_ARGS: "--locale-provider=icu --icu-locale=en-US --locale=en_US.utf8 --encoding=UTF8"
       POSTGRES_PASSWORD: ${DB_PASSWORD:?Run scripts/setup.sh for isolated lab}
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -h 127.0.0.1 -U radius -d radius']
