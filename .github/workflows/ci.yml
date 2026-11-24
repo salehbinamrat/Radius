@@ -10,8 +10,12 @@ jobs:
   dotnet-tests:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify exact workflow checkout
+        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # actions/setup-dotnet@v4
         with: { dotnet-version: '10.0.x' }
       - run: dotnet restore tests/RadiusManager.Tests/RadiusManager.Tests.csproj
       - run: dotnet test tests/RadiusManager.Tests/RadiusManager.Tests.csproj --no-restore -c Release
@@ -20,9 +24,14 @@ jobs:
   config-tests:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify exact workflow checkout
+        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # actions/setup-node@v4
         with: { node-version: '24' }
+      - run: python3 scripts/check-tracked-secrets.py
       - run: bash scripts/ci-config-checks.sh
       - name: 'React + TypeScript: compile and verify bundled dashboard component'
         run: |
@@ -39,8 +48,12 @@ jobs:
     needs: [dotnet-tests, config-tests]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify exact workflow checkout
+        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # actions/setup-node@v4
         with: { node-version: '24' }
       - run: bash scripts/setup.sh
       - name: 'Loopback lab port preflight'
