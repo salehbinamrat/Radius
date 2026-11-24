@@ -9,7 +9,7 @@ type Snapshot = {
   recent: Card[];
   scope: 'first-100-loaded';
 };
-type OverviewEvent = { snapshot?: Snapshot; health?: 'online' | 'error' };
+type OverviewEvent = { snapshot?: Snapshot | null; health?: 'unloaded' | 'online' | 'error' };
 type State = { snapshot: Snapshot | null; health: 'unloaded' | 'online' | 'error' };
 
 function useOverview() {
@@ -17,7 +17,11 @@ function useOverview() {
   useEffect(() => {
     const update = (event: Event) => {
       const { detail } = event as CustomEvent<OverviewEvent>;
-      if (!detail || (detail.health !== 'online' && detail.health !== 'error')) return;
+      if (!detail || !['unloaded', 'online', 'error'].includes(detail.health ?? '')) return;
+      if (detail.health === 'unloaded') {
+        setState({ snapshot: null, health: 'unloaded' });
+        return;
+      }
       setState(previous => ({
         snapshot: detail.snapshot?.scope === 'first-100-loaded'
           ? detail.snapshot : previous.snapshot,
