@@ -19,3 +19,10 @@ test('failures and gaps are never connected, counts are samples not incidents',(
   assert.deepEqual(historyMetrics(rows),{count:5,mean:2,databaseFailures:1,radiusFailures:1,unknown:4});
   assert.equal(historyMetrics([]).mean,null);
 });
+
+test('retention reports real storage mode without changing sample semantics',()=>{
+  for(const retention of ['volume-snapshot','storage-degraded']){
+    const payload={...wrap([sample(0)]),retention};
+    assert.deepEqual(parseServiceHistory(payload),payload);
+  }
+});

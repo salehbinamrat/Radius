@@ -49,7 +49,7 @@ public sealed class ServiceObservationHistoryTests
     public void ConcurrentWritersCannotExceedCapacity()
     {
         var history = new ServiceObservationHistory();
-        Parallel.For(0, 1000, i => history.Add(Sample(i)));
+        Parallel.For(0, 1000, _ => history.Add(Sample(1)));
         Assert.Equal(ServiceObservationHistory.Capacity, history.Snapshot().Samples.Length);
     }
 }

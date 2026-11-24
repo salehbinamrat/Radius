@@ -16,7 +16,7 @@ read_history() {
 import datetime, json, sys
 x=json.load(sys.stdin)
 assert set(x)=={"scope","retention","intervalSeconds","capacity","samples"}
-assert x["scope"]=="lab" and x["retention"]=="process-memory"
+assert x["scope"]=="lab" and x["retention"]=="volume-snapshot"
 assert x["intervalSeconds"]==15 and x["capacity"]==240
 assert 0 < len(x["samples"]) <= 240
 for row in x["samples"]:
@@ -37,4 +37,19 @@ python3 - "$first" "$second" <<'PY'
 import sys
 assert float(sys.argv[2]) > float(sys.argv[1]), "No independent observation"
 PY
-echo 'Protected bounded independent service observation history PASS'
+# The isolated API can restart without losing the most recent persisted sample.
+docker compose restart api >/dev/null
+for i in $(seq 1 30); do
+  if curl --fail --silent --max-time 3 http://127.0.0.1:8080/api/health/ready >/dev/null; then break; fi
+  if (( i == 30 )); then echo 'API restart readiness failed' >&2; exit 1; fi
+  sleep 2
+done
+curl --fail --silent --show-error --max-time 5 --netrc-file "$netrc" "$url" |
+  python3 -c '
+import datetime,json,sys
+x=json.load(sys.stdin)
+assert x["retention"]=="volume-snapshot"
+times=[datetime.datetime.fromisoformat(row["observedAtUtc"].replace("Z","+00:00")).timestamp() for row in x["samples"]]
+assert any(abs(t-float(sys.argv[1])) < 0.000001 for t in times), "Previous sample lost after API restart"
+' "$second"
+echo 'Protected bounded independent service observation history and restart recovery PASS'
