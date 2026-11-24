@@ -7,25 +7,32 @@ public static class AdminAuthorizationRules
 {
     public static bool IsAllowed(ClaimsPrincipal user, string method, string? path)
     {
-        if (user.Identity?.IsAuthenticated != true) return false;
+        if (!CanAccessSharedLab(user)) return false;
         if (user.IsInRole("super-admin")) return true;
         if (path is null || !path.StartsWith("/api/", StringComparison.Ordinal)) return false;
         var isRead = method is "GET" or "HEAD";
         bool oneOf(params string[] paths) => paths.Contains(path, StringComparer.Ordinal);
-        bool usageRead = path.StartsWith("/api/lab-accounts/", StringComparison.Ordinal)
-            && path.EndsWith("/usage", StringComparison.Ordinal) && isRead;
+        var segments = path.Split('/');
+        bool labAccountAction(string action) => segments.Length == 5
+            && segments[1] == "api" && segments[2] == "lab-accounts"
+            && LabAccountRules.IsLabUsername(segments[3]) && segments[4] == action;
+        bool planUpdate = segments.Length == 4 && segments[1] == "api" && segments[2] == "plans"
+            && Guid.TryParseExact(segments[3], "D", out _);
+        bool usageRead = isRead && labAccountAction("usage");
         if (user.IsInRole("noc-operator"))
             return (isRead && oneOf("/api/summary", "/api/lab-sessions", "/api/nas-drafts", "/api/service-status/radius", "/api/service-status/history", "/api/service-status/alerts", "/api/service-status/incidents")) || usageRead;
         if (user.IsInRole("voucher-operator"))
             return (isRead && oneOf("/api/summary", "/api/plans", "/api/lab-accounts"))
                 || (method == "POST" && oneOf("/api/plans", "/api/lab-accounts"))
-                || (method == "PUT" && path.StartsWith("/api/plans/", StringComparison.Ordinal))
-                || (method == "POST" && path.StartsWith("/api/lab-accounts/", StringComparison.Ordinal)
-                    && path.EndsWith("/disable", StringComparison.Ordinal));
+                || (method == "PUT" && planUpdate)
+                || (method == "POST" && labAccountAction("disable"));
         if (user.IsInRole("auditor"))
             return (isRead && oneOf("/api/summary", "/api/lab-sessions", "/api/service-status/radius", "/api/service-status/history", "/api/service-status/alerts", "/api/service-status/incidents")) || usageRead;
-        // Reseller cannot see other reseller rows before an ownership model is implemented.
-        if (user.IsInRole("reseller")) return false;
         return false;
     }
+
+    // No owner mapping exists yet. A reseller membership must not inherit shared
+    // laboratory resources from another role, including via the monitoring hub.
+    public static bool CanAccessSharedLab(ClaimsPrincipal? user) =>
+        user?.Identity?.IsAuthenticated == true && !user.IsInRole("reseller");
 }

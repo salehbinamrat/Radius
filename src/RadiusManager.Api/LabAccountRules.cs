@@ -19,7 +19,7 @@ public static partial class LabAccountRules
         Convert.ToHexString(RandomNumberGenerator.GetBytes(24)).ToLowerInvariant();
 
     public static bool IsLabUsername(string? value) =>
-        value is not null && LabUsernamePattern().IsMatch(value);
+        value is { Length: 16 } && LabUsernamePattern().IsMatch(value);
 
     // Prevent test accounts attached to unenforced quota or expiry metadata.
     public static bool PlanIsSafeForLab(long? quotaBytes, int? validityDays) =>

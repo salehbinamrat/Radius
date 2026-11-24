@@ -26,6 +26,18 @@ public sealed class LabStatusHubRulesTests
     public void OriginGuardAlsoAppliesToWebSocketGet(bool https, string? origin, string? site, bool expected) =>
         Assert.Equal(expected, LabStatusHubRules.IsTrustedTransport(https, origin, site, "localhost:18443"));
 
+    [Theory]
+    [InlineData("super-admin", true)]
+    [InlineData("noc-operator", true)]
+    [InlineData("auditor", true)]
+    [InlineData("reseller", false)]
+    [InlineData("voucher-operator", false)]
+    public void SharedReadRequiresAuthorizedPrincipal(string role, bool expected)
+    {
+        var principal = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.Role, role)], "test"));
+        Assert.Equal(expected, LabStatusHubRules.CanRead(principal));
+    }
+
     [Fact]
     public void SnapshotContainsOnlyAllowlistedServerHealthFields()
     {
