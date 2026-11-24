@@ -1,7 +1,7 @@
 name: private-radius-lab
 services:
   db:
-    image: postgres:16-bookworm
+    image: postgres:16-bookworm@sha256:cd0e9518bda5f2ea667ff84d22795d089720c883f288e215d97ce57437e8ef37
     restart: unless-stopped
     environment:
       POSTGRES_USER: radius

@@ -61,4 +61,49 @@ class SecurityIntegrityChecks(unittest.TestCase):
                 self.assertRegex(image, r'@sha256:[a-f0-9]{64}$', path)
         ci = (ROOT / '.github/workflows/ci.yml').read_text()
         self.assertIn('docker image inspect postgres:16-bookworm', ci)
-        self.assertIn('scripts/emit-lock-candidate.py', ci)
+        self.assertNotIn('scripts/emit-lock-candidate.py', ci)
+        postgres_images = set()
+        for path in ('compose.yaml', 'tests/admin-https.compose.yaml', 'tests/isolated-restore.compose.yaml'):
+            compose = (ROOT / path).read_text()
+            images = re.findall(r'(?m)^\s*image: (postgres:\S+)', compose)
+            self.assertEqual(len(images), 1, path)
+            self.assertRegex(images[0], r'^postgres:16-bookworm@sha256:[a-f0-9]{64}$')
+            postgres_images.update(images)
+        self.assertEqual(len(postgres_images), 1)
+
+    def test_dependency_lockfiles_and_fail_closed_restore(self):
+        import json
+        import xml.etree.ElementTree as ET
+        for path in ('src/RadiusManager.Api/frontend', 'tests/browser'):
+            directory = ROOT / path
+            manifest = json.loads((directory / 'package.json').read_text())
+            lock = json.loads((directory / 'package-lock.json').read_text())
+            self.assertEqual(lock['lockfileVersion'], 3)
+            for group in ('dependencies', 'devDependencies'):
+                self.assertEqual(lock['packages'][''].get(group, {}), manifest.get(group, {}))
+            for name, entry in lock['packages'].items():
+                if name:
+                    self.assertRegex(entry['integrity'], r'^sha(?:512|1)-')
+                    self.assertTrue(entry['resolved'].startswith('https://registry.npmjs.org/'))
+        for project in ('src/RadiusManager.Api/RadiusManager.Api.csproj', 'tests/RadiusManager.Tests/RadiusManager.Tests.csproj'):
+            csproj = ROOT / project
+            lock = json.loads((csproj.parent / 'packages.lock.json').read_text())
+            deps = lock['dependencies']['net10.0']
+            for package in ET.parse(csproj).getroot().iter('PackageReference'):
+                entry = deps[package.attrib['Include']]
+                self.assertEqual(entry['type'], 'Direct')
+                self.assertEqual(entry['resolved'], package.attrib['Version'])
+                self.assertTrue(entry['contentHash'])
+        ci = (ROOT / '.github/workflows/ci.yml').read_text()
+        docker = (ROOT / 'src/RadiusManager.Api/Dockerfile').read_text()
+        self.assertIn('dotnet restore tests/RadiusManager.Tests/RadiusManager.Tests.csproj --locked-mode', ci)
+        self.assertIn('npm ci --no-audit --no-fund --ignore-scripts', ci)
+        self.assertIn('npm ci --prefix tests/browser --no-audit --no-fund --ignore-scripts', ci)
+        self.assertNotIn('npm install ', ci)
+        self.assertIn('COPY frontend/package.json frontend/package-lock.json', docker)
+        self.assertIn('COPY RadiusManager.Api.csproj packages.lock.json', docker)
+        self.assertIn('RUN dotnet restore --locked-mode', docker)
+        self.assertIn('RUN npm ci --no-audit --no-fund --ignore-scripts', docker)
+        self.assertNotIn('npm install ', docker)
+        self.assertIn('git diff --exit-code --', ci)
+

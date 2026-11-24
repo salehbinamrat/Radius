@@ -1,7 +1,7 @@
 FROM node:24-bookworm-slim@sha256:873f586f3794f52281bd039bf02c048a0be08fde619338f9941bad1eb6b34530 AS ui-build
 WORKDIR /ui/frontend
-COPY frontend/package.json frontend/tsconfig.json frontend/vite.config.ts ./
-RUN npm install --no-audit --no-fund --ignore-scripts
+COPY frontend/package.json frontend/package-lock.json frontend/tsconfig.json frontend/vite.config.ts ./
+RUN npm ci --no-audit --no-fund --ignore-scripts
 COPY frontend/src ./src
 # The React planner imports the existing shared pure JS calculator and its TS types.
 COPY wwwroot/capacity-utils.mjs wwwroot/capacity-utils.d.mts /ui/wwwroot/
@@ -12,8 +12,8 @@ RUN npm run check && npm run build
 
 FROM mcr.microsoft.com/dotnet/sdk:10.0@sha256:8c6edfb26c85153f236d26efebd9ad349aec403583f343f201ee67838b23658d AS build
 WORKDIR /src
-COPY RadiusManager.Api.csproj ./
-RUN dotnet restore
+COPY RadiusManager.Api.csproj packages.lock.json ./
+RUN dotnet restore --locked-mode
 COPY . ./
 COPY --from=ui-build /ui/wwwroot/modern ./wwwroot/modern
 RUN dotnet publish -c Release --no-restore -o /app/out
