@@ -73,6 +73,10 @@ jobs:
         env:
           LAB_SERVICE_HISTORY_ACK: isolated-ci
         run: bash scripts/service-history-smoke.sh
+      - name: 'Isolated PostgreSQL incident, restart and recovery acceptance'
+        env:
+          LAB_INCIDENT_FAILURE_ACK: isolated-ci
+        run: bash scripts/incident-recovery-smoke.sh
       - run: bash scripts/lab-account-smoke.sh
       - run: bash scripts/accounting-smoke.sh
       - run: bash scripts/accounting-wire-smoke.sh

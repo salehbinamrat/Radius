@@ -15,7 +15,7 @@ const statuses = [];
 let pageErrors = 0, cspErrors = 0, failedRequests = 0;
 const allowedPaths = new Set(['/', '/modern/noc-react.mjs', '/app.mjs',
   '/api/admin/auth/mode', '/api/admin/auth/csrf', '/api/admin/auth/login',
-  '/api/admin/auth/me', '/api/admin/auth/logout', '/api/summary', '/api/plans', '/api/lab-accounts', '/api/service-status/history', '/api/service-status/alerts']);
+  '/api/admin/auth/me', '/api/admin/auth/logout', '/api/summary', '/api/plans', '/api/lab-accounts', '/api/service-status/history', '/api/service-status/alerts', '/api/service-status/incidents']);
 const step = name => { stage = name; console.log('HTTPS Chromium step: ' + name); };
 try {
   browser = await chromium.launch({ headless: true,
@@ -86,6 +86,10 @@ try {
     'No RADIUS evidence in isolated HTTPS fixture');
   assert.ok(['pending','healthy'].includes(await alerts.locator('[data-alert-service="postgresql"]').getAttribute('data-alert-state')),
     'Unexpected PostgreSQL state in healthy fixture');
+  assert.equal(await alerts.locator('[data-incident-retention]').getAttribute('data-incident-retention'), 'volume-snapshot');
+  await alerts.locator('select').selectOption('open');
+  await alerts.locator('[data-incidents-empty]').waitFor({state:'visible'});
+  await alerts.locator('select').selectOption('all');
   step('navigate away');
   await page.locator('[data-view="plans"]').click();
   await page.waitForFunction(() => document.querySelector('#reactLiveStatus')?.childElementCount === 0
@@ -114,6 +118,8 @@ try {
   assert.equal(denied.status(), 401, 'Browser session still accepted after logout');
   assert.equal((await context.request.get(origin + '/api/service-status/alerts')).status(), 401,
     'Alert endpoint accepted revoked session');
+  assert.equal((await context.request.get(origin + '/api/service-status/incidents')).status(), 401,
+    'Incident endpoint accepted revoked session');
   console.log('HTTPS Chromium live status, navigation disposal, reconnect and logout PASS');
 } catch (error) {
   // Only fixed stage names, allowlisted HTTP status metadata and booleans.

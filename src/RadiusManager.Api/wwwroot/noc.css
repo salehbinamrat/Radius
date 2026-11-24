@@ -180,3 +180,10 @@ html.noc-dark .noc-activity-item{border-color:#31435b;background:#152640}
 .service-alerts .alert-events{display:grid;gap:8px;max-height:310px;overflow:auto}
 .service-alerts .alert-event{border-bottom:1px solid #8994a340;padding:8px 0;display:flex;flex-wrap:wrap;justify-content:space-between;gap:5px}
 .service-alerts .alert-event time{font-size:.8rem}
+
+.service-alerts .incident-toolbar{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin:12px 0}
+.service-alerts .incident-toolbar label{display:flex;align-items:center;gap:8px}
+.service-alerts .incident-toolbar select{max-width:160px}
+.service-alerts .incident-table-wrap{overflow:auto;max-height:360px}
+.service-alerts .incident-table-wrap table{width:100%;border-collapse:collapse;font-size:.85rem}
+.service-alerts .incident-table-wrap td,.service-alerts .incident-table-wrap th{white-space:nowrap;text-align:start;padding:8px;border-bottom:1px solid #8994a340}
