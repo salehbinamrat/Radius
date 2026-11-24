@@ -56,8 +56,7 @@ export function initializeUltraFeatures({ request, notify, record }) {
     URL.revokeObjectURL(url);
     record(`تصدير ${rows.length} سجل محاسبة تجريبي`);notify(`تم تصدير ${rows.length} سجل من النتائج المعروضة فقط.`,'success');
   });
-  function calculate(event){
-    event?.preventDefault();  return {
+  return {
     refresh,
     reset(){activeFetch=null;el('ultraSessionsRefresh').disabled=false;sessions=[];sessionHealth='unloaded';draw();text('ultraSessionUpdated','لم يتم الاستعلام');
       text('ultraSessionsWarning','سجلات المحاسبة لم تُحمّل بعد. افتح القسم واختر تحديث للعرض.');}
