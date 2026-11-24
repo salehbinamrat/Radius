@@ -79,6 +79,7 @@ check() {
 check 200 "$url/api/admin/auth/mode"
 grep -q '"session"' "$out"
 check 401 "$url/api/summary"
+check 401 -H "Origin: $url" -X POST "$url/hubs/lab-status/negotiate?negotiateVersion=1"
 check 403 -H "Content-Type: application/json" -d '{}' "$url/api/admin/auth/login"
 check 403 -H "Origin: https://untrusted.invalid" -H "Content-Type: application/json" \
   -d '{}' "$url/api/admin/auth/login"
@@ -175,6 +176,15 @@ PY
 check 200 -b "$jar" "$url/api/admin/auth/me"
 grep -q "super-admin" "$out"
 check 200 -b "$jar" "$url/api/summary"
+check 403 -b "$jar" -H "Origin: https://untrusted.invalid" -X POST "$url/hubs/lab-status/negotiate?negotiateVersion=1"
+check 403 -b "$jar" -X POST "$url/hubs/lab-status/negotiate?negotiateVersion=1"
+check 200 -b "$jar" -H "Origin: $url" -X POST "$url/hubs/lab-status/negotiate?negotiateVersion=1"
+python3 - "$out" <<'PY'
+import json, sys
+value = json.load(open(sys.argv[1]))
+assert [t["transport"] for t in value["availableTransports"]] == ["WebSockets"]
+assert value["connectionToken"]
+PY
 check 403 -b "$jar" -H "Content-Type: application/json" \
   -d '{"name":"NoCsrf","downloadKbps":1024,"uploadKbps":256}' "$url/api/plans"
 
@@ -209,4 +219,5 @@ fetch_csrf
 check 200 -b "$jar" -c "$jar" -H "X-CSRF-TOKEN: $csrf" \
   -H "Content-Type: application/json" -d '{}' "$url/api/admin/auth/logout"
 check 401 -b "$tmp/stale-after-logout.cookies" "$url/api/summary"
+check 401 -b "$tmp/stale-after-logout.cookies" -H "Origin: $url" -X POST "$url/hubs/lab-status/negotiate?negotiateVersion=1"
 echo "Isolated HTTPS login, Secure cookies, key persistence, RBAC, CSRF, password rotation and logout revocation PASS."

@@ -1,4 +1,5 @@
 using System.Threading.RateLimiting;
+using Microsoft.AspNetCore.Http.Connections;
 using System.Security.Claims;
 using System.Security.Cryptography.X509Certificates;
 using Microsoft.AspNetCore.DataProtection;
@@ -81,7 +82,17 @@ builder.Services.AddAntiforgery(options =>
     options.Cookie.SameSite = SameSiteMode.Strict;
     options.Cookie.Path = "/";
 });
-builder.Services.AddAuthorization();
+builder.Services.AddAuthorization(options => options.AddPolicy(LabStatusHubRules.Policy,
+    policy => policy.RequireAuthenticatedUser().RequireRole("super-admin", "noc-operator", "auditor")));
+if (sessionMode)
+{
+    builder.Services.AddSignalR(options =>
+    {
+        options.EnableDetailedErrors = false;
+        options.MaximumReceiveMessageSize = 4096;
+        options.MaximumParallelInvocationsPerClient = 1;
+    });
+}
 builder.Services.AddRateLimiter(o =>
 {
     o.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
@@ -113,6 +124,22 @@ app.UseStaticFiles();
 app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
+if (sessionMode)
+{
+    app.Use(async (ctx, next) =>
+    {
+        if (ctx.Request.Path.StartsWithSegments("/hubs/lab-status")
+            && !LabStatusHubRules.IsTrustedTransport(ctx.Request.IsHttps,
+                ctx.Request.Headers["Origin"].ToString(),
+                ctx.Request.Headers["Sec-Fetch-Site"].ToString(),
+                ctx.Request.Host.Value))
+        {
+            ctx.Response.StatusCode = StatusCodes.Status403Forbidden;
+            return;
+        }
+        await next();
+    });
+}
 // Protect authenticated, state-changing browser requests against cross-site
 // form submission. The API remains usable by existing local CLI clients.
 app.Use(async (ctx, next) =>
@@ -208,4 +235,12 @@ app.MapLabSessionEndpoints();
 // Phase 7A: metadata-only NAS drafts; no actual RADIUS client registration.
 app.MapNasDraftEndpoints();
 app.MapAdminIdentityEndpoints(sessionMode);
+if (sessionMode)
+{
+    app.MapHub<LabStatusHub>("/hubs/lab-status", options =>
+    {
+        options.Transports = HttpTransportType.WebSockets;
+        options.CloseOnAuthenticationExpiration = true;
+    }).RequireAuthorization(LabStatusHubRules.Policy).RequireRateLimiting("admin");
+}
 app.Run();
