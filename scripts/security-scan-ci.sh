@@ -50,6 +50,19 @@ for service in api radius db; do
     if [[ "$service" == radius ]]; then radius_scan_failed=1; fi
   fi
 done
+# Preserve source identity and package inventories from the actual running image.
+# Trivy's OS-package coverage alone is not an attestation for source binaries.
+{
+  docker compose exec -T radius cat /opt/share/radius-build/revision
+  docker compose exec -T radius cat /opt/share/radius-build/verified-fixes
+  docker compose exec -T radius radiusd -v
+} > "$reports/radius-source-runtime.provenance.txt" 2>&1
+docker compose exec -T radius cat /opt/share/radius-build/build-packages > "$reports/radius-source-build-packages.txt"
+docker compose exec -T radius cat /opt/share/radius-build/runtime-packages > "$reports/radius-source-runtime-packages.txt"
+grep -qx 00abf778c6c0af0320879c2b1ade9cf252a42506 "$reports/radius-source-runtime.provenance.txt"
+grep -qx 8e8a991c040cbb30f21f928f2b406c702e171b2e "$reports/radius-source-runtime.provenance.txt"
+grep -qx 064567a08f3b9d9b4863fab6060fafe296ac7de9 "$reports/radius-source-runtime.provenance.txt"
+grep -Fq 'git #00abf778c' "$reports/radius-source-runtime.provenance.txt"
 # The proven Alpine candidate is now the actual database runtime image.
 # Retired Bookworm/Trixie diagnostic images are not built or shipped.
 # Scan all actual running services above; restore only the exact scanned DB.

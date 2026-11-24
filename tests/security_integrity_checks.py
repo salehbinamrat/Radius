@@ -58,10 +58,29 @@ class SecurityIntegrityChecks(unittest.TestCase):
 
     def test_radius_uses_patched_distribution_and_strict_lab_authenticator(self):
         docker = (ROOT / 'radius/Dockerfile').read_text()
-        self.assertIn('FROM debian:trixie-slim', docker)
-        self.assertIn('3.2.7+dfsg-1+deb13u2', docker)
-        for name in ('freeradius', 'freeradius-postgresql', 'freeradius-utils'):
-            self.assertIn(name + '="${FREERADIUS_VERSION}"', docker)
+        self.assertNotIn('FROM debian:', docker)
+        for revision in ('00abf778c6c0af0320879c2b1ade9cf252a42506',
+                         '8e8a991c040cbb30f21f928f2b406c702e171b2e',
+                         '064567a08f3b9d9b4863fab6060fafe296ac7de9'):
+            self.assertIn(revision, docker)
+        self.assertIn('git merge-base --is-ancestor "$sim_fix" "$revision"', docker)
+        self.assertIn('git merge-base --is-ancestor "$fast_fix" "$revision"', docker)
+        self.assertIn('COPY --from=build /opt /opt', docker)
+        self.assertIn('bash /usr/local/bin/prepare-native.sh', docker)
+        prepare = (ROOT / 'radius/prepare-native.sh').read_text()
+        self.assertIn('chmod 0750', prepare)
+        self.assertIn('chmod u=rwX,g=rX,o=', prepare)
+        self.assertIn('test ! -w /opt/etc/raddb', prepare)
+        self.assertIn('test -r /opt/etc/raddb/mods-config/preprocess/huntgroups', prepare)
+        self.assertIn('bash /opt/radius/prepare-native.sh', (ROOT / 'tests/freeradius-source-runtime.sh').read_text())
+        self.assertEqual((ROOT / 'radius/source-command.sh').read_text(),
+                         (ROOT / 'tests/freeradius-source-command.sh').read_text())
+        smoke = (ROOT / 'scripts/radius-authenticator-smoke.sh').read_text()
+        self.assertIn('/proc/1/status', smoke)
+        self.assertIn('/opt/share/radius-build/revision', smoke)
+        self.assertNotIn('dpkg-query', smoke)
+        scan = (ROOT / 'scripts/security-scan-ci.sh').read_text()
+        self.assertIn('radius-source-runtime.provenance.txt', scan)
         clients = (ROOT / 'radius/clients.template').read_text()
         self.assertEqual(clients.count('require_message_authenticator = yes'), 2)
         self.assertEqual(clients.count('limit_proxy_state = yes'), 2)
@@ -72,7 +91,7 @@ class SecurityIntegrityChecks(unittest.TestCase):
 
     def test_build_base_images_have_immutable_digests(self):
         import re
-        for path, expected in (('radius/Dockerfile', 1), ('src/RadiusManager.Api/Dockerfile', 3)):
+        for path, expected in (('radius/Dockerfile', 2), ('src/RadiusManager.Api/Dockerfile', 3)):
             source = (ROOT / path).read_text()
             images = re.findall(r'(?m)^FROM (\S+)', source)
             self.assertEqual(len(images), expected, path)
