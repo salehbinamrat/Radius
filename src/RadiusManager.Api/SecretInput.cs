@@ -23,7 +23,7 @@ public static class SecretInput
             var buffer = new byte[MaxBytes + 1];
             try
             {
-                var count = stream.ReadAtLeast(buffer, buffer.Length, throwIfEndOfStream: false);
+                var count = stream.ReadAtLeast(buffer, buffer.Length, false);
                 if (count is < 1 or > MaxBytes) throw new InvalidDataException();
                 var value = new UTF8Encoding(false, true).GetString(buffer, 0, count);
                 // Permit one conventional line terminator only, never trim password spaces.
@@ -35,7 +35,7 @@ public static class SecretInput
             }
             finally { System.Security.Cryptography.CryptographicOperations.ZeroMemory(buffer); }
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or DecoderFallbackException
+        catch (Exception ex) when (ex is InvalidDataException or IOException or UnauthorizedAccessException
             or ArgumentException or NotSupportedException)
         {
             throw new InvalidOperationException($"{label}: secret file is missing, unreadable or invalid.");

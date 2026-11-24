@@ -52,6 +52,26 @@ public sealed class SecretInputTests
     }
 
     [Fact]
+    public void ExactByteLimitAndRedactedFailure()
+    {
+        var path=Path.GetTempFileName();
+        try {
+            var exact = new string('x',4096);
+            File.WriteAllText(path,exact,new UTF8Encoding(false));
+            Assert.Equal(exact,SecretInput.Resolve("test",null,path));
+            File.WriteAllText(path,exact+"x",new UTF8Encoding(false));
+            var ex=Assert.Throws<InvalidOperationException>(()=>SecretInput.Resolve("test",null,path));
+            Assert.Equal("test: secret file is missing, unreadable or invalid.",ex.Message);
+            Assert.Null(ex.InnerException);
+            const string invalid="sample-secret\nsecond-line";
+            File.WriteAllText(path,invalid,new UTF8Encoding(false));
+            ex=Assert.Throws<InvalidOperationException>(()=>SecretInput.Resolve("test",null,path));
+            Assert.Equal("test: secret file is missing, unreadable or invalid.",ex.Message);
+            Assert.Null(ex.InnerException);
+        } finally { File.Delete(path); }
+    }
+
+    [Fact]
     public void DatabaseSecretIsEscapedAndConflictingConfigurationRejected()
     {
         var path=Path.GetTempFileName();
