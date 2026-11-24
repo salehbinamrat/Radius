@@ -40,6 +40,9 @@ class CapacityReactContracts(unittest.TestCase):
         ci=(ROOT/".github/workflows/ci.yml").read_text(encoding="utf-8")
         self.assertIn('reactCapacityCalculator',smoke)
         self.assertIn('estimateCapacity',smoke)
+        docker=(API/"Dockerfile").read_text(encoding="utf-8")
+        self.assertIn('COPY wwwroot/capacity-utils.mjs wwwroot/capacity-utils.d.mts /ui/wwwroot/', docker)
+        self.assertIn('npm run check && npm run build', docker)
         self.assertIn('needs: [dotnet-tests, config-tests]',ci)
         self.assertIn('scripts/admin-https-smoke.sh',ci)
 
