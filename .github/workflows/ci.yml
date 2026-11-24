@@ -65,6 +65,10 @@ jobs:
       - run: bash scripts/admin-identity-smoke.sh
       - run: bash scripts/concurrent-plan-smoke.sh
       - run: bash scripts/smoke-test.sh
+      - name: 'FreeRADIUS authenticated loopback Status-Server probe'
+        env:
+          LAB_RADIUS_STATUS_ACK: isolated-ci
+        run: bash scripts/radius-health-smoke.sh
       - run: bash scripts/lab-account-smoke.sh
       - run: bash scripts/accounting-smoke.sh
       - run: bash scripts/accounting-wire-smoke.sh
