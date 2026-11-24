@@ -1,16 +1,18 @@
 import { normalizedPlan } from './plan-utils.mjs';
 import { buildOverviewSnapshot } from './overview-model.mjs';
 import { buildPlanViewSnapshot } from './plan-view-model.mjs';
+import { buildVoucherViewSnapshot } from './voucher-view-model.mjs';
 import { initializeNocUi } from './noc-ui.mjs';
 import { initializeUltraFeatures } from './ultra-features.mjs';
 import { initializeNasDrafts } from './nas-drafts.mjs';
-import { filterAccounts, formatBytes } from './dashboard-utils.mjs';
+import { formatBytes } from './dashboard-utils.mjs';
 
 const el = id => document.getElementById(id);
 let auth = '';
 let sessionMode = false;
 let sessionCsrf = '';
 let planHealth = 'unloaded';
+let voucherHealth = 'unloaded';
 let plans = [];
 let accounts = [];
 let overviewSnapshot = null;
@@ -96,34 +98,6 @@ async function call(url, options = {}) {
   }
   return body;
 }
-function rowMessage(tbody, span, message) {
-  const tr = tbody.insertRow();
-  tr.className = 'empty-row';
-  const cell = tr.insertCell();
-  cell.colSpan = span;
-  cell.textContent = message;
-}
-function appendCell(row, value) {
-  const cell = row.insertCell();
-  cell.textContent = String(value);
-  return cell;
-}
-function appendPill(row, active) {
-  const cell = row.insertCell();
-  const span = document.createElement('span');
-  span.className = active ? 'pill good' : 'pill off';
-  span.textContent = active ? 'مفعّل' : 'موقوف';
-  cell.append(span);
-}
-function button(label, className, onClick) {
-  const element = document.createElement('button');
-  element.type = 'button';
-  element.className = `btn ${className}`;
-  element.textContent = label;
-  element.addEventListener('click', onClick);
-  return element;
-}
-// The existing authenticated API client is the ONLY source of plan data in React.
 function publishPlans() {
   const payload = planHealth === 'unloaded'
     ? { data: null, health: 'unloaded' }
@@ -131,23 +105,16 @@ function publishPlans() {
   window.dispatchEvent(new CustomEvent('radius-plans-updated', { detail: payload }));
 }
 window.addEventListener('radius-plans-request', publishPlans);
-function renderAccounts() {
-  const visible = filterAccounts(accounts, el('labSearch').value, el('labFilter').value);
-  const body = el('labList'); body.replaceChildren();
-  if (!visible.length) rowMessage(body, 4, accounts.length ? 'لا توجد كروت مطابقة للبحث.' : 'لا توجد كروت مختبر حتى الآن.');
-  for (const a of visible) {
-    const row = body.insertRow();
-    appendCell(row, a.username); appendCell(row, a.planName); appendPill(row, a.active);
-    const actions = row.insertCell();
-    actions.append(button('الاستهلاك', 'subtle', () => {
-      switchView('accounting');
-      el('usageAccount').value = a.username;
-      queryUsage(a.username);
-    }));
-    if (a.active) actions.append(button('تعطيل', 'danger', () => disableAccount(a.username)));
-  }
-  el('labCount').textContent = `المعروض ${visible.length} من ${accounts.length} كرت محمل (حد القراءة: 100)`;
+// Only allowlisted voucher fields enter React; creation secrets stay in the
+// legacy one-time credential panel and are never included in this event.
+function publishVouchers() {
+  const payload = voucherHealth === 'unloaded'
+    ? { data: null, health: 'unloaded' }
+    : { data: buildVoucherViewSnapshot(accounts, el('labSearch').value, el('labFilter').value),
+        health: voucherHealth };
+  window.dispatchEvent(new CustomEvent('radius-vouchers-updated', { detail: payload }));
 }
+window.addEventListener('radius-vouchers-request', publishVouchers);
 function renderSelectors() {
   const planSelect = el('labPlan');
   const currentPlan = planSelect.value;
@@ -183,7 +150,8 @@ function renderAll(summary) {
   overviewSnapshot = buildOverviewSnapshot(summary, accounts);
   overviewHealth = 'online';
   planHealth = 'online';
-  renderSelectors();publishPlans();renderAccounts();
+  voucherHealth = 'online';
+  renderSelectors();publishPlans();publishVouchers();
   noc?.render();
   publishOverview();
 }
@@ -200,6 +168,7 @@ async function reload() {
     noc?.status(false);
     onOverviewError();
     planHealth = 'error';publishPlans();
+    voucherHealth = 'error';publishVouchers();
     el('pageError').textContent = err.message;
     el('pageError').hidden = false;
     throw err;
@@ -256,6 +225,7 @@ async function logout(showToast = true) {
   auth = '';plans = [];accounts = [];clearCredentials();resetUsage();
   window.dispatchEvent(new Event('radius-plan-clear-edit'));
   planHealth = 'unloaded';publishPlans();
+  voucherHealth = 'unloaded';publishVouchers();
   overviewSnapshot = null;overviewHealth = 'unloaded';publishOverview();
   el('loginPass').value = '';
   el('dashboard').hidden = true;
@@ -317,8 +287,23 @@ document.addEventListener('keydown', event => { if (event.key === 'Escape') clos
 for (const nav of document.querySelectorAll('[data-view]')) nav.addEventListener('click', () => switchView(nav.dataset.view));
 for (const go of document.querySelectorAll('[data-goto]')) go.addEventListener('click', () => switchView(go.dataset.goto, go.dataset.focus || ''));
 el('planSearch').addEventListener('input', publishPlans);
-el('labSearch').addEventListener('input', renderAccounts);
-el('labFilter').addEventListener('change', renderAccounts);
+el('labSearch').addEventListener('input', publishVouchers);
+el('labFilter').addEventListener('change', publishVouchers);
+// React sends only loaded voucher IDs; the original client still owns
+// confirmation, session CSRF, disabling, usage queries and audit feedback.
+window.addEventListener('radius-voucher-usage', event => {
+  const username = event.detail?.username;
+  if (typeof username !== 'string' || !accounts.some(a => a.username === username)) return;
+  switchView('accounting');
+  el('usageAccount').value = username;
+  void queryUsage(username);
+});
+window.addEventListener('radius-voucher-disable', event => {
+  const username = event.detail?.username;
+  if (typeof username !== 'string' || !accounts.some(a => a.username === username && a.active)) return;
+  void disableAccount(username);
+});
+
 el('openPlanForm').addEventListener('click', () => {
   window.dispatchEvent(new Event('radius-plan-clear-edit'));
   requestAnimationFrame(() => el('planName')?.focus());
