@@ -10,14 +10,17 @@ class VoucherMigrationChecks(unittest.TestCase):
         html=(WEB/'index.html').read_text(encoding='utf-8')
         app=(WEB/'app.mjs').read_text(encoding='utf-8')
         main=(UI/'main.tsx').read_text(encoding='utf-8')
-        for marker in ('id="reactVoucherList"','id="labForm"','id="labPlan"',
-                       'id="labCredentials"','id="nocExportAccounts"',
+        for marker in ('id="reactVoucherList"','id="reactVoucherCreator"',
+                       'id="nocExportAccounts"',
                        'id="labSearch"','id="labFilter"'):
             self.assertIn(marker,html)
         self.assertNotIn('id="labList"',html)
         self.assertIn('VoucherList',main)
         self.assertIn("clearCredentials()",app)
-        self.assertIn("el('labCredentials').textContent",app)
+        creator=(UI/'VoucherCreator.tsx').read_text(encoding='utf-8')
+        for marker in ('id="labForm"','id="labPlan"','id="labCredentials"'):
+            self.assertIn(marker,creator)
+        self.assertIn("secret.textContent =",app)
     def test_client_only_receives_allowlisted_fields_from_authorized_api(self):
         app=(WEB/'app.mjs').read_text(encoding='utf-8')
         model=(WEB/'voucher-view-model.mjs').read_text(encoding='utf-8')
@@ -35,7 +38,7 @@ class VoucherMigrationChecks(unittest.TestCase):
     def test_server_owning_account_disable_and_usage_logic_is_unchanged(self):
         app=(WEB/'app.mjs').read_text(encoding='utf-8')
         for token in ('async function disableAccount(username)', 'async function queryUsage(username)',
-                      '/api/lab-accounts/', "el('labForm').addEventListener",
+                      '/api/lab-accounts/', "radius-voucher-create-request",
                       "el('usageAccount').value", 'window.confirm'):
             self.assertIn(token,app)
         smoke=(ROOT/'scripts/ui-smoke.sh').read_text(encoding='utf-8')
