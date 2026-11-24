@@ -58,9 +58,13 @@ def verify(root, baseline):
     provenance = (root / "radius-source-runtime.provenance.txt").read_text().splitlines()
     require(provenance[:3] == [source["revision"], *source["verified_fix_ancestors"].values()],
             "FreeRADIUS source revision/fix evidence mismatch")
-    require(any("FreeRADIUS Version " + source["version"] + " (git #" +
-                source["revision"][:8] + ")" in line and
-                "x86_64-pc-linux-musl" in line for line in provenance[3:]),
+    # Native radiusd -v uses a nine-character source abbreviation.
+    # Match the complete native banner, not unrelated version/help lines.
+    banner = (r"radiusd: FreeRADIUS Version " + re.escape(source["version"]) +
+              r" \(git #" + re.escape(source["revision"][:9]) +
+              r"\), for host " + re.escape(baseline["architecture"] + "-pc-linux-musl") +
+              r", built on .+")
+    require(sum(re.fullmatch(banner, line) is not None for line in provenance[3:]) == 1,
             "Native FreeRADIUS version/architecture evidence mismatch")
     # Explicit source inventory supplements, never modifies, Trivy's OS SBOM.
     return {"schema": 1, "image": identities["radius"], "component": "FreeRADIUS",

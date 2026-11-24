@@ -35,8 +35,9 @@ class SecurityEvidenceChecks(unittest.TestCase):
         source = self.baseline["source"]
         (self.root / "radius-source-runtime.provenance.txt").write_text(
             "\n".join([source["revision"], *source["verified_fix_ancestors"].values(),
-                       "FreeRADIUS Version " + source["version"] + " (git #" +
-                       source["revision"][:8] + "), for host x86_64-pc-linux-musl"]) + "\n")
+                       "radiusd: FreeRADIUS Version " + source["version"] + " (git #" +
+                       source["revision"][:9] + "), for host x86_64-pc-linux-musl, built on Nov 24 2026 at 23:00:08",
+                       "FreeRADIUS Version " + source["version"]]) + "\n")
 
     def write_report(self, name, report):
         (self.root / (name + ".vulnerabilities.json")).write_text(json.dumps(report))
@@ -82,6 +83,28 @@ class SecurityEvidenceChecks(unittest.TestCase):
         p.write_text(p.read_text().replace(self.baseline["source"]["revision"], "bad"))
         with self.assertRaisesRegex(ValueError, "source revision"):
             evidence.verify(self.root, self.baseline)
+
+    def test_native_banner_rejects_wrong_version_revision_or_architecture(self):
+        p = self.root / "radius-source-runtime.provenance.txt"
+        original = p.read_text()
+        source = self.baseline["source"]
+        short = source["revision"][:9]
+        for wrong in (
+            original.replace("(git #" + short + ")", "(git #" + short[:8] + ")"),
+            original.replace("(git #" + short + ")", "(git #" + short + "f)"),
+            original.replace("(git #" + short + ")", "(git #" + short[:-1] + "0)"),
+            original.replace("x86_64-pc-linux-musl", "aarch64-pc-linux-musl"),
+            original.replace("x86_64-pc-linux-musl", "x86_64-pc-linux-musl-other"),
+            original.replace("FreeRADIUS Version 3.2.11 (", "FreeRADIUS Version 3.2.10 ("),
+            original.replace("radiusd: FreeRADIUS Version", "untrusted: FreeRADIUS Version"),
+            original + original.splitlines()[3] + "\n",
+        ):
+            with self.subTest(banner=wrong.splitlines()[3]):
+                p.write_text(wrong)
+                with self.assertRaisesRegex(ValueError, "version/architecture evidence mismatch"):
+                    evidence.verify(self.root, self.baseline)
+        p.write_text(original)
+        self.assertFalse(evidence.verify(self.root, self.baseline)["production_approved"])
 
     def test_ci_requires_evidence_verifier(self):
         scan = (ROOT / "scripts/security-scan-ci.sh").read_text()
