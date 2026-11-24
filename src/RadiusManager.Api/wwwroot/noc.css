@@ -151,3 +151,20 @@ html.noc-dark .noc-activity-item{border-color:#31435b;background:#152640}
 @media(max-width:950px){.sidebar-collapse{display:none}.sidebar.is-compact{width:258px;flex-basis:258px;padding:26px 17px}.sidebar.is-compact .brand>div,.sidebar.is-compact .sidebar-section-label,.sidebar.is-compact .sidebar-bottom,.sidebar.is-compact .nav-coming{display:block}.sidebar.is-compact .nav-item{font-size:13px;justify-content:flex-start;padding:14px 13px;gap:13px}.noc-global-search{flex:1;max-width:360px}}
 @media(max-width:680px){.topbar{flex-wrap:wrap;gap:7px;height:auto;min-height:70px;padding-block:9px}.breadcrumbs{display:none}.noc-global-search{order:3;width:100%;max-width:none;flex-basis:100%}.top-actions{margin-right:auto}.noc-insights-grid{gap:12px}.noc-service-row{align-items:flex-start}.noc-service-row>span{max-width:55%}.noc-top-icon{min-width:35px;min-height:35px}.noc-export-btn{font-size:10px;padding:8px}.noc-activity-drawer{padding:18px}}
 @media(prefers-reduced-motion:reduce){.sidebar{transition:none}.noc-bar-fill{transition:none}}
+
+/* Service observations are real measured samples, never synthetic uptime. */
+.service-history{margin-top:16px;min-width:0}
+.service-history .history-summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:10px;margin:12px 0}
+.service-history .history-stat{border:1px solid currentColor;border-radius:10px;padding:10px;min-width:0}
+.service-history .history-stat strong{display:block;font-size:1.15rem}
+.service-history .history-chart{display:block;width:100%;height:auto;max-height:210px;color:inherit}
+.service-history .history-grid{stroke:currentColor;opacity:.15}
+.service-history .history-line{fill:none;stroke:#0e94bb;stroke-width:2;vector-effect:non-scaling-stroke}
+.service-history .history-point{fill:#0e94bb}
+.service-history .history-table-wrap{overflow:auto;max-height:310px}
+.service-history table{width:100%;border-collapse:collapse;font-size:.85rem}
+.service-history th,.service-history td{padding:7px;text-align:start;white-space:nowrap;border-bottom:1px solid #8994a340}
+.service-history .history-good{color:#07855c}
+.service-history .history-bad{color:#c63b43}
+[data-theme="dark"] .service-history .history-good{color:#52d8a2}
+[data-theme="dark"] .service-history .history-bad{color:#ff9297}
