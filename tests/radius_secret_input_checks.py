@@ -36,7 +36,13 @@ class RadiusSecretInputChecks(unittest.TestCase):
         self.assertIn("POSTGRES_PASSWORD_FILE:",compose)
         self.assertIn("DB_PASSWORD_FILE:",compose)
         self.assertNotIn("POSTGRES_PASSWORD:",compose)
-        self.assertIn("radius-file-secret-smoke.sh",(ROOT/"scripts/admin-https-smoke.sh").read_text())
+        # The runtime-role wrapper now provisions the restricted SQL login
+        # before invoking the original real file-secret/wire test.
+        https=(ROOT/"scripts/admin-https-smoke.sh").read_text()
+        role=(ROOT/"scripts/radius-runtime-role-smoke.sh").read_text()
+        self.assertIn('bash scripts/radius-runtime-role-smoke.sh "$project" "$compose_file"',https)
+        self.assertIn('bash scripts/radius-file-secret-smoke.sh "$project" "$compose_file"',role)
+        self.assertLess(role.index('CREATE ROLE radius_runtime'),role.index('bash scripts/radius-file-secret-smoke.sh'))
         self.assertIn("RADIUS_SECRET_FILE=/run/radius-secrets/radius-secret",(ROOT/"scripts/radius-file-secret-smoke.sh").read_text())
 
 if __name__=="__main__":

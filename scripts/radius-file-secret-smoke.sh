@@ -51,8 +51,19 @@ PY
       printf "User-Password = \"%s\"\n" "$(cat /run/radius-secrets/runtime-user-password)"
       printf "NAS-IP-Address = 10.255.70.21\n"
       printf "Message-Authenticator = 0x00\n"
-    } | radclient -x -r 1 -t 3 -S "$RADIUS_SECRET_FILE" 127.0.0.1:1812 auth >"$log.auth" 2>&1
-    grep -q "Received Access-Accept" "$log.auth"
+    } | radclient -x -r 1 -t 3 -S "$RADIUS_SECRET_FILE" 127.0.0.1:1812 auth >"$log.auth" 2>&1 || {
+      echo "Restricted role PAP transport failed" >&2; exit 1;
+    }
+    grep -q "Received Access-Accept" "$log.auth" || { echo "Restricted role PAP did not accept valid fixture" >&2; exit 1; }
+    # A wrong PAP password must be denied even with the correct shared secret.
+    # radclient exit conventions vary; require an explicit Access-Reject packet.
+    {
+      printf "User-Name = \"lab_00000000d2a1\"\n"
+      printf "User-Password = \"invalid-fixture-password\"\n"
+      printf "NAS-IP-Address = 10.255.70.21\nMessage-Authenticator = 0x00\n"
+    } | radclient -x -r 1 -t 3 -S "$RADIUS_SECRET_FILE" 127.0.0.1:1812 auth >"$log.auth" 2>&1 || true
+    grep -q "Received Access-Reject" "$log.auth" || { echo "Restricted role PAP failed to reject incorrect password" >&2; exit 1; }
+    echo "Restricted role positive and negative PAP PASS"
     for state in Start Interim-Update Stop; do
       up=0; down=0
       if [[ "$state" == Interim-Update ]]; then up=100; down=200; fi
@@ -61,8 +72,12 @@ PY
         printf "User-Name = \"lab_00000000d2a1\"\nAcct-Session-Id = \"role-smoke\"\n"
         printf "NAS-IP-Address = 10.255.70.21\nNAS-Port = 5\nAcct-Status-Type = %s\n" "$state"
         printf "Acct-Input-Octets = %s\nAcct-Output-Octets = %s\nAcct-Session-Time = 60\n" "$up" "$down"
-      } | radclient -x -r 1 -t 3 -S "$RADIUS_SECRET_FILE" 127.0.0.1:1813 acct >"$log.acct" 2>&1
-      grep -q "Received Accounting-Response" "$log.acct"
+      } | radclient -x -r 1 -t 3 -S "$RADIUS_SECRET_FILE" 127.0.0.1:1813 acct >"$log.acct" 2>&1 || {
+        echo "Restricted role accounting transport failed: $state" >&2; exit 1;
+      }
+      grep -q "Received Accounting-Response" "$log.acct" || {
+        echo "Restricted role accounting response missing: $state" >&2; exit 1;
+      }
     done
     rm -f "$log.auth" "$log.acct"
     test "$(stat -c %a /etc/freeradius/3.0/clients.conf)" = 640
