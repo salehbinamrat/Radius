@@ -252,6 +252,7 @@ app.MapLabSessionEndpoints();
 app.MapNasDraftEndpoints();
 app.MapAdminIdentityEndpoints(sessionMode);
 app.MapResellerEndpoints(sessionMode);
+app.MapOwnershipEndpoints(sessionMode);
 if (sessionMode)
 {
     app.MapHub<LabStatusHub>("/hubs/lab-status", options =>

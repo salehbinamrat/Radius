@@ -1,4 +1,5 @@
 """Two distinct real HTTPS reseller sessions, disposable fixture only."""
+from concurrent.futures import ThreadPoolExecutor
 import http.client
 from http.cookies import SimpleCookie
 import json
@@ -48,7 +49,8 @@ def main():
             try:
                 conn.request(method,path,body=body,headers=headers)
                 response=conn.getresponse()
-                assert response.status == expected, f"Unexpected HTTP {response.status} for {method}"
+                accepted=expected if isinstance(expected,tuple) else (expected,)
+                assert response.status in accepted, f"Unexpected HTTP {response.status} for {method}"
                 for k,v in response.getheaders():
                     if k.lower()=="set-cookie":
                         parsed=SimpleCookie()
@@ -57,6 +59,7 @@ def main():
                             if name in ("__Host-RadiusAdmin","__Host-RadiusCsrf"):
                                 cookies[name]=morsel.value
                 data=response.read()
+                if isinstance(expected,tuple): return response.status, None
                 return json.loads(data) if expected==200 else None
             finally:
                 conn.close()
@@ -78,7 +81,51 @@ def main():
         request("POST","/hubs/lab-status/negotiate?negotiateVersion=1",403)
         csrf=request("GET","/api/admin/auth/csrf",200)["requestToken"]
         request("POST","/api/admin/auth/logout",200,{},csrf)
-    print("Two isolated reseller sessions: own rows only, unassigned and shared resources denied PASS")
+    # Real administrator may assign only an unassigned active lab voucher.
+    admin=session(os.environ["LAB_ADMIN_USER"])
+    eligible=admin("GET","/api/ownership/resellers",200)
+    assert {row["id"] for row in eligible["resellers"]}=={"ci-owner-a","ci-owner-b"}
+    assert all(set(row)=={"id","username"} for row in eligible["resellers"])
+    csrf=admin("GET","/api/admin/auth/csrf",200)["requestToken"]
+    assign="/api/ownership/accounts/lab_0000000000c1/assign"
+    admin("POST",assign,403,{"ownerId":"ci-owner-a"})
+    admin("POST",assign,409,{"ownerId":"missing-owner"},csrf)
+    admin("POST","/api/ownership/accounts/lab_0000000000d1/assign",404,{"ownerId":"ci-owner-a"},csrf)
+    admin("POST","/api/ownership/accounts/lab_0000000000a1/assign",409,{"ownerId":"ci-owner-b"},csrf)
+    reseller=session("ci_owner_a")
+    reseller_csrf=reseller("GET","/api/admin/auth/csrf",200)["requestToken"]
+    reseller("GET","/api/ownership/resellers",403)
+    reseller("POST",assign,403,{"ownerId":"ci-owner-a"},reseller_csrf)
+    # Separate authenticated admin sessions race to claim the same voucher.
+    # The helper returns the actual status for this one race only.
+    contenders=[(session(os.environ["LAB_ADMIN_USER"]), owner) for owner in ("ci-owner-a","ci-owner-b")]
+    def compete(item):
+        request,owner=item
+        token=request("GET","/api/admin/auth/csrf",200)["requestToken"]
+        result=request("POST",assign,(200,409),{"ownerId":owner},token)
+        return result[0],owner
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results=list(pool.map(compete,contenders))
+    assert sorted(status for status,_ in results)==[200,409]
+    winner=next(owner for status,owner in results if status==200)
+    for username,owner,original in (("ci_owner_a","ci-owner-a","lab_0000000000a1"),
+                                    ("ci_owner_b","ci-owner-b","lab_0000000000b1")):
+        request=session(username)
+        expected={original}
+        if owner==winner: expected.add("lab_0000000000c1")
+        assert {r["username"] for r in request("GET","/api/reseller/accounts",200)["accounts"]}==expected
+    # Exactly one successful event in the same committed transaction.
+    check_sql="""
+    SELECT count(*) FROM app_admin_audit_events
+    WHERE action='voucher_owner_assigned' AND subject_kind='lab_account'
+      AND subject_id='lab_0000000000c1' AND outcome='success'
+      AND actor_user_id IN (SELECT "UserId" FROM "AspNetUserRoles" WHERE "RoleId"='role-super-admin');
+    """
+    result=subprocess.run(["docker","compose","-p",project,"-f",compose_file,"exec","-T","db",
+                           "psql","-X","-At","-v","ON_ERROR_STOP=1","-U","radius","-d","radius"],
+                          input=check_sql,text=True,capture_output=True,check=True,timeout=20)
+    assert result.stdout.strip()=="1"
+    print("Two isolated reseller sessions: owner-only reads, forbidden writes, concurrent initial assignment and atomic audit PASS")
 
 if __name__=="__main__":
     try:

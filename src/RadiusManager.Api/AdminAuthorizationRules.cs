@@ -7,6 +7,8 @@ public static class AdminAuthorizationRules
 {
     public static bool IsAllowed(ClaimsPrincipal user, string method, string? path)
     {
+        if (path is not null && (path == "/api/ownership" || path.StartsWith("/api/ownership/", StringComparison.Ordinal)))
+            return OwnershipRules.IsAllowed(user, method, path);
         if (path == "/api/reseller/accounts")
             return (method is "GET" or "HEAD") && ResellerScope.OwnerId(user) is not null;
         if (!CanAccessSharedLab(user)) return false;

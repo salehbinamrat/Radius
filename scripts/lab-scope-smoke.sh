@@ -49,4 +49,8 @@ status=$(curl --silent --show-error --max-time 5 --netrc-file "$netrc" -o /dev/n
 docker compose exec -T db psql -X -At -v ON_ERROR_STOP=1 -U radius -d radius -v username="$username" <<'SQL' | python3 -c 'import sys; assert sys.stdin.read().strip()=="1"'
 SELECT count(*) FROM radcheck WHERE username=:'username' AND attribute='Auth-Type' AND value='Reject';
 SQL
-echo 'Foreign RADIUS row excluded from summary, list, usage and disable PASS'
+status=$(curl --silent --show-error --max-time 5 --netrc-file "$netrc" -o /dev/null -w '%{http_code}' "$api/ownership/resellers")
+[[ "$status" == 403 ]]
+status=$(curl --silent --show-error --max-time 5 --netrc-file "$netrc" -o /dev/null -w '%{http_code}' -H 'Content-Type: application/json' -d '{"ownerId":"invalid"}' "$api/ownership/accounts/$username/assign")
+[[ "$status" == 403 ]]
+echo 'Foreign RADIUS row excluded from summary, list, usage and disable; Basic ownership management denied PASS'
