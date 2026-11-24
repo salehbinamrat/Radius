@@ -43,6 +43,10 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: '24' }
       - run: bash scripts/setup.sh
+      - name: 'Loopback lab port preflight'
+        env:
+          LAB_NETWORK_PREFLIGHT_ACK: isolated-lab
+        run: bash scripts/lab-deployment-preflight.sh
       - run: docker compose config --quiet
       - run: docker compose up -d --build
       - name: API ready
@@ -53,6 +57,10 @@ jobs:
           done
           docker compose logs --no-color
           exit 1
+      - name: 'Read-only API latency baseline'
+        env:
+          RADIUS_PERF_TEST_ACK: isolated-ci
+        run: bash scripts/lab-read-performance.sh
       - run: bash scripts/api-contract-smoke.sh
       - run: bash scripts/admin-identity-smoke.sh
       - run: bash scripts/concurrent-plan-smoke.sh
