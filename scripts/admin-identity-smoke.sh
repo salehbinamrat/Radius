@@ -15,6 +15,8 @@ check() {
   fi
 }
 # Session-only authentication cannot be used over this non-HTTPS lab.
+check 200 "$API/api/admin/auth/mode"
+grep -q '"basic"' "$out"
 check 404 "$API/api/admin/auth/csrf"
 check 404 -H 'Content-Type: application/json' \
   -d '{"username":"nonexistent","password":"not-a-secret"}' "$API/api/admin/auth/login"

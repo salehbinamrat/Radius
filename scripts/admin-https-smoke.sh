@@ -76,6 +76,8 @@ check() {
     exit 1
   fi
 }
+check 200 "$url/api/admin/auth/mode"
+grep -q '"session"' "$out"
 check 401 "$url/api/summary"
 check 403 -H "Content-Type: application/json" -d '{}' "$url/api/admin/auth/login"
 check 403 -H "Origin: https://untrusted.invalid" -H "Content-Type: application/json" \

@@ -6,6 +6,8 @@ import { filterPlans, filterAccounts, summarizeVisibleAccounts, formatBytes, for
 
 const el = id => document.getElementById(id);
 let auth = '';
+let sessionMode = false;
+let sessionCsrf = '';
 let editingId = null;
 let plans = [];
 let accounts = [];
@@ -70,10 +72,15 @@ function encodeAuth(user, pass) {
   return btoa(encoded);
 }
 async function call(url, options = {}) {
+  const method = (options.method || 'GET').toUpperCase();
+  const headers = sessionMode ? { ...(options.headers || {}) }
+    : { Authorization: `Basic ${auth}`, ...(options.headers || {}) };
+  if (sessionMode && !['GET', 'HEAD', 'OPTIONS'].includes(method)) {
+    if (!sessionCsrf) throw new Error('رمز حماية الجلسة غير متاح. أعد تسجيل الدخول.');
+    headers['X-CSRF-TOKEN'] = sessionCsrf;
+  }
   const response = await fetch(url, {
-    ...options,
-    headers: { Authorization: `Basic ${auth}`, ...(options.headers || {}) },
-    cache: 'no-store',
+    ...options, headers, cache: 'no-store', credentials: 'same-origin',
   });
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {
@@ -254,17 +261,52 @@ async function queryUsage(username) {
     el('usageEmpty').querySelector('span').textContent = err.message;
   } finally { loading(loadButton, false); }
 }
-function logout(showToast = true) {
+async function logout(showToast = true) {
+  if (sessionMode && showToast) {
+    try {
+      // Server revocation is mandatory: merely hiding the dashboard is not logout.
+      await call('/api/admin/auth/logout', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+      });
+    } catch {
+      toast('تعذر إبطال الجلسة في الخادم. حاول تسجيل الخروج مرة أخرى.', 'error');
+      return;
+    }
+  }
   auth = '';plans = [];accounts = [];clearCredentials();resetUsage();clearEdit();
   el('loginPass').value = '';
   el('dashboard').hidden = true;
   el('loginPanel').hidden = false;
   closeMenu();noc?.reset();ultra?.reset();nasDrafts?.reset();
+  if (sessionMode) {
+    sessionCsrf = '';
+    window.dispatchEvent(new Event('radius-session-logged-out'));
+  }
   if (showToast) toast('تم تسجيل الخروج.');
 }
 
+// React/TypeScript owns the HTTPS login form; the legacy dashboard still
+// trusts only the server cookie/RBAC response, not a DOM event as authority.
+window.addEventListener('radius-session-ready', async event => {
+  const token = event.detail?.csrf;
+  if (typeof token !== 'string' || token.length < 20) return;
+  sessionMode = true;
+  sessionCsrf = token;
+  auth = '';
+  setError('loginError');
+  try {
+    await reload();
+    el('loginPanel').hidden = true;
+    el('dashboard').hidden = false;
+    switchView('overview');
+  } catch (err) {
+    setError('loginError', err.message);
+  }
+});
+
 el('loginForm').addEventListener('submit', async event => {
   event.preventDefault();setError('loginError');
+  if (sessionMode) return; // No Basic fallback when HTTPS Identity is enabled.
   if (!el('loginForm').reportValidity()) return;
   auth = encodeAuth(el('loginUser').value, el('loginPass').value);
   const submit = el('loginForm').querySelector('button[type="submit"]');
@@ -278,7 +320,7 @@ el('loginForm').addEventListener('submit', async event => {
   } catch (err) { auth = '';setError('loginError', err.message); }
   finally { loading(submit, false); }
 });
-el('logout').addEventListener('click', () => logout());
+el('logout').addEventListener('click', () => { void logout(); });
 el('refreshAll').addEventListener('click', () => reload().then(() => toast('تم تحديث البيانات.')).catch(err => toast(err.message, 'error')));
 el('refresh').addEventListener('click', () => reload().then(() => toast('تم تحديث الباقات.')).catch(err => toast(err.message, 'error')));
 el('menuToggle').addEventListener('click', () => {
