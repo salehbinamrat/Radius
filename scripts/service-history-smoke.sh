@@ -52,4 +52,16 @@ assert x["retention"]=="volume-snapshot"
 times=[datetime.datetime.fromisoformat(row["observedAtUtc"].replace("Z","+00:00")).timestamp() for row in x["samples"]]
 assert any(abs(t-float(sys.argv[1])) < 0.000001 for t in times), "Previous sample lost after API restart"
 ' "$second"
-echo 'Protected bounded independent service observation history and restart recovery PASS'
+alerts=http://127.0.0.1:8080/api/service-status/alerts
+[[ "$(curl --silent --show-error --max-time 5 -o /dev/null -w '%{http_code}' "$alerts")" == 401 ]]
+curl --fail --silent --show-error --max-time 5 --netrc-file "$netrc" "$alerts" |
+  python3 -c '
+import json,sys
+x=json.load(sys.stdin)
+assert set(x)=={"scope","window","confirmationCount","services","events"}
+assert x["scope"]=="lab" and x["window"]=="retained-samples" and x["confirmationCount"]==2
+assert {s["service"] for s in x["services"]}=={"postgresql","freeradius"}
+assert all(s["state"] in {"healthy","pending","failed","unknown"} for s in x["services"])
+assert len(x["events"])<=480
+'
+echo 'Protected bounded independent service observation history, restart recovery and alert projection PASS'
