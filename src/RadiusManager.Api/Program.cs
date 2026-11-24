@@ -45,9 +45,15 @@ if (sessionMode)
         || string.IsNullOrWhiteSpace(keysPath) || !Path.IsPathFullyQualified(keysPath)
         || !File.Exists(certificatePath) || !Directory.Exists(keysPath))
         throw new InvalidOperationException("Session mode requires mounted TLS certificate and persistent key directory");
-    var certificate = X509CertificateLoader.LoadPkcs12FromFile(certificatePath, certificatePassword);
-    if (!certificate.HasPrivateKey)
-        throw new InvalidOperationException("Session key encryption certificate must have a private key");
+    var protectionPath = Environment.GetEnvironmentVariable("RADIUS_DP_CERTIFICATE_PATH");
+    var protectionPassword = SecretInput.Resolve("Data Protection certificate password", null,
+        Environment.GetEnvironmentVariable("RADIUS_DP_PASSWORD_FILE"));
+    if (string.IsNullOrWhiteSpace(protectionPath) || !Path.IsPathFullyQualified(protectionPath)
+        || string.IsNullOrEmpty(protectionPassword))
+        throw new InvalidOperationException("Session mode requires a separate Data Protection certificate and password file");
+    using var tlsCertificate = X509CertificateLoader.LoadPkcs12FromFile(certificatePath, certificatePassword);
+    var certificate = X509CertificateLoader.LoadPkcs12FromFile(protectionPath, protectionPassword);
+    CertificateRules.ValidatePair(tlsCertificate, certificate, DateTimeOffset.UtcNow);
     builder.Services.AddDataProtection()
         .SetApplicationName("RadiusNocAdminSessions")
         .PersistKeysToFileSystem(new DirectoryInfo(keysPath))
