@@ -11,3 +11,25 @@ RUN set -eu; \
         echo 'Vulnerable libxml2 version still installed' >&2; exit 1; \
     fi; \
     apk info -v libxml2
+
+# The upstream entrypoint invokes gosu postgres as root. The old gosu
+# binary embeds Go 1.24.6 and is the sole Go binary in the upstream image
+# inventory. Use Alpine's native C privilege-drop helper for this candidate.
+# Retain both command names from the upstream image; no privilege escalation.
+RUN set -eu; \
+    apk add --no-cache 'su-exec=0.3-r0'; \
+    apk info --exists 'su-exec=0.3-r0'; \
+    test -x /sbin/su-exec; \
+    rm -f /usr/local/bin/gosu /usr/local/bin/su-exec; \
+    ln -s /sbin/su-exec /usr/local/bin/gosu; \
+    ln -s /sbin/su-exec /usr/local/bin/su-exec; \
+    test "$(id -u postgres)" != 0; \
+    test "$(gosu postgres id -u)" = "$(id -u postgres)"; \
+    test "$(gosu postgres id -g)" = "$(id -g postgres)"; \
+    test "$(su-exec nobody id -u)" = "$(id -u nobody)"; \
+    if gosu radius_missing_user_for_negative_test true; then \
+        echo 'Invalid user unexpectedly accepted' >&2; exit 1; \
+    fi; \
+    test ! -u /sbin/su-exec; \
+    test ! -g /sbin/su-exec; \
+    gosu postgres postgres --version
