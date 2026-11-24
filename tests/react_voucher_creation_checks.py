@@ -44,7 +44,8 @@ class VoucherCreationChecks(unittest.TestCase):
                          "clearCredentials();resetUsage()",
                          "call('/api/lab-accounts'","passwordDisplayedOnce"):
             self.assertIn(required,app+model)
-        self.assertNotIn("el('labCredentials')",app)
+        self.assertIn("const secret = el('labCredentials');",app)
+        self.assertIn("if (secret) { secret.textContent = '';",app)
         self.assertNotIn("el('labForm')",app)
         self.assertNotIn("el('generateLab')",app)
         self.assertNotIn("el('labPlan')",app)
