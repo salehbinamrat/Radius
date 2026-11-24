@@ -61,6 +61,10 @@ jobs:
         env:
           RADIUS_PERF_TEST_ACK: isolated-ci
         run: bash scripts/lab-read-performance.sh
+      - name: 'Accounting query baseline and candidate index comparison (100k synthetic rows)'
+        env:
+          RADIUS_PERF_TEST_ACK: isolated-ci
+        run: bash scripts/accounting-query-performance.sh
       - run: bash scripts/api-contract-smoke.sh
       - name: 'Lab data boundary and foreign RADIUS rows'
         env:
