@@ -3,7 +3,7 @@ import { buildOverviewSnapshot } from './overview-model.mjs';
 import { initializeNocUi } from './noc-ui.mjs';
 import { initializeUltraFeatures } from './ultra-features.mjs';
 import { initializeNasDrafts } from './nas-drafts.mjs';
-import { filterPlans, filterAccounts, summarizeVisibleAccounts, formatBytes, formatKbps } from './dashboard-utils.mjs';
+import { filterPlans, filterAccounts, formatBytes, formatKbps } from './dashboard-utils.mjs';
 
 const el = id => document.getElementById(id);
 let auth = '';
