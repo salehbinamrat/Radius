@@ -9,10 +9,16 @@ username="lab_$(python3 -c 'import secrets;print(secrets.token_hex(6))')"
 session_id="wire_$(python3 -c 'import secrets;print(secrets.token_hex(8))')"
 log=$(mktemp)
 cleanup() {
+  local status=$?
   rm -f "$log"
-  docker compose exec -T db psql -X -v ON_ERROR_STOP=1 -U radius -d radius -v username="$username" <<'SQL' >/dev/null || true
-DELETE FROM radacct WHERE username=:'username' AND acctsessionid=:'session_id';
+  if ! docker compose exec -T db psql -X -v ON_ERROR_STOP=1 -U radius -d radius -v username="$username" <<'SQL' >/dev/null
+DELETE FROM radacct WHERE username=:'username';
 SQL
+  then
+    echo 'Synthetic accounting fixture cleanup failed' >&2
+    if [[ "$status" == 0 ]]; then status=1; fi
+  fi
+  exit "$status"
 }
 trap cleanup EXIT
 
@@ -36,16 +42,18 @@ send_accounting() {
 }
 
 assert_row() {
- local up="$1" down="$2" stopped="$3"
- docker compose exec -T db psql -X -v ON_ERROR_STOP=1 -U radius -d radius \
-   -v username="$username" -v session_id="$session_id" -v expected_up="$up" -v expected_down="$down" -v expected_stop="$stopped" <<'SQL' | grep -q 'ACCT_WIRE_OK'
+ local up="$1" down="$2" stopped="$3" result
+ result=$(docker compose exec -T db psql -X -qAt -v ON_ERROR_STOP=1 -U radius -d radius \
+   -v username="$username" -v session_id="$session_id" -v expected_up="$up" -v expected_down="$down" -v expected_stop="$stopped" <<'SQL'
 SELECT CASE WHEN COUNT(*)=1 AND BOOL_AND(
                 acctinputoctets = CAST(:'expected_up' AS bigint)
                 AND acctoutputoctets = CAST(:'expected_down' AS bigint)
                 AND (acctstoptime IS NOT NULL) = CAST(:'expected_stop' AS boolean)
        ) THEN 'ACCT_WIRE_OK' ELSE 'ACCT_WIRE_WRONG' END
-FROM radacct WHERE username=:'username';
+FROM radacct WHERE username=:'username' AND acctsessionid=:'session_id';
 SQL
+ )
+ [[ "$result" == ACCT_WIRE_OK ]] || { echo "Accounting snapshot mismatch: expected upload=$up download=$down stopped=$stopped" >&2; exit 1; }
 }
 
 # These are cumulative snapshots of one session, not extra debits.
