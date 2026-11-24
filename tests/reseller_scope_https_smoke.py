@@ -246,6 +246,25 @@ def main():
     admin("GET","/api/admin-audit?from=2026-12-01&to=2026-01-01",400)
     reseller("GET","/api/admin-audit",403)
     admin("POST","/api/admin-audit",403,{},csrf)
+    # Populate a known isolated historical day to exercise the 50+1 boundary,
+    # cursor continuity, inclusive end date, and exclusion of the following day.
+    sql_check("""
+        INSERT INTO app_admin_audit_events(action,subject_kind,outcome,occurred_at,correlation_id)
+        SELECT 'login_failure','admin','denied','2001-01-01 23:59:59+00'::timestamptz,gen_random_uuid()
+        FROM generate_series(1,55);
+        INSERT INTO app_admin_audit_events(action,subject_kind,outcome,occurred_at,correlation_id)
+        VALUES ('login_failure','admin','denied','2001-01-02 00:00:00+00',gen_random_uuid());
+    """)
+    day="/api/admin-audit?action=login_failure&outcome=denied&from=2001-01-01&to=2001-01-01"
+    first_page=admin("GET",day,200)
+    assert len(first_page["events"])==50
+    assert first_page["nextBefore"]==first_page["events"][-1]["id"]
+    next_page=admin("GET",day+"&before="+first_page["nextBefore"],200)
+    assert len(next_page["events"])==5 and next_page["nextBefore"] is None
+    ids=[int(r["id"]) for r in first_page["events"]+next_page["events"]]
+    assert len(set(ids))==55 and ids==sorted(ids,reverse=True)
+    assert all(r["occurredAt"].startswith("2001-01-01T") for r in first_page["events"]+next_page["events"])
+    print("Audit cursor paging, UTC day boundary and unique ordered IDs PASS")
     print("Named administrative audit coverage and rollback on audit failure PASS")
     print("Two isolated reseller sessions: owner-only reads, forbidden writes, concurrent initial assignment and atomic audit PASS")
 

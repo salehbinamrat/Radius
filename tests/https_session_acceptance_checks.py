@@ -71,6 +71,15 @@ class HttpsSessionContracts(unittest.TestCase):
         self.assertLess(source.index('python3 tests/signalr_https_wire_smoke.py'),
                         source.index('node tests/browser/https-live-status-smoke.mjs'))
 
+    def test_independent_https_phases_restart_only_the_fixture_api(self):
+        source = (ROOT / "scripts/admin-https-smoke.sh").read_text(encoding="utf-8")
+        phase = source[source.index("restart_fixture_api() {"):]
+        self.assertIn('docker compose -p "$project" -f "$compose_file" restart api', phase)
+        self.assertIn('check 401 -b "$tmp/stale-after-logout.cookies" "$url/api/summary"', phase)
+        self.assertIn('restart_fixture_api\n# Two distinct disposable identities', phase)
+        self.assertIn('restart_fixture_api\n# A separate browser session', phase)
+        self.assertNotIn('down -v', phase)
+
     def test_ci_runs_https_only_after_existing_tests(self):
         ci = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
         self.assertIn("bash scripts/admin-https-smoke.sh", ci)
