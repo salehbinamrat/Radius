@@ -63,11 +63,13 @@ else
   echo 'Candidate image vulnerability gate failed' >&2
   failed=1
 fi
-# Second official candidate: PostgreSQL 16.16 on Alpine 3.24. No run or
+# Build the Alpine candidate with the vendor-published fix. No run or
 # volumes; a different libc requires an isolated logical restore before use.
-candidate='postgres:16.16-alpine3.24@sha256:f2f98726820d0342055351c6e9d36e705f5bfffb3dd53ff556325114b08afb6d'
-docker pull "$candidate"
-candidate_id=$(docker image inspect --format '{{.Id}}' "$candidate")
+docker build --pull --no-cache --iidfile "$tmp/alpine-image-id" \
+  -f tests/postgres-alpine-remediation.Dockerfile tests
+candidate_id=$(cat "$tmp/alpine-image-id")
+# Scan the exact built image, not the original vulnerable base.
+candidate_id=$(docker image inspect --format '{{.Id}}' "$candidate_id")
 [[ "$candidate_id" =~ ^sha256:[a-f0-9]{64}$ ]] || exit 1
 printf '%s %s\n' candidate-alpine "$candidate_id" >> "$reports/image-identities.txt"
 "$scanner" image --image-src docker --format cyclonedx --output "$reports/candidate-alpine.cdx.json" "$candidate_id"
