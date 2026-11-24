@@ -1,5 +1,6 @@
 import { normalizedPlan } from './plan-utils.mjs';
 import { buildOverviewSnapshot } from './overview-model.mjs';
+import { buildUsageViewSnapshot } from './usage-view-model.mjs';
 import { buildPlanViewSnapshot } from './plan-view-model.mjs';
 import { buildVoucherViewSnapshot } from './voucher-view-model.mjs';
 import { eligibleVoucherPlans } from './voucher-create-model.mjs';
@@ -7,7 +8,6 @@ import { createOneTimeRevealGate } from './voucher-secret-gate.mjs';
 import { initializeNocUi } from './noc-ui.mjs';
 import { initializeUltraFeatures } from './ultra-features.mjs';
 import { initializeNasDrafts } from './nas-drafts.mjs';
-import { formatBytes } from './dashboard-utils.mjs';
 
 const el = id => document.getElementById(id);
 let auth = '';
@@ -20,6 +20,8 @@ let plans = [];
 let accounts = [];
 let overviewSnapshot = null;
 let overviewHealth = 'unloaded';
+let usageGeneration = 0;
+let usageDisplay = { kind: 'unloaded' };
 let pendingRequest = false;
 let toastTimeout = null;
 let noc = null;
@@ -43,9 +45,20 @@ function loading(button, isLoading) {
   button.disabled = isLoading;
   button.setAttribute('aria-busy', String(isLoading));
 }
+function publishUsage(next = usageDisplay) {
+  usageDisplay = next;
+  window.dispatchEvent(new CustomEvent('radius-usage-updated', { detail: next }));
+}
+window.addEventListener('radius-usage-request', () => publishUsage());
 function resetUsage() {
-  el('usageReport').hidden = true;
-  el('usageEmpty').hidden = false;
+  // Invalidate requests started for another card, page or login.
+  usageGeneration += 1;
+  loading(el('loadUsage'), false);
+  publishUsage({ kind: 'unloaded' });
+}
+function isCurrentUsage(generation, username) {
+  return generation === usageGeneration && !el('dashboard').hidden &&
+    !el('view-accounting').hidden && el('usageAccount').value === username;
 }
 function clearCredentials() {
   voucherSecretGate.invalidate();
@@ -70,6 +83,7 @@ function switchView(view, focusId = '') {
   el('breadcrumbCurrent').textContent = viewLabels[view];
   el('pageError').hidden = true;
   if (view !== 'vouchers') clearCredentials();
+  if (view !== 'accounting') resetUsage();
   window.dispatchEvent(new CustomEvent('radius-view-changed', { detail: { view } }));
   if (view === 'networks' && !el('dashboard').hidden) nasDrafts?.refresh(); // one-time password must not linger across navigation
   closeMenu();
@@ -197,28 +211,24 @@ async function disableAccount(username) {
   } catch (err) { setError('labError', err.message);toast(err.message, 'error'); }
 }
 async function queryUsage(username) {
-  if (!username) { resetUsage();return; }
-  const loadButton = el('loadUsage');loading(loadButton, true);
-  el('usageEmpty').hidden = false;
-  el('usageReport').hidden = true;
+  if (!username) { resetUsage(); return; }
+  const generation = ++usageGeneration;
+  loading(el('loadUsage'), true);
+  publishUsage({ kind: 'loading' });
   try {
-    const r = await call(`/api/lab-accounts/${encodeURIComponent(username)}/usage`);
-    el('usageTotal').textContent = formatBytes(r.totalBytes);
-    el('usageDown').textContent = formatBytes(r.downloadBytes);
-    el('usageUp').textContent = formatBytes(r.uploadBytes);
-    el('usageSessions').textContent = r.sessions;
-    el('usageOpen').textContent = r.openSessions;
-    el('usageStale').textContent = r.staleSessions;
-    el('usageAnomalous').textContent = r.anomalousSessions;
-    el('usageNas').textContent = r.observedNas;
-    el('usageFinal').textContent = r.reportIsFinal ? 'مغلق شكليا' : 'غير نهائي';
-    el('usageWarning').textContent = r.warning || 'النتيجة استرشادية ولا تُستخدم لحساب الرصيد.';
-    el('usageEmpty').hidden = true;el('usageReport').hidden = false;
+    const response = await call(`/api/lab-accounts/${encodeURIComponent(username)}/usage`);
+    // Ignore late replies after a new selection, logout or navigation.
+    if (!isCurrentUsage(generation, username)) return;
+    const snapshot = buildUsageViewSnapshot(username, response);
+    publishUsage({ kind: 'success', snapshot });
   } catch (err) {
-    toast(err.message, 'error');
-    el('usageEmpty').querySelector('strong').textContent = 'تعذر قراءة الاستهلاك';
-    el('usageEmpty').querySelector('span').textContent = err.message;
-  } finally { loading(loadButton, false); }
+    if (!isCurrentUsage(generation, username)) return;
+    const message = err instanceof Error ? err.message : 'تعذر قراءة الاستهلاك.';
+    publishUsage({ kind: 'error', error: message });
+    toast(message, 'error');
+  } finally {
+    if (generation === usageGeneration) loading(el('loadUsage'), false);
+  }
 }
 async function logout(showToast = true) {
   if (sessionMode && showToast) {
