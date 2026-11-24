@@ -32,7 +32,11 @@ class HttpsSessionContracts(unittest.TestCase):
     def test_https_api_uses_mounted_password_files_not_inline_secrets(self):
         compose=(ROOT/"tests/admin-https.compose.yaml").read_text()
         api=compose.split("\n  api:",1)[1]
-        self.assertIn("RADIUS_DB_PASSWORD_FILE: /run/radius-secrets/db-password",api)
+        self.assertIn("RADIUS_DB_PASSWORD_FILE: /run/radius-secrets/api-db-password",api)
+        self.assertIn("Username=radius_api",api)
+        runtime=api.split("\n  admin-bootstrap:",1)[0]
+        self.assertNotIn("/run/radius-secrets/bootstrap-db-password",runtime)
+        self.assertNotIn("/run/radius-secrets/db-password",runtime)
         self.assertIn("RADIUS_TLS_PASSWORD_FILE: /run/radius-secrets/tls-password",api)
         self.assertNotIn("Password=",api)
         self.assertNotIn("RADIUS_ADMIN_PASSWORD:",api)
