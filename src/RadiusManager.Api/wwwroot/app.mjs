@@ -1,8 +1,9 @@
 import { normalizedPlan } from './plan-utils.mjs';
+import { buildOverviewSnapshot } from './overview-model.mjs';
 import { initializeNocUi } from './noc-ui.mjs';
 import { initializeUltraFeatures } from './ultra-features.mjs';
 import { initializeNasDrafts } from './nas-drafts.mjs';
-import { filterPlans, filterAccounts, summarizeVisibleAccounts, formatBytes, formatKbps } from './dashboard-utils.mjs';
+import { filterPlans, filterAccounts, formatBytes, formatKbps } from './dashboard-utils.mjs';
 
 const el = id => document.getElementById(id);
 let auth = '';
@@ -11,6 +12,8 @@ let sessionCsrf = '';
 let editingId = null;
 let plans = [];
 let accounts = [];
+let overviewSnapshot = null;
+let overviewHealth = 'unloaded';
 let pendingRequest = false;
 let toastTimeout = null;
 let noc = null;
@@ -119,16 +122,6 @@ function button(label, className, onClick) {
   element.addEventListener('click', onClick);
   return element;
 }
-function renderRecent() {
-  const body = el('recentAccounts');
-  body.replaceChildren();
-  const rows = accounts.slice(0, 5);
-  if (rows.length === 0) return rowMessage(body, 3, 'لا توجد كروت اختبار مسجلة حتى الآن.');
-  for (const a of rows) {
-    const row = body.insertRow();
-    appendCell(row, a.username); appendCell(row, a.planName); appendPill(row, a.active);
-  }
-}
 function renderPlans() {
   const body = el('plansList');
   const visible = filterPlans(plans, el('planSearch').value);
@@ -180,14 +173,25 @@ function renderSelectors() {
   if ([...usageSelect.options].some(o => o.value === currentUser)) usageSelect.value = currentUser;
   el('loadUsage').disabled = usageSelect.options.length === 0;
 }
+function publishOverview() {
+  window.dispatchEvent(new CustomEvent('radius-overview-updated', {
+    detail: { snapshot: overviewSnapshot, health: overviewHealth },
+  }));
+}
+window.addEventListener('radius-overview-request', () => {
+  if (overviewSnapshot !== null) publishOverview();
+});
+function onOverviewError() {
+  // Previously loaded counts are stale until the next successful API response.
+  overviewHealth = 'error';
+  publishOverview();
+}
 function renderAll(summary) {
-  el('statPlans').textContent = Number(summary.plans).toLocaleString('en-US');
-  el('statUsers').textContent = Number(summary.labAccounts).toLocaleString('en-US');
-  el('statActive').textContent = summarizeVisibleAccounts(accounts).active.toLocaleString('en-US');
-  el('statHealth').textContent = 'متصل';
-  el('statHealth').className = 'health-metric good';
-  renderSelectors();renderRecent();renderPlans();renderAccounts();
+  overviewSnapshot = buildOverviewSnapshot(summary, accounts);
+  overviewHealth = 'online';
+  renderSelectors();renderPlans();renderAccounts();
   noc?.render();
+  publishOverview();
 }
 async function reload() {
   if (pendingRequest) return;
@@ -200,7 +204,7 @@ async function reload() {
     noc?.status(true);
   } catch (err) {
     noc?.status(false);
-    el('statHealth').textContent = 'خطأ';el('statHealth').className = 'health-metric bad';
+    onOverviewError();
     el('pageError').textContent = err.message;
     el('pageError').hidden = false;
     throw err;
@@ -274,6 +278,7 @@ async function logout(showToast = true) {
     }
   }
   auth = '';plans = [];accounts = [];clearCredentials();resetUsage();clearEdit();
+  overviewSnapshot = null;overviewHealth = 'unloaded';publishOverview();
   el('loginPass').value = '';
   el('dashboard').hidden = true;
   el('loginPanel').hidden = false;

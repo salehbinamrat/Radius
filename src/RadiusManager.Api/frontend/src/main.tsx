@@ -1,6 +1,7 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { StatusPanel } from './StatusPanel';
+import { OverviewKpis, OverviewRecent } from './Overview';
 import { SessionLogin } from './SessionLogin';
 
 // Incremental migration: the original JavaScript dashboard still owns all
@@ -15,4 +16,14 @@ if (mount) {
 const loginMount = document.getElementById('reactAdminLogin');
 if (loginMount) {
   createRoot(loginMount).render(<StrictMode><SessionLogin /></StrictMode>);
+}
+
+const overviewKpiMount = document.getElementById('reactOverviewKpis');
+if (overviewKpiMount) {
+  createRoot(overviewKpiMount).render(<StrictMode><OverviewKpis /></StrictMode>);
+}
+
+const overviewRecentMount = document.getElementById('reactOverviewRecent');
+if (overviewRecentMount) {
+  createRoot(overviewRecentMount).render(<StrictMode><OverviewRecent /></StrictMode>);
 }
