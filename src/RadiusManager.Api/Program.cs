@@ -47,6 +47,8 @@ if (sessionMode)
 }
 
 builder.Services.AddSingleton(NpgsqlDataSource.Create(connectionString));
+builder.Services.AddSingleton<ServiceObservationHistory>();
+builder.Services.AddHostedService<ServiceObservationWorker>();
 builder.Services.AddDbContext<AdminIdentityDbContext>(o => o.UseNpgsql(connectionString));
 builder.Services.AddIdentity<IdentityUser, IdentityRole>(options =>
 {
@@ -227,6 +229,7 @@ api.MapGet("/summary", async (NpgsqlDataSource dataSource, CancellationToken ct)
 });
 
 api.MapGet("/service-status/radius", () => Results.Ok(RadiusHealthEvidence.Read()));
+api.MapGet("/service-status/history", (ServiceObservationHistory history) => Results.Ok(history.Snapshot()));
 
 api.MapPlanEndpoints();
 

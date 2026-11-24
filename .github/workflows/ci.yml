@@ -69,6 +69,10 @@ jobs:
         env:
           LAB_RADIUS_STATUS_ACK: isolated-ci
         run: bash scripts/radius-health-smoke.sh
+      - name: Bounded service observation history acceptance
+        env:
+          LAB_SERVICE_HISTORY_ACK: isolated-ci
+        run: bash scripts/service-history-smoke.sh
       - run: bash scripts/lab-account-smoke.sh
       - run: bash scripts/accounting-smoke.sh
       - run: bash scripts/accounting-wire-smoke.sh
