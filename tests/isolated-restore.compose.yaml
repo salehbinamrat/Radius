@@ -3,7 +3,8 @@
 # NEVER point this project at the application's postgres_data volume.
 services:
   restore-db:
-    image: postgres:16-bookworm@sha256:cd0e9518bda5f2ea667ff84d22795d089720c883f288e215d97ce57437e8ef37
+    image: radius-postgres-local:16.16-icu
+    pull_policy: never
     restart: 'no'
     environment:
       POSTGRES_USER: radius

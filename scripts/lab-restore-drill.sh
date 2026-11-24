@@ -59,6 +59,15 @@ trap cleanup EXIT
 set -a; source .env; set +a
 started_at=$(date +%s)
 docker compose -p "$restore_project" -f "$compose_file" up -d --wait restore-db
+# Default restoration must also use the same database image as its source.
+# The explicit candidate branch is checked against its scanned ID below.
+if [[ -z "$candidate_image" ]]; then
+  source_db_image=$(docker inspect --format '{{.Image}}' "$(docker compose ps -q db)")
+  restore_db_image=$(docker inspect --format '{{.Image}}' "$(docker compose -p "$restore_project" -f "$compose_file" ps -q restore-db)")
+  [[ "$source_db_image" == "$restore_db_image" ]] || {
+    echo 'Restore database image differs from source' >&2; exit 1;
+  }
+fi
 # Never emit decrypted archive bytes onto the host filesystem.
 gpg --batch --yes --no-tty --pinentry-mode loopback --no-symkey-cache \
   --passphrase-file "$BACKUP_PASSPHRASE_FILE" --decrypt "$backup" |

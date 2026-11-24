@@ -1,7 +1,11 @@
 name: private-radius-lab
 services:
   db:
-    image: postgres:16-bookworm@sha256:cd0e9518bda5f2ea667ff84d22795d089720c883f288e215d97ce57437e8ef37
+    image: radius-postgres-local:16.16-icu
+    build:
+      context: ./tests
+      dockerfile: postgres-alpine-remediation.Dockerfile
+    pull_policy: build
     restart: unless-stopped
     environment:
       POSTGRES_USER: radius

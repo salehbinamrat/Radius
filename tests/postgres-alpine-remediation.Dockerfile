@@ -1,4 +1,4 @@
-# CI remediation candidate only; not an approved deployment image.
+# PostgreSQL 16.16 ICU image for the private lab; never reuse legacy physical data.
 # Preserve the PostgreSQL major/minor version and upstream entrypoint.
 FROM postgres:16.16-alpine3.24@sha256:f2f98726820d0342055351c6e9d36e705f5bfffb3dd53ff556325114b08afb6d AS remediated
 # CVE-2026-86144: Alpine v3.24 security fix, official signed APK repository.
@@ -56,8 +56,11 @@ RUN set -eu; \
     apk info --exists 'libxml2=2.13.9-r3' 'su-exec=0.3-r0'; \
     test -d "$PGDATA"; \
     postgres --version
+ENV POSTGRES_INITDB_ARGS="--locale-provider=icu --icu-locale=en-US --locale=en_US.utf8 --encoding=UTF8"
+COPY --chmod=755 postgres-icu-entrypoint.sh /usr/local/bin/radius-postgres-entrypoint.sh
+COPY --chmod=755 postgres-icu-marker.sh /docker-entrypoint-initdb.d/99-radius-icu-marker.sh
 VOLUME ["/var/lib/postgresql/data"]
-ENTRYPOINT ["docker-entrypoint.sh"]
+ENTRYPOINT ["radius-postgres-entrypoint.sh"]
 STOPSIGNAL SIGINT
 EXPOSE 5432
 CMD ["postgres"]

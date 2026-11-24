@@ -79,16 +79,20 @@ class SecurityIntegrityChecks(unittest.TestCase):
             for image in images:
                 self.assertRegex(image, r'@sha256:[a-f0-9]{64}$', path)
         ci = (ROOT / '.github/workflows/ci.yml').read_text()
-        self.assertIn('docker image inspect postgres:16-bookworm', ci)
+        self.assertIn('docker image inspect radius-postgres-local:16.16-icu', ci)
         self.assertNotIn('scripts/emit-lock-candidate.py', ci)
-        postgres_images = set()
         for path in ('compose.yaml', 'tests/admin-https.compose.yaml', 'tests/isolated-restore.compose.yaml'):
             compose = (ROOT / path).read_text()
-            images = re.findall(r'(?m)^\s*image: (postgres:\S+)', compose)
-            self.assertEqual(len(images), 1, path)
-            self.assertRegex(images[0], r'^postgres:16-bookworm@sha256:[a-f0-9]{64}$')
-            postgres_images.update(images)
-        self.assertEqual(len(postgres_images), 1)
+            self.assertEqual(re.findall(r'(?m)^\s*image: (radius-postgres-local:\S+)', compose),
+                             ['radius-postgres-local:16.16-icu'], path)
+            self.assertNotIn('image: postgres:', compose)
+            if path == 'compose.yaml':
+                self.assertIn('dockerfile: postgres-alpine-remediation.Dockerfile', compose)
+                self.assertIn('pull_policy: build', compose)
+            else:
+                self.assertIn('pull_policy: never', compose)
+        docker = (ROOT / 'tests/postgres-alpine-remediation.Dockerfile').read_text()
+        self.assertRegex(docker, r'(?m)^FROM postgres:16\.16-alpine3\.24@sha256:[a-f0-9]{64} AS remediated$')
 
     def test_dependency_lockfiles_and_fail_closed_restore(self):
         import json
@@ -161,10 +165,10 @@ class SecurityIntegrityChecks(unittest.TestCase):
             self.assertIn('Auth-Type ' + auth, site)
         self.assertIn('signed EAP request rejected', smoke)
 
-    def test_candidate_scan_does_not_replace_current_runtime_gate(self):
+    def test_remediated_database_is_the_actual_scanned_runtime(self):
         scan = (ROOT / 'scripts/security-scan-ci.sh').read_text()
-        self.assertIn('postgres:16.16-trixie@sha256:820b1558a744efeda508506fd85bff573cec8b6941ff4790ef4884a526dd6e86', scan)
-        self.assertIn('candidate-db.vulnerabilities.json', scan)
+        self.assertNotIn('postgres:16.16-trixie@', scan)
+        self.assertNotIn('docker pull ', scan)
         candidate = (ROOT / 'tests/postgres-alpine-remediation.Dockerfile').read_text()
         self.assertIn('FROM postgres:16.16-alpine3.24@sha256:f2f98726820d0342055351c6e9d36e705f5bfffb3dd53ff556325114b08afb6d', candidate)
         self.assertIn("apk add --no-cache 'libxml2=2.13.9-r3'", candidate)
@@ -186,7 +190,9 @@ class SecurityIntegrityChecks(unittest.TestCase):
         self.assertIn('test ! -u /sbin/su-exec', candidate)
         self.assertIn('test ! -g /sbin/su-exec', candidate)
         self.assertIn('FROM scratch\nCOPY --from=remediated / /', candidate)
-        self.assertIn('ENTRYPOINT ["docker-entrypoint.sh"]', candidate)
+        self.assertIn('ENTRYPOINT ["radius-postgres-entrypoint.sh"]', candidate)
+        self.assertIn('COPY --chmod=755 postgres-icu-entrypoint.sh', candidate)
+        self.assertIn('COPY --chmod=755 postgres-icu-marker.sh', candidate)
         self.assertIn('CMD ["postgres"]', candidate)
         self.assertIn('STOPSIGNAL SIGINT', candidate)
         self.assertIn('VOLUME ["/var/lib/postgresql/data"]', candidate)
@@ -197,11 +203,11 @@ class SecurityIntegrityChecks(unittest.TestCase):
         self.assertIn('forbidden_layer in layers', scan)
         self.assertIn('vulnerable image layer retained', scan)
         self.assertIn('result.get("Target")', scan)
-        self.assertIn('docker build --pull --no-cache --iidfile "$tmp/alpine-image-id"', scan)
-        self.assertIn('-f tests/postgres-alpine-remediation.Dockerfile tests', scan)
-        self.assertIn('candidate_id=$(cat "$tmp/alpine-image-id")', scan)
-        self.assertIn('--output "$reports/candidate-alpine.vulnerabilities.json" "$candidate_id"', scan)
-        self.assertIn('candidate-alpine.vulnerabilities.json', scan)
+        self.assertIn('candidate_id=$(docker inspect --format', scan)
+        self.assertIn('docker image inspect radius-postgres-local:16.16-icu', scan)
+        self.assertIn('--output "$reports/$service.vulnerabilities.json" "$image"', scan)
+        self.assertIn('if [[ "$db_scan_ok" == 1 ]]; then', scan)
+        self.assertIn('failed=1', scan)
         self.assertNotIn('docker run ', scan)
         self.assertNotIn('docker compose up ', scan)
         self.assertIn('for service in api radius db;', scan)
@@ -234,3 +240,41 @@ class SecurityIntegrityChecks(unittest.TestCase):
         self.assertIn('Restored application ordering differs; candidate adoption refused', restore)
         self.assertIn('pg_restore -U radius -d radius --no-owner --no-acl --exit-on-error', restore)
         self.assertIn('docker compose -p "$restore_project" -f "$compose_file" down -v', restore)
+
+    def test_pgdata_guard_refuses_legacy_physical_cluster_without_writes(self):
+        import os
+        import tempfile
+        guard = ROOT / 'tests/postgres-icu-entrypoint.sh'
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            data = directory / 'data'
+            data.mkdir()
+            stub = directory / 'docker-entrypoint.sh'
+            stub.write_text('#!/bin/sh\nexit 0\n')
+            stub.chmod(0o755)
+            env = {**os.environ, 'PATH': str(directory) + ':' + os.environ['PATH'],
+                   'PGDATA': str(data),
+                   'POSTGRES_INITDB_ARGS': '--locale-provider=icu --icu-locale=en-US --locale=en_US.utf8 --encoding=UTF8'}
+            def run(expected):
+                result = subprocess.run(['sh', str(guard), 'postgres'], env=env, capture_output=True)
+                self.assertEqual(result.returncode, expected, result.stderr)
+            run(0)
+            version = data / 'PG_VERSION'
+            version.write_text('16\n')
+            run(1)
+            self.assertEqual(version.read_text(), '16\n')
+            marker = data / '.radius-pg16-icu'
+            marker.write_text('radius-pg16-icu-en-US-v1\n')
+            run(0)
+            version.write_text('15\n')
+            run(1)
+            version.unlink()
+            run(1)
+            marker.unlink()
+            env['POSTGRES_INITDB_ARGS'] = '--locale=C'
+            run(1)
+        marker_source = (ROOT / 'tests/postgres-icu-marker.sh').read_text()
+        self.assertIn("datlocprovider='i' AND daticulocale='en-US'", marker_source)
+        self.assertIn('datcollversion=pg_database_collation_actual_version(oid)', marker_source)
+        self.assertIn('[ "$actual" = ICU_LOCALE_OK ]', marker_source)
+        self.assertIn('mv "$PGDATA/.radius-pg16-icu.tmp" "$PGDATA/.radius-pg16-icu"', marker_source)

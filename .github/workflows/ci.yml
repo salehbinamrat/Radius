@@ -70,7 +70,11 @@ jobs:
       - run: docker compose config --quiet
       - run: docker compose up -d --build
       - name: Record actual PostgreSQL image provenance
-        run: docker image inspect postgres:16-bookworm@sha256:cd0e9518bda5f2ea667ff84d22795d089720c883f288e215d97ce57437e8ef37 --format '{{json .RepoDigests}}'
+        run: |
+          image=$(docker inspect --format '{{.Image}}' "$(docker compose ps -q db)")
+          test "$image" = "$(docker image inspect radius-postgres-local:16.16-icu --format '{{.Id}}')"
+          docker image inspect "$image" --format '{{.Id}} {{json .RootFS.Layers}}'
+          docker compose exec -T db psql -X -qAt -v ON_ERROR_STOP=1 -U radius -d radius -c "SELECT CASE WHEN datlocprovider='i' AND daticulocale='en-US' AND datcollversion=pg_database_collation_actual_version(oid) THEN 'ICU_LOCALE_OK' ELSE 'ICU_LOCALE_INVALID' END FROM pg_database WHERE datname=current_database()" | grep -qx ICU_LOCALE_OK
       - name: API ready
         run: |
           for i in $(seq 1 30); do

@@ -28,6 +28,7 @@ for path in src/RadiusManager.Api/packages.lock.json tests/RadiusManager.Tests/p
 done
 "$scanner" fs --format cyclonedx --output "$reports/source.cdx.json" "$tmp/locks"
 failed=0
+db_scan_ok=0
 for service in api radius db; do
   container=$(docker compose ps -q "$service")
   [[ -n "$container" && "$container" != *$'\n'* ]] || { echo "Missing unique container: $service" >&2; exit 1; }
@@ -41,37 +42,18 @@ for service in api radius db; do
       --exit-code 1 --exit-on-eol 1 --format json \
       --output "$reports/$service.vulnerabilities.json" "$image"; then
     echo "Image vulnerability gate passed: $service"
+    if [[ "$service" == db ]]; then db_scan_ok=1; fi
   else
     echo "Image vulnerability gate failed: $service" >&2
     failed=1
   fi
 done
-# Compare an official same-major PostgreSQL candidate without starting it,
-# mounting any volume, or replacing the deployed image. It cannot waive the
-# current runtime gate. Both results must remain visible.
-candidate='postgres:16.16-trixie@sha256:820b1558a744efeda508506fd85bff573cec8b6941ff4790ef4884a526dd6e86'
-docker pull "$candidate"
-candidate_id=$(docker image inspect --format '{{.Id}}' "$candidate")
+# The proven Alpine candidate is now the actual database runtime image.
+# Retired Bookworm/Trixie diagnostic images are not built or shipped.
+# Scan all actual running services above; restore only the exact scanned DB.
+candidate_id=$(docker inspect --format '{{.Image}}' "$(docker compose ps -q db)")
 [[ "$candidate_id" =~ ^sha256:[a-f0-9]{64}$ ]] || exit 1
-printf '%s %s\n' candidate-db "$candidate_id" >> "$reports/image-identities.txt"
-"$scanner" image --image-src docker --format cyclonedx --output "$reports/candidate-db.cdx.json" "$candidate_id"
-if "$scanner" image --image-src docker --scanners vuln --severity HIGH,CRITICAL \
-    --exit-code 1 --exit-on-eol 1 --format json \
-    --output "$reports/candidate-db.vulnerabilities.json" "$candidate_id"; then
-  echo 'Candidate image vulnerability gate passed'
-else
-  echo 'Candidate image vulnerability gate failed' >&2
-  failed=1
-fi
-# Build the Alpine candidate with the vendor-published fix. No run or
-# volumes; a different libc requires an isolated logical restore before use.
-docker build --pull --no-cache --iidfile "$tmp/alpine-image-id" \
-  -f tests/postgres-alpine-remediation.Dockerfile tests
-candidate_id=$(cat "$tmp/alpine-image-id")
-# Scan the exact built image, not the original vulnerable base.
-candidate_id=$(docker image inspect --format '{{.Id}}' "$candidate_id")
-[[ "$candidate_id" =~ ^sha256:[a-f0-9]{64}$ ]] || exit 1
-printf '%s %s\n' candidate-alpine "$candidate_id" >> "$reports/image-identities.txt"
+[[ "$candidate_id" == "$(docker image inspect radius-postgres-local:16.16-icu --format '{{.Id}}')" ]] || exit 1
 # Confirm the final image does not distribute the vulnerable old layer.
 docker image inspect "$candidate_id" > "$tmp/alpine-inspect.json"
 python3 - "$tmp/alpine-inspect.json" <<'PY'
@@ -83,10 +65,10 @@ layers = image["RootFS"]["Layers"]
 forbidden_layer = "sha256:313cac38511bcff0f059dfb294ab2fb1f9d2b23488e152ec139ba8d7b3b0f47f"
 if not layers or forbidden_layer in layers:
     raise SystemExit("vulnerable image layer retained or missing filesystem")
-if len(layers) > 2:
+if len(layers) > 4:
     raise SystemExit("Unexpected inherited image layers")
 config = image["Config"]
-expected = {"Entrypoint": ["docker-entrypoint.sh"], "Cmd": ["postgres"], "StopSignal": "SIGINT"}
+expected = {"Entrypoint": ["radius-postgres-entrypoint.sh"], "Cmd": ["postgres"], "StopSignal": "SIGINT"}
 for field, value in expected.items():
     if config.get(field) != value:
         raise SystemExit("PostgreSQL image metadata mismatch: " + field)
@@ -99,27 +81,18 @@ for name, value in {"PG_MAJOR": "16", "PG_VERSION": "16.16",
                     "PGDATA": "/var/lib/postgresql/data"}.items():
     if env.get(name) != value:
         raise SystemExit("PostgreSQL environment mismatch: " + name)
-print("Clean PostgreSQL candidate image layers and runtime metadata PASS")
+print("Clean PostgreSQL runtime image layers and metadata PASS")
 PY
-"$scanner" image --image-src docker --format cyclonedx --output "$reports/candidate-alpine.cdx.json" "$candidate_id"
-if "$scanner" image --image-src docker --scanners vuln --severity HIGH,CRITICAL \
-    --exit-code 1 --exit-on-eol 1 --format json \
-    --output "$reports/candidate-alpine.vulnerabilities.json" "$candidate_id"; then
-  echo 'Alpine candidate vulnerability gate passed'
-  # Repeat the encrypted logical restore drill with the scanned local image.
-  # Never mount or change the source database volume or its Compose definition.
+if [[ "$db_scan_ok" == 1 ]]; then
   candidate_tag="radius-postgres-candidate:${candidate_id#sha256:}"
   docker tag "$candidate_id" "$candidate_tag"
   if LAB_RESTORE_CANDIDATE_IMAGE="$candidate_tag" LAB_RESTORE_CANDIDATE_ID="$candidate_id" \
       bash scripts/lab-recovery-smoke.sh; then
-    echo 'Alpine candidate encrypted logical restore acceptance PASS'
+    echo 'Scanned PostgreSQL runtime encrypted logical restore acceptance PASS'
   else
-    echo 'Alpine candidate encrypted logical restore acceptance FAILED' >&2
+    echo 'Scanned PostgreSQL runtime encrypted logical restore acceptance FAILED' >&2
     failed=1
   fi
-else
-  echo 'Alpine candidate vulnerability gate failed' >&2
-  failed=1
 fi
 # Require actual SBOM component inventories and vulnerability reports.
 python3 - "$reports" <<'PY'
@@ -127,12 +100,12 @@ import json
 import sys
 from pathlib import Path
 root = Path(sys.argv[1])
-for name in ("source", "api", "radius", "db", "candidate-db", "candidate-alpine"):
+for name in ("source", "api", "radius", "db"):
     data = json.loads((root / (name + ".cdx.json")).read_text())
     if data.get("bomFormat") != "CycloneDX" or not data.get("components"):
         raise SystemExit("Missing component inventory: " + name)
     print("SBOM", name, len(data["components"]), "components")
-for name in ("api", "radius", "db", "candidate-db", "candidate-alpine"):
+for name in ("api", "radius", "db"):
     data = json.loads((root / (name + ".vulnerabilities.json")).read_text())
     if not data.get("Results"):
         raise SystemExit("Missing image scan results: " + name)
