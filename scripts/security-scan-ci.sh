@@ -140,4 +140,10 @@ if [[ "$radius_scan_failed" == 1 ]]; then
     failed=1
   fi
 fi
+# Validate coverage independently of scanner exit status; retain the raw reports.
+docker compose exec -T radius sh -c 'apk info -v | sort' > "$reports/radius-live-packages.txt"
+if ! python3 scripts/verify-security-evidence.py "$reports"; then
+  echo 'Runtime security evidence gate failed' >&2
+  failed=1
+fi
 exit "$failed"

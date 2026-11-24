@@ -1,0 +1,28 @@
+{
+  "schema": 1,
+  "architecture": "x86_64",
+  "evidence": {
+    "run": 45498238476,
+    "artifact": 14970372259,
+    "artifact_sha256": "e2e4a35134d20e4c8f4c1062fca5fb2599dcd2793c4d076eb688a3a21122d6c5"
+  },
+  "source": {
+    "version": "3.2.11",
+    "revision": "00abf778c6c0af0320879c2b1ade9cf252a42506",
+    "status": "unreleased-lab-only",
+    "verified_fix_ancestors": {
+      "CVE-2026-127029": "8e8a991c040cbb30f21f928f2b406c702e171b2e",
+      "CVE-2026-127030": "064567a08f3b9d9b4863fab6060fafe296ac7de9"
+    }
+  },
+  "inventories": {
+    "build": {
+      "count": 210,
+      "sha256": "687b2a82a15875e3c48f54e5ef6c2c074684106e6603e0127f337f81b7a75bcc"
+    },
+    "runtime": {
+      "count": 62,
+      "sha256": "91e71ba239eabd0f9481a630e10bd55b64bf387b15e2e7c0cd5a5f2e78c255d0"
+    }
+  }
+}
