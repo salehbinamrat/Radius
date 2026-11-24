@@ -68,6 +68,10 @@ printf '%s' "$DB_PASSWORD" > "$RADIUS_HTTPS_SECRET_DIR/db-password"
 printf '%s' "$RADIUS_HTTPS_PFX_PASSWORD" > "$RADIUS_HTTPS_SECRET_DIR/tls-password"
 cp "$tmp/dp-password" "$RADIUS_HTTPS_SECRET_DIR/dp-password"
 chmod 444 "$RADIUS_HTTPS_SECRET_DIR/dp-password"
+# Empty unused placeholder; enabled only during the explicit rotation phase.
+: > "$RADIUS_HTTPS_SECRET_DIR/previous-dp-password"
+chmod 444 "$RADIUS_HTTPS_SECRET_DIR/previous-dp-password"
+unset RADIUS_DP_PREVIOUS_CERTIFICATE_PATH RADIUS_DP_PREVIOUS_PASSWORD_FILE
 printf '%s' "$RADIUS_SECRET" > "$RADIUS_HTTPS_SECRET_DIR/radius-secret"
 chmod 444 "$RADIUS_HTTPS_SECRET_DIR/db-password" "$RADIUS_HTTPS_SECRET_DIR/tls-password"
 python3 - "$RADIUS_HTTPS_SECRET_DIR" <<'PY'
@@ -255,6 +259,38 @@ if curl --silent --max-time 5 --cacert "$tmp/old-server.crt" \
   echo "Old TLS trust anchor unexpectedly accepted renewed certificate" >&2; exit 1
 fi
 echo "TLS key renewal preserved authenticated session with independent Data Protection PASS"
+
+# Rotate the protection certificate independently, while retaining the old
+# encrypted PFX and its password for historical key decryption.
+old_dp=$(sha256sum "$tmp/tls/data-protection.pfx" | cut -d ' ' -f1)
+cp "$tmp/tls/data-protection.pfx" "$tmp/tls/previous-data-protection.pfx"
+chmod 644 "$tmp/tls/previous-data-protection.pfx"
+chmod 600 "$RADIUS_HTTPS_SECRET_DIR/previous-dp-password"
+cp "$RADIUS_HTTPS_SECRET_DIR/dp-password" "$RADIUS_HTTPS_SECRET_DIR/previous-dp-password"
+chmod 444 "$RADIUS_HTTPS_SECRET_DIR/previous-dp-password"
+python3 -c 'import secrets;print(secrets.token_urlsafe(36),end="")' > "$tmp/new-dp-password"
+openssl req -x509 -newkey rsa:3072 -sha256 -nodes -days 30 \
+  -keyout "$tmp/new-dp.key" -out "$tmp/new-dp.crt" -subj "/CN=Radius CI Rotated Data Protection" \
+  -addext "keyUsage=critical,keyEncipherment" >/dev/null 2>&1
+openssl pkcs12 -export -out "$tmp/tls/new-dp.pfx" -inkey "$tmp/new-dp.key" \
+  -in "$tmp/new-dp.crt" -passout "file:$tmp/new-dp-password" >/dev/null 2>&1
+chmod 644 "$tmp/tls/new-dp.pfx"
+docker compose -p "$project" -f "$compose_file" stop api >/dev/null
+mv -f "$tmp/tls/new-dp.pfx" "$tmp/tls/data-protection.pfx"
+chmod 600 "$RADIUS_HTTPS_SECRET_DIR/dp-password"
+cp "$tmp/new-dp-password" "$RADIUS_HTTPS_SECRET_DIR/dp-password"
+chmod 444 "$RADIUS_HTTPS_SECRET_DIR/dp-password"
+[[ "$old_dp" != "$(sha256sum "$tmp/tls/data-protection.pfx" | cut -d ' ' -f1)" ]]
+[[ "$old_dp" == "$(sha256sum "$tmp/tls/previous-data-protection.pfx" | cut -d ' ' -f1)" ]]
+export RADIUS_DP_PREVIOUS_CERTIFICATE_PATH=/run/radius-tls/previous-data-protection.pfx
+export RADIUS_DP_PREVIOUS_PASSWORD_FILE=/run/radius-secrets/previous-dp-password
+docker compose -p "$project" -f "$compose_file" up -d --no-deps --force-recreate api >/dev/null
+for i in $(seq 1 30); do
+  if https -b "$jar" --fail "$url/api/summary" >/dev/null 2>&1; then break; fi
+  if (( i == 30 )); then echo "Historical session failed across protection key rotation" >&2; exit 1; fi
+  sleep 2
+done
+echo "Data Protection certificate rotation preserved historical authenticated session PASS"
 
 # Change only role membership in this disposable DB, without rotating the security stamp.
 # An existing stream must close even when the new role can itself read status.
