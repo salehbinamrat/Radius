@@ -233,5 +233,7 @@ DELETE FROM "AspNetUserRoles" WHERE "RoleId"='role-auditor';
 UPDATE "AspNetUserRoles" SET "RoleId"='role-super-admin' WHERE "RoleId"='role-reseller';
 SQL
 echo "Isolated mixed reseller role denied shared HTTP and SignalR data PASS."
+# Two distinct disposable identities prove row ownership at the SQL boundary.
+python3 tests/reseller_scope_https_smoke.py "$tmp/tls/server.crt" "$project" "$compose_file"
 # A separate browser session signs in with the rotated password.
 node tests/browser/https-live-status-smoke.mjs

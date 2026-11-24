@@ -74,6 +74,25 @@ public sealed class AdminSecurityRulesTests
     }
 
     [Fact]
+    public void ResellerReadIsIdentityBoundAndDoesNotGrantSharedAccess()
+    {
+        var user = new ClaimsPrincipal(new ClaimsIdentity([
+            new Claim(ClaimTypes.Role, "reseller"), new Claim(ClaimTypes.NameIdentifier, "owner-a")
+        ], "test"));
+        Assert.Equal("owner-a", ResellerScope.OwnerId(user));
+        Assert.True(AdminAuthorizationRules.IsAllowed(user, "GET", "/api/reseller/accounts"));
+        Assert.False(AdminAuthorizationRules.IsAllowed(user, "POST", "/api/reseller/accounts"));
+        Assert.False(AdminAuthorizationRules.IsAllowed(user, "GET", "/api/reseller/accounts/other"));
+        Assert.False(AdminAuthorizationRules.IsAllowed(user, "GET", "/api/lab-accounts"));
+        Assert.False(AdminAuthorizationRules.IsAllowed(Principal("reseller"), "GET", "/api/reseller/accounts"));
+        var mixed = new ClaimsPrincipal(new ClaimsIdentity([
+            new Claim(ClaimTypes.Role, "reseller"), new Claim(ClaimTypes.Role, "auditor"),
+            new Claim(ClaimTypes.NameIdentifier, "owner-a")
+        ], "test"));
+        Assert.Null(ResellerScope.OwnerId(mixed));
+    }
+
+    [Fact]
     public void NoRoleDoesNotInheritAnyAccess() =>
         Assert.False(AdminAuthorizationRules.IsAllowed(Principal(), "GET", "/api/summary"));
 
