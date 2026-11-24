@@ -9,10 +9,29 @@ class SecurityIntegrityChecks(unittest.TestCase):
     def test_checkout_and_actions_are_immutable(self):
         ci = (ROOT / '.github/workflows/ci.yml').read_text()
         import re
-        actions = re.findall(r'(?m)^\s*- uses: (\S+)', ci)
+        # A step can start with "- uses:" or "- name:" followed by "uses:".
+        pattern = r'(?m)^[ \t]+(?:-[ \t]+)?uses:[ \t]+(\S+)'
+        actions = re.findall(pattern, ci)
         self.assertEqual(len(actions), 7)
         for action in actions:
             self.assertRegex(action, r'^[^@]+@[a-f0-9]{40}$')
+        from collections import Counter
+        self.assertEqual(Counter(action.split('@', 1)[0] for action in actions), {
+            'actions/checkout': 3,
+            'actions/setup-node': 2,
+            'actions/setup-dotnet': 1,
+            'actions/upload-artifact': 1,
+        })
+        # Exercise both YAML layouts, including an unpinned named step.
+        sample = (
+            '      - uses: actions/checkout@v4\n'
+            '      - name: Upload\n'
+            '        uses: actions/upload-artifact@v4\n'
+        )
+        self.assertEqual(re.findall(pattern, sample),
+                         ['actions/checkout@v4', 'actions/upload-artifact@v4'])
+        for action in re.findall(pattern, sample):
+            self.assertNotRegex(action, r'^[^@]+@[a-f0-9]{40}$')
         self.assertEqual(ci.count('persist-credentials: false'), 3)
         self.assertEqual(ci.count('test "$(git rev-parse HEAD)" = "$GITHUB_SHA"'), 3)
         self.assertIn('permissions:\n  contents: read', ci)
