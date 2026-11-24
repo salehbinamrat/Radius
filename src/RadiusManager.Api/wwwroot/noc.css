@@ -168,3 +168,15 @@ html.noc-dark .noc-activity-item{border-color:#31435b;background:#152640}
 .service-history .history-bad{color:#c63b43}
 [data-theme="dark"] .service-history .history-good{color:#52d8a2}
 [data-theme="dark"] .service-history .history-bad{color:#ff9297}
+
+/* Read-only alert projection; never use color as the sole state indicator. */
+.service-alerts{margin-top:16px;min-width:0}
+.service-alerts .alert-services{display:grid;grid-template-columns:repeat(auto-fit,minmax(205px,1fr));gap:10px;margin:12px 0}
+.service-alerts .alert-service{border:1px solid #8994a350;border-inline-start:4px solid #8994a3;border-radius:10px;padding:12px;min-width:0}
+.service-alerts .alert-service[data-alert-severity="critical"]{border-inline-start-color:#c63b43}
+.service-alerts .alert-service[data-alert-severity="warning"]{border-inline-start-color:#cb8b22}
+.service-alerts .alert-service[data-alert-state="healthy"]{border-inline-start-color:#07855c}
+.service-alerts .alert-service strong{display:block;margin:5px 0}
+.service-alerts .alert-events{display:grid;gap:8px;max-height:310px;overflow:auto}
+.service-alerts .alert-event{border-bottom:1px solid #8994a340;padding:8px 0;display:flex;flex-wrap:wrap;justify-content:space-between;gap:5px}
+.service-alerts .alert-event time{font-size:.8rem}

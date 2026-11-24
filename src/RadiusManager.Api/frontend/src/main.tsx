@@ -11,6 +11,7 @@ import { UsageReport } from './UsageReport';
 import { CapacityCalculator } from './CapacityCalculator';
 import { LiveStatusPanel } from './LiveStatusPanel';
 import { ServiceHistoryPanel } from './ServiceHistoryPanel';
+import { ServiceAlertsPanel } from './ServiceAlertsPanel';
 
 // Incremental migration: the original JavaScript dashboard still owns all
 // existing forms, routes, RADIUS workflows and operator interactions.
@@ -88,4 +89,9 @@ if (liveStatusMount) {
 const serviceHistoryMount = document.getElementById('reactServiceHistory');
 if (serviceHistoryMount) {
   createRoot(serviceHistoryMount).render(<StrictMode><ServiceHistoryPanel /></StrictMode>);
+}
+
+const serviceAlertsMount = document.getElementById('reactServiceAlerts');
+if (serviceAlertsMount) {
+  createRoot(serviceAlertsMount).render(<StrictMode><ServiceAlertsPanel /></StrictMode>);
 }
