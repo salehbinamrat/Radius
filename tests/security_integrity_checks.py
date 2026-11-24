@@ -230,6 +230,8 @@ class SecurityIntegrityChecks(unittest.TestCase):
         self.assertIn('docker image inspect --format', restore)
         self.assertIn('docker inspect --format', restore)
         self.assertIn('Default collation differs', restore)
+        self.assertIn("expected_restore_image=$(docker image inspect --format '{{.Id}}' radius-postgres-local:16.16-icu)", restore)
+        self.assertNotIn('source_db_image=$(docker inspect', restore)
         self.assertIn('POSTGRES_INITDB_ARGS: "--locale-provider=icu --icu-locale=en-US --locale=en_US.utf8 --encoding=UTF8"', compose)
         self.assertIn("datlocprovider='i' AND daticulocale='en-US'", restore)
         self.assertIn('datcollversion=pg_database_collation_actual_version(oid)', restore)
