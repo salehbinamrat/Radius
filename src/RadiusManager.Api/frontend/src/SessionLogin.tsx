@@ -39,8 +39,10 @@ export function SessionLogin() {
           throw new Error('هذه الجلسة تتطلب اتصال HTTPS موثوقا.');
         }
         document.getElementById('loginForm')?.setAttribute('hidden', '');
-        setMode('session');
+        // Do not expose the login form before its initial CSRF request finishes.
         await getCsrf(controller.signal);
+        if (controller.signal.aborted) return;
+        setMode('session');
         const current = await fetch('/api/admin/auth/me', {
           signal: controller.signal, credentials: 'same-origin', cache: 'no-store',
         });

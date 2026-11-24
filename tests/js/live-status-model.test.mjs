@@ -1,12 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { parseLabStatus, nextRetryDelay, LIVE_STALE_MS } from '../../src/RadiusManager.Api/wwwroot/live-status-model.mjs';
-const good = { scope: 'lab', database: 'reachable', observedAtUtc: '2026-11-24T08:00:00.1234567Z' };
+const good = { scope: 'lab', api: 'running', database: 'reachable', sessionCheckMs: 12.34, observedAtUtc: '2026-11-24T08:00:00.1234567Z' };
 test('only fresh server-contract fields are accepted, no arbitrary or subscriber payloads', () => {
   assert.deepEqual(parseLabStatus(good), good);
   assert.notEqual(parseLabStatus(good), good);
   for (const bad of [null, [], {}, {...good, scope:'production'}, {...good, database:'unknown'},
-    {...good, password:'secret'}, {...good, observedAtUtc:'invalid'}, {...good, observedAtUtc:'2026-11-24'}])
+    {...good, api:'unknown'}, {...good, sessionCheckMs:-1}, {...good, sessionCheckMs:Infinity},
+    {...good, sessionCheckMs:'12'}, {...good, sessionCheckMs:10001}, {...good, password:'secret'}, {...good, observedAtUtc:'invalid'}, {...good, observedAtUtc:'2026-11-24'}])
     assert.equal(parseLabStatus(bad), null);
 });
 test('retry budget is bounded; stale timeout exceeds two normal samples', () => {

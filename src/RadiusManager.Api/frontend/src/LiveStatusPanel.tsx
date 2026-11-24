@@ -151,7 +151,16 @@ export function LiveStatusPanel() {
             + new Date(view.sample.observedAtUtc).toLocaleString('ar')
             : 'لم يتم استلام تحقق لحظي من الخادم بعد.'}
         </p>
-        <p className="section-note">مختبر PostgreSQL فقط، وليس حالة الراوترات أو FreeRADIUS.</p>
+        <p className="section-note">
+          ASP.NET Core: {view.status === 'live' && view.sample ? 'يعمل' : 'غير مؤكد'}
+          {' — PostgreSQL: '}{view.status === 'live' && view.sample ? 'يمكن الوصول إليه' : 'غير مؤكد'}
+        </p>
+        <p className="section-note" data-session-check-ms={view.status === 'live' ? view.sample?.sessionCheckMs : undefined}>
+          زمن التحقق من الجلسة: {view.status === 'live' && view.sample
+            ? view.sample.sessionCheckMs.toLocaleString('en-US', { maximumFractionDigits: 2 }) + ' ms'
+            : '—'}
+        </p>
+        <p className="section-note">قياس مسار القراءة والتحقق فقط، وليس زمن الشبكة أو حالة الراوترات أو FreeRADIUS.</p>
       </div>
       {view.status === 'unavailable' &&
         <button type="button" className="btn" onClick={() => setAttempt(value => value + 1)}>إعادة الاتصال</button>}

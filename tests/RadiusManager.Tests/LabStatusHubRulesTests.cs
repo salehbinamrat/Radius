@@ -30,9 +30,11 @@ public sealed class LabStatusHubRulesTests
     public void SnapshotContainsOnlyAllowlistedServerHealthFields()
     {
         var now = DateTime.UtcNow;
-        var snapshot = new LabStatusSnapshot("lab", "reachable", now);
+        var snapshot = new LabStatusSnapshot("lab", "running", "reachable", 12.34, now);
         Assert.Equal("lab", snapshot.Scope);
+        Assert.Equal("running", snapshot.Api);
         Assert.Equal("reachable", snapshot.Database);
+        Assert.Equal(12.34, snapshot.SessionCheckMs);
         Assert.Equal(now, snapshot.ObservedAtUtc);
     }
 }

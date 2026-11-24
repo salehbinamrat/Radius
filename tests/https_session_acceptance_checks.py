@@ -35,13 +35,31 @@ class HttpsSessionContracts(unittest.TestCase):
                      "docker compose -p", "trap cleanup EXIT",
                      "down -v --remove-orphans", "--cacert",
                      "/api/admin/auth/csrf", "/api/admin/auth/login",
-                     "/api/admin/auth/logout", "/api/summary",
+                     "/api/summary",
                      "bootstrap-admin", "401", "403", "200",
                      "docker compose -p"):
             self.assertIn(item, source)
         self.assertNotIn("curl -k", source)
         self.assertNotIn("curl --insecure", source)
         self.assertIn("docker compose -p", source)
+
+    def test_https_logout_is_exercised_by_the_wire_and_browser_fixtures(self):
+        source = (ROOT / "scripts/admin-https-smoke.sh").read_text(encoding="utf-8")
+        wire = (ROOT / "tests/signalr_https_wire_smoke.py").read_text(encoding="utf-8")
+        browser = (ROOT / "tests/browser/https-live-status-smoke.mjs").read_text(encoding="utf-8")
+        # Logout moved from curl to the actual streaming fixture. Require the
+        # invocation, real POST, CSRF, live-session revocation and stale-cookie denial.
+        self.assertIn('python3 tests/signalr_https_wire_smoke.py "$tmp/tls/server.crt" "$jar"', source)
+        self.assertIn('node tests/browser/https-live-status-smoke.mjs', source)
+        self.assertIn('self.request("POST", "/api/admin/auth/logout"', wire)
+        self.assertIn('"X-CSRF-TOKEN": token', wire)
+        self.assertIn('fixture.logout()', wire)
+        self.assertIn('Data delivered after logout', wire)
+        self.assertIn('check 401 -b "$tmp/stale-after-logout.cookies" "$url/api/summary"', source)
+        self.assertIn("page.locator('#logout').click()", browser)
+        self.assertIn("assert.equal(denied.status(), 401", browser)
+        self.assertLess(source.index('python3 tests/signalr_https_wire_smoke.py'),
+                        source.index('node tests/browser/https-live-status-smoke.mjs'))
 
     def test_ci_runs_https_only_after_existing_tests(self):
         ci = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
