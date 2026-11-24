@@ -16,13 +16,26 @@ public static class RadiusHealthEvidence
         try
         {
             using var stream = File.Open(Path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-            Span<byte> buffer = stackalloc byte[81];
-            var count = stream.ReadAtLeast(buffer, buffer.Length, throwIfEndOfStream: false);
-            if (count >= buffer.Length) return Unknown;
-            return Parse(Encoding.ASCII.GetString(buffer[..count]), DateTimeOffset.UtcNow);
+            return Read(stream, DateTimeOffset.UtcNow);
         }
         catch (IOException) { return Unknown; }
         catch (UnauthorizedAccessException) { return Unknown; }
+    }
+
+    // A bounded read accepts short regular files and never reads beyond 81 bytes.
+    // Use Stream.Read(Span<byte>) rather than a version-specific named overload.
+    public static RadiusHealthSnapshot Read(Stream stream, DateTimeOffset now)
+    {
+        Span<byte> buffer = stackalloc byte[81];
+        var count = 0;
+        while (count < buffer.Length)
+        {
+            var read = stream.Read(buffer[count..]);
+            if (read == 0) break;
+            count += read;
+        }
+        if (count >= buffer.Length) return Unknown;
+        return Parse(Encoding.ASCII.GetString(buffer[..count]), now);
     }
 
     public static RadiusHealthSnapshot Parse(string raw, DateTimeOffset now)

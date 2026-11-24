@@ -1,3 +1,4 @@
+using System.Text;
 using RadiusManager.Api;
 using Xunit;
 
@@ -18,6 +19,29 @@ public sealed class RadiusHealthEvidenceTests
         var result = RadiusHealthEvidence.Parse($"{Now.ToUnixTimeSeconds() - age} {state}\n", Now);
         Assert.Equal(expected, result.State);
         Assert.Equal(expected == "unknown", result.CheckedAtUtc is null);
+    }
+
+    [Fact]
+    public void ReaderAcceptsShortEvidenceWithoutRequiringAnEightyOneByteFile()
+    {
+        using var stream = new MemoryStream(Encoding.ASCII.GetBytes("1800000000 responsive\n"));
+        Assert.Equal(new RadiusHealthSnapshot("responsive", Now.UtcDateTime),
+            RadiusHealthEvidence.Read(stream, Now));
+    }
+
+    [Fact]
+    public void ReaderRejectsOversizedEvidenceAndDoesNotConsumeUnboundedInput()
+    {
+        using var stream = new MemoryStream(new byte[10000]);
+        Assert.Equal(new RadiusHealthSnapshot("unknown", null), RadiusHealthEvidence.Read(stream, Now));
+        Assert.Equal(81L, stream.Position);
+    }
+
+    [Fact]
+    public void ReaderRejectsAnEmptyFile()
+    {
+        using var stream = new MemoryStream();
+        Assert.Equal(new RadiusHealthSnapshot("unknown", null), RadiusHealthEvidence.Read(stream, Now));
     }
 
     [Theory]
