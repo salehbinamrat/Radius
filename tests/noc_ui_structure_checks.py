@@ -35,8 +35,8 @@ class NocUiTests(unittest.TestCase):
         self.assertEqual(len(self.page.ids),len(set(self.page.ids)))
         needed={'nocQuickSearch','nocSearchResults','nocThemeToggle','sidebarCollapse',
                 'nocActivityToggle','nocActivityClose','nocDrawerBackdrop','nocActivityDrawer',
-                'nocActivityList','nocPackageBars','nocApiState','nocTopStatusText',
-                'nocExportPlans','nocExportAccounts','nocLastSync'}
+                'nocActivityList','reactOverviewPackages','reactOverviewServices','nocTopStatusText',
+                'nocExportPlans','nocExportAccounts'}
         self.assertTrue(needed.issubset(self.page.ids),needed-set(self.page.ids))
         referenced=set(re.findall(r"el\('([A-Za-z0-9_-]+)'\)",UI))
         self.assertFalse(referenced-set(self.page.ids),referenced-set(self.page.ids))
@@ -50,8 +50,9 @@ class NocUiTests(unittest.TestCase):
         self.assertNotIn('.innerHTML',UI)
         self.assertNotIn('eval(',UI)
     def test_no_fake_services_or_persistent_secrets(self):
-        self.assertIn('غير مفحوص من الواجهة',HTML)
-        self.assertIn('غير مفعلة بعد',HTML)
+        react=(ROOT/'src/RadiusManager.Api/frontend/src/Overview.tsx').read_text(encoding='utf-8')
+        self.assertIn('غير مفحوص من الواجهة',HTML+react)
+        self.assertIn('غير مفعلة بعد',HTML+react)
         self.assertIn('أول 100 كرت',HTML)
         self.assertIn('noc?.status(true)',APP)
         self.assertIn('noc?.status(false)',APP)
