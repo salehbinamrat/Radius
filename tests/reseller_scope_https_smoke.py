@@ -163,6 +163,14 @@ def main():
                            "psql","-X","-At","-v","ON_ERROR_STOP=1","-U","radius","-d","radius"],
                           input=check_transfers,text=True,capture_output=True,check=True,timeout=20)
     assert result.stdout.splitlines()==["2","2"]
+    history=admin("GET",path+"/history",200)
+    assert set(history)=={"username","active","ownerId","version","transfers","hasMore","limit","labOnly"}
+    assert history["ownerId"]=="ci-owner-a" and history["version"]==third["version"]
+    assert not history["hasMore"] and history["limit"]==50 and history["labOnly"]
+    assert [(r["previousOwnerId"],r["newOwnerId"]) for r in history["transfers"]]==[("ci-owner-b","ci-owner-a"),("ci-owner-a","ci-owner-b")]
+    assert all(set(r)=={"id","previousOwnerId","newOwnerId","actorId","occurredAt"} for r in history["transfers"])
+    reseller("GET",path+"/history",403)
+    admin("GET","/api/ownership/accounts/lab_0000000000d1/history",404)
     print("Version-bound transfer race, owner isolation, stale ABA rejection and correlated audit PASS")
     # Leave exactly one active unassigned and one disabled unassigned voucher
     # in this disposable database for the subsequent real Chromium acceptance.

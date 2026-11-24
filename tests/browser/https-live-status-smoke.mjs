@@ -112,6 +112,20 @@ try {
   await page.waitForFunction(()=>document.querySelector('[data-ownership-result]')?.textContent?.includes('تم إسناد الكرت بنجاح'));
   await ownership.waitFor({state:'visible'});
   assert.equal(await ownership.locator('option[value="lab_0000000000e1"]').count(),0);
+  step('ownership transfer and history');
+  await page.locator('#transferCard').fill('lab_0000000000e1');
+  await page.locator('#transferLookup').click();
+  await page.locator('[data-transfer-owner="ci-owner-a"]').waitFor({state:'visible'});
+  for(const target of ['ci-owner-b','ci-owner-a']){
+    await page.locator('#transferTarget').selectOption(target);
+    page.once('dialog',dialog=>dialog.accept());
+    const transfer=page.waitForResponse(r=>r.url()===origin+'/api/ownership/accounts/lab_0000000000e1/transfer'&&r.request().method()==='POST');
+    await page.locator('#transferSubmit').click();
+    assert.equal((await transfer).status(),200);
+    await page.locator('[data-transfer-owner="'+target+'"]').waitFor({state:'visible'});
+  }
+  assert.equal(await page.locator('[data-transfer-event]').count(),2);
+  assert.ok((await page.locator('[data-transfer-result]').textContent()).includes('تم نقل الملكية بنجاح'));
   step('navigate back');
   await page.locator('[data-view="overview"]').click();
   await page.waitForFunction(()=>document.querySelector('#reactOwnership')?.childElementCount===0);

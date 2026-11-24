@@ -120,9 +120,9 @@ function OwnershipForm(){
     }
   }
   if(state==='denied')return null;
-  return <section className="surface-card ownership-panel" data-ownership-state={state} aria-labelledby="ownershipTitle">
+  return <><section className="surface-card ownership-panel" data-ownership-state={state} aria-labelledby="ownershipTitle">
     <h2 id="ownershipTitle">إسناد ملكية كروت المختبر</h2>
-    <p className="section-note">للمسؤول الأعلى فقط. الإسناد الأول للكروت النشطة غير المنسوبة، دون نقل أو حذف ملكية.</p>
+    <p className="section-note">للمسؤول الأعلى فقط. الإسناد الأول للكروت النشطة غير المنسوبة. لن يتم تغيير الملكية الحالية من هذا القسم.</p>
     {state==='loading'?<p role="status">جار قراءة الكروت والوكلاء...</p>:state==='error'?
       <p role="alert">تعذر قراءة الخيارات الموثقة. أعد تحديث القائمة.</p>:choices&&
       <form onSubmit={event=>{void submit(event);}}>
@@ -142,5 +142,136 @@ function OwnershipForm(){
       </form>}
     <div className="ownership-actions"><button className="btn subtle" type="button" disabled={busy||state==='loading'} onClick={()=>setRefresh(n=>n+1)}>تحديث الخيارات</button>
       <span role="status" data-ownership-result>{message}</span></div>
+  </section>
+  {state==='ready'&&choices&&<TransferForm resellers={choices.resellers} limited={choices.limited}/>}
+  </>;
+}
+
+type TransferRow={id:string;previousOwnerId:string;newOwnerId:string;actorId:string;occurredAt:string};
+type OwnershipSnapshot={username:string;active:boolean;ownerId:string|null;version:string|null;transfers:TransferRow[];hasMore:boolean};
+const uuid=(x:unknown):x is string=>typeof x==='string'&&/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(x)&&x!=='00000000-0000-0000-0000-000000000000';
+const utc=(x:unknown):x is string=>typeof x==='string'&&/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,7})?(Z|\+00:00)$/.test(x)&&Number.isFinite(Date.parse(x));
+function parseHistory(value:unknown,username:string):OwnershipSnapshot|null{
+  if(!exact(value,['username','active','ownerId','version','transfers','hasMore','limit','labOnly'])
+    ||value.username!==username||value.labOnly!==true||value.limit!==50||typeof value.active!=='boolean'
+    ||!(value.ownerId===null&&value.version===null||ownerId(value.ownerId)&&uuid(value.version))
+    ||!Array.isArray(value.transfers)||value.transfers.length>50||typeof value.hasMore!=='boolean'
+    ||(value.hasMore&&value.transfers.length!==50))return null;
+  const transfers:TransferRow[]=[];const ids=new Set<string>();
+  for(const row of value.transfers){
+    if(!exact(row,['id','previousOwnerId','newOwnerId','actorId','occurredAt'])
+      ||!uuid(row.id)||ids.has(row.id)||!ownerId(row.previousOwnerId)||!ownerId(row.newOwnerId)
+      ||row.previousOwnerId===row.newOwnerId||!ownerId(row.actorId)||!utc(row.occurredAt))return null;
+    ids.add(row.id);
+    transfers.push({id:row.id,previousOwnerId:row.previousOwnerId,newOwnerId:row.newOwnerId,actorId:row.actorId,occurredAt:row.occurredAt});
+  }
+  return {username,active:value.active,ownerId:value.ownerId as string|null,version:value.version as string|null,transfers,hasMore:value.hasMore};
+}
+
+function TransferForm({resellers,limited}:{resellers:Reseller[];limited:boolean}){
+  const [card,setCard]=useState('');
+  const [snapshot,setSnapshot]=useState<OwnershipSnapshot|null>(null);
+  const [target,setTarget]=useState('');
+  const [busy,setBusy]=useState(false);
+  const [message,setMessage]=useState('');
+  const [denied,setDenied]=useState(false);
+  const request=useRef<AbortController|null>(null);
+  useEffect(()=>()=>{request.current?.abort();request.current=null;},[]);
+  const name=(id:string)=>resellers.find(r=>r.id===id)?.username??id;
+  const targets=resellers.filter(r=>r.id!==snapshot?.ownerId);
+  function clear(){
+    request.current?.abort();request.current=null;
+    setSnapshot(null);setTarget('');setBusy(false);setMessage('');
+  }
+  async function read(username:string,notice=''){
+    if(!labName(username))return;
+    request.current?.abort();
+    const c=new AbortController();request.current=c;
+    setBusy(true);setSnapshot(null);setTarget('');setMessage(notice);
+    const timeout=setTimeout(()=>c.abort(),8000);
+    try{
+      const response=await fetch('/api/ownership/accounts/'+encodeURIComponent(username)+'/history',
+        {credentials:'same-origin',cache:'no-store',signal:c.signal});
+      if(request.current!==c)return;
+      if(response.status===401||response.status===403){setDenied(true);return;}
+      if(response.status===404){setMessage('الكرت غير مسجل في المختبر.');return;}
+      if(!response.ok)throw new Error('read');
+      const value=parseHistory(await response.json(),username);
+      if(!value)throw new Error('contract');
+      if(request.current===c)setSnapshot(value);
+    }catch{
+      if(request.current===c)setMessage(notice?notice+' تعذر تحديث الحالة؛ أعد قراءتها.':'تعذر قراءة حالة الملكية الحالية.');
+    }finally{
+      clearTimeout(timeout);
+      if(request.current===c){request.current=null;setBusy(false);}
+    }
+  }
+  async function transfer(event:FormEvent<HTMLFormElement>){
+    event.preventDefault();
+    if(request.current||busy||!snapshot?.active||!snapshot.ownerId||!snapshot.version
+      ||snapshot.username!==card||!targets.some(r=>r.id===target))return;
+    const previous=snapshot;
+    if(!window.confirm('نقل الكرت '+card+' من '+name(previous.ownerId!)+' إلى '+name(target)+'؟'))return;
+    const c=new AbortController();request.current=c;
+    setBusy(true);setMessage('');
+    const timeout=setTimeout(()=>c.abort(),10000);
+    let sent=false;let notice='';
+    try{
+      const csrf=await readJson('/api/admin/auth/csrf',c.signal);
+      if(!isObject(csrf)||typeof csrf.requestToken!=='string'||csrf.requestToken.length<20)throw new Error('csrf');
+      sent=true;
+      const response=await fetch('/api/ownership/accounts/'+encodeURIComponent(card)+'/transfer',{
+        method:'POST',credentials:'same-origin',cache:'no-store',signal:c.signal,
+        headers:{'Content-Type':'application/json','X-CSRF-TOKEN':csrf.requestToken},
+        body:JSON.stringify({expectedOwnerId:previous.ownerId,expectedVersion:previous.version,newOwnerId:target})
+      });
+      if(request.current!==c)return;
+      if(response.status===401||response.status===403){setDenied(true);setSnapshot(null);return;}
+      if(response.status===409)notice='تغيرت الملكية أو أهلية الوكيل؛ تمت إعادة قراءة الحالة دون إعادة إرسال النقل.';
+      else if(response.ok){
+        const data:unknown=await response.json();
+        if(!exact(data,['username','ownerId','version','transferred','labOnly'])||data.username!==card
+          ||data.ownerId!==target||!uuid(data.version)||data.version===previous.version||data.transferred!==true||data.labOnly!==true)throw new Error('contract');
+        notice='تم نقل الملكية بنجاح.';
+      }else notice='لم يعتمد الخادم النقل؛ تحقق من الحالة الحالية.';
+    }catch{
+      notice=sent?'نتيجة النقل غير مؤكدة؛ تحقق من الحالة. لن يعاد إرسال الطلب تلقائيا.':'تعذر توفير حماية الجلسة.';
+    }finally{
+      clearTimeout(timeout);
+      if(request.current===c){
+        request.current=null;
+        setBusy(false);
+        setSnapshot(null);setTarget('');
+        if(notice)void read(previous.username,notice);
+      }
+    }
+  }
+  if(denied)return null;
+  return <section className="surface-card ownership-panel" aria-labelledby="transferTitle">
+    <h2 id="transferTitle">نقل الملكية وسجل الانتقال</h2>
+    <p className="section-note">ابحث برقم الكرت المختبري المسجل. النقل يتطلب حالة ملكية حديثة وكرتا نشطا، ولا يغير كلمة المرور أو يفصل الجلسات.</p>
+    <form className="ownership-fields" onSubmit={event=>{event.preventDefault();if(!busy)void read(card);}}>
+      <label>رقم الكرت<input id="transferCard" dir="ltr" value={card} maxLength={16} disabled={busy}
+        onChange={e=>{clear();setCard(e.target.value.trim());}} placeholder="lab_000000000000"/></label>
+      <button className="btn subtle" id="transferLookup" type="submit" disabled={busy||!labName(card)}>قراءة الملكية</button>
+    </form>
+    {busy&&<p role="status">جار التحقق من الخادم...</p>}
+    {snapshot&&<div data-transfer-ready={snapshot.username}>
+      <p>المالك الحالي: <strong data-transfer-owner={snapshot.ownerId??''}>{snapshot.ownerId?name(snapshot.ownerId):'غير منسوب'}</strong> — {snapshot.active?'نشط':'معطل'}</p>
+      {snapshot.active&&snapshot.ownerId&&snapshot.version?<form onSubmit={event=>{void transfer(event);}}>
+        <div className="ownership-fields"><label>الوكيل الجديد<select id="transferTarget" value={target} disabled={busy} onChange={e=>setTarget(e.target.value)}>
+          <option value="">اختر الوكيل</option>{targets.map(r=><option key={r.id} value={r.id}>{r.username??r.id}</option>)}
+        </select></label>
+        <button id="transferSubmit" className="btn primary" type="submit" disabled={busy||!target}>نقل الملكية</button></div>
+        {limited&&<p className="section-note">اختيار الوكيل محدود بنتائج القائمة الحالية.</p>}
+      </form>:<p className="section-note">النقل غير متاح لهذه الحالة.</p>}
+      <h3>آخر عمليات النقل المسجلة</h3>
+      <p className="section-note">تعرض آخر 50 عملية نقل مسجلة، ولا يشمل السجل إسنادات أو انتقالات سابقة لم تسجل تاريخيا. الأسماء المعروضة حاليا من قائمة الوكلاء، والمعرفات ثابتة.</p>
+      {snapshot.hasMore&&<p className="section-note">توجد عمليات أقدم خارج الحد المعروض.</p>}
+      {!snapshot.transfers.length?<p>لا توجد عمليات نقل مسجلة.</p>:<div className="ownership-history"><table aria-label="سجل نقل الملكية"><thead><tr><th>المالك السابق</th><th>المالك الجديد</th><th>معرف المسؤول</th><th>التوقيت</th></tr></thead><tbody>
+        {snapshot.transfers.map(t=><tr key={t.id} data-transfer-event={t.id}><td>{name(t.previousOwnerId)}</td><td>{name(t.newOwnerId)}</td><td dir="ltr">{t.actorId}</td><td>{new Date(t.occurredAt).toLocaleString('ar')}</td></tr>)}
+      </tbody></table></div>}
+    </div>}
+    <p role="status" data-transfer-result>{message}</p>
   </section>;
 }
