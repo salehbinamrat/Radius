@@ -15,7 +15,9 @@ const statuses = [];
 let pageErrors = 0, cspErrors = 0, failedRequests = 0;
 const allowedPaths = new Set(['/', '/modern/noc-react.mjs', '/app.mjs',
   '/api/admin/auth/mode', '/api/admin/auth/csrf', '/api/admin/auth/login',
-  '/api/admin/auth/me', '/api/admin/auth/logout', '/api/summary', '/api/plans', '/api/lab-accounts', '/api/service-status/history', '/api/service-status/alerts', '/api/service-status/incidents', '/api/ownership/resellers', '/api/ownership/accounts', '/api/ownership/accounts/lab_0000000000e1/assign']);
+  '/api/admin/auth/me', '/api/admin/auth/logout', '/api/summary', '/api/plans', '/api/lab-accounts', '/api/service-status/history', '/api/service-status/alerts', '/api/service-status/incidents', '/api/ownership/resellers', '/api/ownership/accounts', '/api/ownership/accounts/lab_0000000000e1/assign',
+  '/api/ownership/accounts/lab_0000000000e1/history', '/api/ownership/accounts/lab_0000000000e1/transfer',
+  '/api/admin-audit', '/api/reseller/accounts']);
 const step = name => { stage = name; console.log('HTTPS Chromium step: ' + name); };
 try {
   browser = await chromium.launch({ headless: true,
@@ -126,9 +128,18 @@ try {
   }
   assert.equal(await page.locator('[data-transfer-event]').count(),2);
   assert.ok((await page.locator('[data-transfer-result]').textContent()).includes('تم نقل الملكية بنجاح'));
+  step('audit read and filters');
+  await page.locator('#auditNav').click();
+  await page.locator('#reactAuditLog [data-audit-state="ready"]').waitFor({state:'visible'});
+  await page.locator('#auditAction').selectOption('voucher_owner_transferred');
+  await page.locator('#auditOutcome').selectOption('success');
+  await page.locator('#auditApply').click();
+  await page.waitForFunction(()=>document.querySelectorAll('[data-audit-action]').length>0
+    && [...document.querySelectorAll('[data-audit-action]')].every(r=>r.getAttribute('data-audit-action')==='voucher_owner_transferred'));
   step('navigate back');
   await page.locator('[data-view="overview"]').click();
-  await page.waitForFunction(()=>document.querySelector('#reactOwnership')?.childElementCount===0);
+  await page.waitForFunction(()=>document.querySelector('#reactOwnership')?.childElementCount===0
+    && document.querySelector('#reactAuditLog')?.childElementCount===0);
   await live.waitFor({ state: 'visible', timeout: 25000 });
   assert.ok(sockets.length >= 2, 'Missing new connection on overview return');
   await history.waitFor({ state: 'visible', timeout: 25000 });
@@ -169,25 +180,35 @@ try {
     assert.equal(await page.locator('#dashboard').isVisible(),false);
   }
   const visibleCards=()=>page.locator('#reactResellerWorkspace [data-reseller-card]').evaluateAll(rows=>rows.map(row=>row.getAttribute('data-reseller-card')));
+  step('reseller A login and owner scope');
   await resellerLogin('ci_owner_a');
   let own=await visibleCards();
   assert.ok(own.includes('lab_0000000000a1')&&own.includes('lab_0000000000e1')&&!own.includes('lab_0000000000b1'));
+  step('reseller A search');
   await page.locator('#resellerSearch').fill('lab_0000000000e1');
+  await page.waitForFunction(()=>{const rows=document.querySelectorAll('#reactResellerWorkspace [data-reseller-card]');
+    return rows.length===1&&rows[0].getAttribute('data-reseller-card')==='lab_0000000000e1';});
   assert.deepEqual(await visibleCards(),['lab_0000000000e1']);
+  step('reseller A reload');
   await page.reload({waitUntil:'domcontentloaded'});
   await page.locator('#resellerWorkspace').waitFor({state:'visible'});
   await page.locator('#reactResellerWorkspace [data-reseller-status="ready"]').waitFor({state:'visible'});
   assert.ok((await visibleCards()).includes('lab_0000000000a1'));
+  step('reseller A logout and revoked access');
   await page.locator('#resellerLogout').click();
   await page.locator('#loginPanel').waitFor({state:'visible'});
   await page.waitForFunction(()=>document.querySelector('#reactResellerWorkspace')?.childElementCount===0);
-  assert.equal((await context.request.get(origin+'/api/reseller/accounts')).status(),401);
+  const resellerDenied=await context.request.get(origin+'/api/reseller/accounts');
+  statuses.push(['GET','/api/reseller/accounts',resellerDenied.status()]);
+  assert.equal(resellerDenied.status(),401);
+  step('reseller B login and owner scope');
   await resellerLogin('ci_owner_b');
   own=await visibleCards();
   assert.ok(own.includes('lab_0000000000b1')&&!own.includes('lab_0000000000a1')&&!own.includes('lab_0000000000e1'));
   await page.locator('#resellerLogout').click();
   await page.locator('#loginPanel').waitFor({state:'visible'});
   await page.waitForFunction(()=>document.querySelector('#reactResellerWorkspace')?.childElementCount===0);
+  step('reseller request and socket isolation');
   const permitted=new Set(['/api/health/live','/api/admin/auth/mode','/api/admin/auth/csrf',
     '/api/admin/auth/me','/api/admin/auth/login','/api/admin/auth/logout','/api/reseller/accounts']);
   assert.ok(resellerRequests.includes('/api/reseller/accounts')&&resellerRequests.every(path=>permitted.has(path)),

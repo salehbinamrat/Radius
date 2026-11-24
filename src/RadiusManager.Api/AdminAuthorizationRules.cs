@@ -9,6 +9,8 @@ public static class AdminAuthorizationRules
     {
         if (path is not null && (path == "/api/ownership" || path.StartsWith("/api/ownership/", StringComparison.Ordinal)))
             return OwnershipRules.IsAllowed(user, method, path);
+        if (path == "/api/admin-audit")
+            return (method is "GET" or "HEAD") && OwnershipRules.ActorId(user) is not null;
         if (path == "/api/reseller/accounts")
             return (method is "GET" or "HEAD") && ResellerScope.OwnerId(user) is not null;
         if (!CanAccessSharedLab(user)) return false;

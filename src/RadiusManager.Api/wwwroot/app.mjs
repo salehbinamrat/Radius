@@ -14,6 +14,7 @@ let auth = '';
 let sessionMode = false;
 let sessionCsrf = '';
 let sessionGeneration = 0;
+let auditEnabled = false;
 let planHealth = 'unloaded';
 let voucherHealth = 'unloaded';
 const voucherSecretGate = createOneTimeRevealGate();
@@ -28,7 +29,7 @@ let toastTimeout = null;
 let noc = null;
 let ultra = null;
 let nasDrafts = null;
-const viewLabels = { overview: 'الرئيسية', plans: 'إدارة الباقات', vouchers: 'كروت المختبر', accounting: 'مراجعة الاستهلاك', sessions: 'سجلات الجلسات', capacity: 'تخطيط السعة', networks: 'الشبكات وNAS', roadmap: 'الرصيد الموحد' };
+const viewLabels = { overview: 'الرئيسية', plans: 'إدارة الباقات', vouchers: 'كروت المختبر', accounting: 'مراجعة الاستهلاك', sessions: 'سجلات الجلسات', capacity: 'تخطيط السعة', networks: 'الشبكات وNAS', roadmap: 'الرصيد الموحد', audit: 'سجل التدقيق الأمني' };
 
 function setError(id, message = '') { el(id).textContent = message; }
 function toast(message, type = '') {
@@ -76,7 +77,8 @@ function closeMenu() {
 function publishLiveStatusScope() {
   const enabled = sessionMode && !el('dashboard').hidden && !el('view-overview').hidden;
   const ownershipEnabled = sessionMode && !el('dashboard').hidden && !el('view-vouchers').hidden;
-  window.dispatchEvent(new CustomEvent('radius-live-status-scope', { detail: { enabled, ownershipEnabled } }));
+  window.dispatchEvent(new CustomEvent('radius-live-status-scope', { detail: { enabled, ownershipEnabled,
+    auditEnabled: auditEnabled && !el('dashboard').hidden && !el('view-audit').hidden } }));
 }
 window.addEventListener('radius-live-status-request', publishLiveStatusScope);
 function publishResellerScope() {
@@ -86,7 +88,7 @@ function publishResellerScope() {
 }
 window.addEventListener('radius-reseller-request', publishResellerScope);
 function switchView(view, focusId = '') {
-  if (!Object.hasOwn(viewLabels, view)) return;
+  if (!Object.hasOwn(viewLabels, view) || (view === 'audit' && !auditEnabled)) return;
   for (const section of document.querySelectorAll('[data-page]')) section.hidden = section.dataset.page !== view;
   for (const button of document.querySelectorAll('[data-view]')) {
     const current = button.dataset.view === view;
@@ -258,6 +260,8 @@ async function logout(showToast = true) {
     }
   }
   sessionGeneration += 1;
+  auditEnabled = false;
+  el('auditNav').hidden = true;
   el('resellerWorkspace').hidden = true;
   publishResellerScope();
   auth = '';plans = [];accounts = [];clearCredentials();resetUsage();
@@ -306,6 +310,8 @@ window.addEventListener('radius-session-ready', async event => {
     }
     await reload();
     if (generation !== sessionGeneration) return;
+    auditEnabled = me.roles.includes('super-admin');
+    el('auditNav').hidden = !auditEnabled;
     el('loginPanel').hidden = true;
     el('dashboard').hidden = false;
     switchView('overview');

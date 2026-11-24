@@ -233,7 +233,25 @@ DELETE FROM "AspNetUserRoles" WHERE "RoleId"='role-auditor';
 UPDATE "AspNetUserRoles" SET "RoleId"='role-super-admin' WHERE "RoleId"='role-reseller';
 SQL
 echo "Isolated mixed reseller role denied shared HTTP and SignalR data PASS."
+# Each independent acceptance phase starts with a fresh process-local rate
+# budget, not a raised/bypassed production limit. Preserve database and key
+# volumes; prove revocation survives these restarts.
+restart_fixture_api() {
+  docker compose -p "$project" -f "$compose_file" restart api >/dev/null
+  for i in $(seq 1 30); do
+    if https --fail "$url/api/health/ready" >/dev/null 2>&1; then
+      check 401 -b "$tmp/stale-after-logout.cookies" "$url/api/summary"
+      return 0
+    fi
+    if (( i == 30 )); then
+      echo "HTTPS fixture API failed readiness after phase restart" >&2; return 1
+    fi
+    sleep 2
+  done
+}
+restart_fixture_api
 # Two distinct disposable identities prove row ownership at the SQL boundary.
 python3 tests/reseller_scope_https_smoke.py "$tmp/tls/server.crt" "$project" "$compose_file"
+restart_fixture_api
 # A separate browser session signs in with the rotated password.
 node tests/browser/https-live-status-smoke.mjs

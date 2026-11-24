@@ -84,6 +84,7 @@
         <button type="button" class="nav-item" data-view="plans" aria-label="إدارة الباقات"><svg class="ico"><use href="#i-layers"/></svg> إدارة الباقات</button>
         <button type="button" class="nav-item" data-view="vouchers" aria-label="كروت المختبر"><svg class="ico"><use href="#i-ticket"/></svg> كروت المختبر</button>
         <button type="button" class="nav-item" data-view="accounting" aria-label="مراجعة الاستهلاك"><svg class="ico"><use href="#i-chart"/></svg> مراجعة الاستهلاك</button>
+        <button id="auditNav" type="button" class="nav-item" data-view="audit" aria-label="سجل التدقيق الأمني" hidden><svg class="ico"><use href="#i-shield"/></svg> سجل التدقيق الأمني</button>
         <button type="button" class="nav-item" data-view="sessions" aria-label="سجلات الجلسات التجريبية"><svg class="ico"><use href="#i-activity"/></svg> سجلات الجلسات <span class="ultra-permission">قراءة</span></button>
       </nav>
       <div class="sidebar-section-label">التخطيط والهندسة</div>
@@ -216,6 +217,10 @@
   </section>
  </div>
 </section>
+<section class="view" id="view-audit" data-page="audit" hidden>
+          <div class="page-heading"><div><span class="eyebrow">الأمان والمراجعة</span><h1>سجل التدقيق الأمني</h1><p>الأحداث الإدارية المسجلة في المختبر، للقراءة فقط.</p></div></div>
+          <div id="reactAuditLog"></div>
+        </section>
 <section class="view" id="view-roadmap" data-page="roadmap" hidden><div class="page-heading"><div><span class="eyebrow">مرحلة لاحقة</span><h1>الرصيد الموحد</h1><p>يجب إكمال محاسبة البيانات وإدارة الجلسات قبل تشغيل كرت واحد على عدة شبكات.</p></div></div><section class="surface-card coming-card"><svg class="ico"><use href="#i-shield"/></svg><h2>قيد التطوير — غير متاح حاليا</h2><p>دفتر الرصيد المركزي، وحدود الحصة، ومنع الجلسات المتزامنة، ومعالجة انقطاع VPN ما زالت خارج نطاق الإصدار 3A. لا توجد هنا خصومات رصيد مفعلة.</p></section></section>
         <footer class="site-footer">RADIUS Manager · نسخة تجريبية للاستخدام المحلي فقط · لا تربطها بشبكة الإنتاج <div id="reactNocStatus" aria-label="حالة الخادم"></div></footer>
       </main>
