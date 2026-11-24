@@ -88,47 +88,17 @@ check 403 -H "Origin: https://untrusted.invalid" -H "Content-Type: application/j
 # No fixture backdoor, default password, or remote admin-seeding API exists.
 export LAB_ADMIN_USER="test_$(python3 -c 'import secrets;print(secrets.token_hex(4))')"
 export LAB_ADMIN_PASSWORD="A!b$(python3 -c 'import secrets;print(secrets.token_urlsafe(27))')9"
-python3 - "$project" "$compose_file" <<'PY'
-import os, pty, select, subprocess, sys, time
-project, compose_file = sys.argv[1:]
-master, slave = pty.openpty()
-cmd = ["docker","compose","-p",project,"-f",compose_file,
-       "run","--rm","-it","--entrypoint","dotnet","api",
-       "RadiusManager.Api.dll","--bootstrap-admin"]
-proc = subprocess.Popen(cmd, stdin=slave, stdout=slave, stderr=slave,
-                        close_fds=True, env={**os.environ, "TERM":"xterm"})
-os.close(slave)
-seen = b""
-sent_user = sent_pass = False
-deadline = time.monotonic() + 120
-try:
-    while time.monotonic() < deadline:
-        ready,_,_=select.select([master],[],[],1)
-        if ready:
-            try: part=os.read(master,8192)
-            except OSError: break
-            if not part: break
-            seen=(seen + part)[-15000:]
-            if not sent_user and b"username" in seen.lower():
-                os.write(master,os.environ["LAB_ADMIN_USER"].encode()+b"\r")
-                sent_user=True
-                seen=b""
-            if sent_user and not sent_pass and b"password" in seen.lower():
-                os.write(master,os.environ["LAB_ADMIN_PASSWORD"].encode()+b"\r")
-                sent_pass=True
-                seen=b""
-        if proc.poll() is not None: break
-    if proc.poll() is None:
-        proc.kill()
-        raise RuntimeError("bootstrap timeout")
-    if proc.wait(timeout=5) != 0 or not(sent_user and sent_pass):
-        raise RuntimeError("bootstrap failed")
-except Exception as exc:
-    print(f"Interactive CI bootstrap failed ({type(exc).__name__}); credentials not logged",file=sys.stderr)
-    sys.exit(1)
-finally:
-    os.close(master)
-PY
+# Both independent PTYs reach password entry before either receives a password.
+# Distinct usernames prevent a uniqueness index from masking a bootstrap race.
+winner=$(python3 tests/concurrent_admin_bootstrap_smoke.py "$project" "$compose_file")
+[[ "$winner" == primary || "$winner" == contender ]]
+if [[ "$winner" == contender ]]; then export LAB_ADMIN_USER="${LAB_ADMIN_USER}_other"; fi
+# Verify there is precisely one account and role assignment, and one atomic audit.
+docker compose -p "$project" -f "$compose_file" exec -T db psql -U radius -d radius -At -v ON_ERROR_STOP=1 -c '
+SELECT count(*) FROM "AspNetUsers";
+SELECT count(*) FROM "AspNetUserRoles" WHERE "RoleId" = '\''role-super-admin'\'';
+SELECT count(*) FROM app_admin_audit_events WHERE action = '\''bootstrap_admin'\'' AND outcome = '\''success'\'';
+' | python3 -c 'import sys; assert sys.stdin.read().splitlines()==["1","1","1"]'
 
 jar="$tmp/session.cookies"
 fetch_csrf() {

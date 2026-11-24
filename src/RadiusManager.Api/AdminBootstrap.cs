@@ -1,6 +1,8 @@
 using System.Text;
 using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore;
+using Npgsql;
 
 namespace RadiusManager.Api;
 
@@ -50,21 +52,50 @@ public static class AdminBootstrap
         Console.WriteLine();
         var password = chars.ToString();
         chars.Clear();
-        var user = new IdentityUser { UserName = name, LockoutEnabled = true };
-        var created = await users.CreateAsync(user, password);
-        if (!created.Succeeded)
+        var db = scope.ServiceProvider.GetRequiredService<AdminIdentityDbContext>();
+        try
         {
-            Console.Error.WriteLine("Password/user policy rejected bootstrap request.");
+            // Never hold the database lock while waiting for human input.
+            // All bootstrap processes use the same transaction-scoped lock.
+            await using var transaction = await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.ReadCommitted);
+            await db.Database.ExecuteSqlRawAsync("SET LOCAL lock_timeout = '10s'");
+            await db.Database.ExecuteSqlRawAsync("SELECT pg_advisory_xact_lock(470174, 1)");
+            // Recheck AFTER the lock, even if the earlier interactive check passed.
+            if ((await users.GetUsersInRoleAsync("super-admin")).Count != 0)
+            {
+                Console.Error.WriteLine("A super-admin already exists. Bootstrap refused.");
+                return 2;
+            }
+            var user = new IdentityUser { UserName = name, LockoutEnabled = true };
+            var created = await users.CreateAsync(user, password);
+            if (!created.Succeeded)
+            {
+                Console.Error.WriteLine("Password/user policy rejected bootstrap request.");
+                return 2;
+            }
+            var assigned = await users.AddToRoleAsync(user, "super-admin");
+            if (!assigned.Succeeded)
+            {
+                Console.Error.WriteLine("Role assignment failed; bootstrap transaction rolled back.");
+                return 2;
+            }
+            db.AdminAuditEvents.Add(new AdminAuditEvent
+            {
+                ActorUserId = user.Id, Action = "bootstrap_admin", SubjectKind = "admin",
+                SubjectId = user.Id, Outcome = "success", OccurredAt = DateTime.UtcNow,
+                CorrelationId = Guid.NewGuid()
+            });
+            await db.SaveChangesAsync();
+            await transaction.CommitAsync();
+            Console.WriteLine("Initial super-admin created without printing password. Enable HTTPS before session mode.");
+            return 0;
+        }
+        catch (Exception ex) when (ex is NpgsqlException or DbUpdateException or TimeoutException)
+        {
+            // Disposal rolls back any uncommitted account, role or audit entry.
+            // Do not print connection details, Identity fields, or credentials.
+            Console.Error.WriteLine("Bootstrap database operation failed; check database availability before retrying.");
             return 2;
         }
-        var assigned = await users.AddToRoleAsync(user, "super-admin");
-        if (!assigned.Succeeded)
-        {
-            await users.DeleteAsync(user);
-            Console.Error.WriteLine("Role assignment failed; new administrator rolled back.");
-            return 2;
-        }
-        Console.WriteLine("Initial super-admin created without printing password. Enable HTTPS before session mode.");
-        return 0;
     }
 }
