@@ -11,7 +11,7 @@ public static class AuditReadRules
         "bootstrap_admin", "login_success", "login_failure", "logout", "password_changed",
         "password_change_rejected", "plan_created", "plan_updated", "voucher_created",
         "voucher_disabled", "nas_draft_created", "nas_draft_retired",
-        "voucher_owner_assigned", "voucher_owner_transferred"
+        "voucher_owner_assigned", "voucher_owner_transferred", "authorization_denied", "csrf_denied"
     ];
     public static string? ActorId(ClaimsPrincipal? user)
     {

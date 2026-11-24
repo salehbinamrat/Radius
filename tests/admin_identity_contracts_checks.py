@@ -65,6 +65,10 @@ class IdentityContracts(unittest.TestCase):
         self.assertIn("ci_reject_password_audit",smoke)
         self.assertIn('check 503 -b "$jar"',smoke)
         self.assertIn('[[ "$(password_state)" == "$prior_password_state" ]]',smoke)
+        self.assertIn('python3 tests/password_change_race_smoke.py',smoke)
+        race=(ROOT/"tests/password_change_race_smoke.py").read_text()
+        self.assertIn("threading.Barrier(2",race)
+        self.assertIn("statuses==[200,401]",race)
 
     def test_baseline_lab_path_and_router_behavior_unchanged(self):
         server=(API/"Program.cs").read_text()

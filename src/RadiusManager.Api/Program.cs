@@ -201,6 +201,7 @@ app.Use(async (ctx, next) =>
             }
             if (!AdminAuthorizationRules.IsAllowed(ctx.User, ctx.Request.Method, ctx.Request.Path.Value))
             {
+                await DeniedMutationAudit.RecordAsync(ctx, DenialReason.Role);
                 ctx.Response.StatusCode = StatusCodes.Status403Forbidden;
                 return;
             }
@@ -210,6 +211,7 @@ app.Use(async (ctx, next) =>
                 var csrf = ctx.RequestServices.GetRequiredService<IAntiforgery>();
                 if (!await csrf.IsRequestValidAsync(ctx))
                 {
+                    await DeniedMutationAudit.RecordAsync(ctx, DenialReason.Csrf);
                     ctx.Response.StatusCode = StatusCodes.Status403Forbidden;
                     return;
                 }

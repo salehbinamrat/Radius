@@ -282,6 +282,15 @@ def main():
         reviewer("GET",path,403)
     reviewer("POST","/api/admin/auth/logout",200,{},review_csrf)
     reviewer("GET","/api/admin-audit",401)
+    # Denied operations record only fixed metadata and never include the request body.
+    denied=admin("GET","/api/admin-audit?action=authorization_denied&actor=ci-auditor&outcome=denied",200)
+    assert sorted(r["subjectId"] for r in denied["events"])==sorted([
+        "plan_created","voucher_created","nas_draft_created","voucher_owner_assigned","voucher_owner_transferred"])
+    assert all(r["subjectKind"]=="operation" and r["actorId"]=="ci-auditor" for r in denied["events"])
+    admin("POST","/api/plans",403,{"name":"CI Denied CSRF","downloadKbps":1024,"uploadKbps":256})
+    csrf_denied=admin("GET","/api/admin-audit?action=csrf_denied&outcome=denied",200)
+    assert any(r["subjectId"]=="plan_created" and r["actorId"]==actor for r in csrf_denied["events"])
+    assert sql_check("SELECT count(*) FROM app_plans WHERE name='CI Denied CSRF';").strip()=="0"
     print("Named auditor read-only access, denied writes and revoked access PASS")
     print("Named administrative audit coverage and rollback on audit failure PASS")
     print("Two isolated reseller sessions: owner-only reads, forbidden writes, concurrent initial assignment and atomic audit PASS")
