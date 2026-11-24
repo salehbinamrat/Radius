@@ -3,6 +3,8 @@ WORKDIR /ui/frontend
 COPY frontend/package.json frontend/tsconfig.json frontend/vite.config.ts ./
 RUN npm install --no-audit --no-fund --ignore-scripts
 COPY frontend/src ./src
+# The React planner imports the existing shared pure JS calculator and its TS types.
+COPY wwwroot/capacity-utils.mjs wwwroot/capacity-utils.d.mts /ui/wwwroot/
 RUN npm run check && npm run build
 
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
