@@ -33,6 +33,7 @@ services:
       - ../database/005_admin_identity.sql:/opt/radius/005_admin_identity.sql:ro
       - ../database/006_reseller_ownership.sql:/opt/radius/006_reseller_ownership.sql:ro
       - ../database/007_ownership_transfers.sql:/opt/radius/007_ownership_transfers.sql:ro
+      - ../database/008_audit_append_only.sql:/opt/radius/008_audit_append_only.sql:ro
     depends_on:
       db: {condition: service_healthy}
     networks: [private]

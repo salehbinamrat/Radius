@@ -48,12 +48,24 @@ WHERE schemaname='public' AND tablename IN
   'app_plans','app_lab_accounts','app_nas_drafts','app_nas_draft_events','app_lab_account_owners','app_lab_owner_transfers')
 ")
 count="${count//[[:space:]]/}"
-[[ "$count" == "14" ]] || { echo "Restored schema incomplete: $count of 14 expected tables for schema 007" >&2; exit 1; }
+[[ "$count" == "14" ]] || { echo "Restored schema incomplete: $count of 14 expected tables for schema 008" >&2; exit 1; }
 docker compose -p "$restore_project" -f "$compose_file" exec -T restore-db \
   psql -X -v ON_ERROR_STOP=1 -U radius -d radius -tAc "
 SELECT count(*) FROM information_schema.columns
 WHERE table_schema='public' AND table_name='app_lab_account_owners' AND column_name='ownership_version'
 " | grep -qx 1
+# Verify both restored statement-level guards are enabled ALWAYS, including
+# replication-role mode. The restore is isolated and contains no production database.
+docker compose -p "$restore_project" -f "$compose_file" exec -T restore-db \
+  psql -X -v ON_ERROR_STOP=1 -U radius -d radius -tAc "
+SELECT count(*) FROM pg_trigger
+WHERE NOT tgisinternal AND tgenabled='A' AND tgtype=58
+  AND tgfoid=to_regprocedure('public.app_reject_audit_mutation()')
+  AND ((tgrelid='public.app_admin_audit_events'::regclass AND tgname='audit_append_only')
+    OR (tgrelid='public.app_lab_owner_transfers'::regclass AND tgname='ownership_history_append_only'))
+" | grep -qx 2
+docker compose -p "$restore_project" -f "$compose_file" exec -T restore-db \
+  psql -X -v ON_ERROR_STOP=1 -U radius -d radius < tests/audit_append_only_verify.sql >/dev/null
 if [[ $# == 3 ]]; then
   check=$(docker compose -p "$restore_project" -f "$compose_file" exec -T restore-db \
     psql -X -v ON_ERROR_STOP=1 -U radius -d radius -tA -v plan_id="$2" -v name="$3" <<'SQL'
