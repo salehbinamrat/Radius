@@ -53,6 +53,23 @@ class RecoverySafetyChecks(unittest.TestCase):
         self.assertIn("DELETE FROM app_plans", script)
         self.assertIn("DELETE FROM radcheck", script)
 
+    def test_populated_audit_restore_checks_content_not_just_schema(self):
+        source = (SCRIPTS / "audit-recovery-smoke.sh").read_text()
+        restore = (SCRIPTS / "lab-restore-drill.sh").read_text()
+        fingerprint = (ROOT / "tests/audit_recovery_fingerprint.sql").read_text()
+        https = (SCRIPTS / "admin-https-smoke.sh").read_text()
+        self.assertIn('COMPOSE_PROJECT_NAME="$project" COMPOSE_FILE="$compose_file" bash scripts/lab-backup.sh', source)
+        self.assertIn('LAB_AUDIT_RESTORE_SHA256="$before"', source)
+        self.assertIn('LAB_AUDIT_RESTORE_SHA256="$wrong"', source)
+        self.assertIn('Restored audit content fingerprint mismatch', source)
+        self.assertIn('Restored audit content fingerprint mismatch', restore)
+        self.assertIn('POPULATED_AUDIT_OK', source)
+        for table in ('app_admin_audit_events','app_lab_owner_transfers','app_lab_account_owners'):
+            self.assertIn(table, fingerprint)
+        self.assertIn('REPEATABLE READ READ ONLY', fingerprint)
+        self.assertLess(https.index('node tests/browser/https-live-status-smoke.mjs'),
+                        https.index('bash scripts/audit-recovery-smoke.sh'))
+
     def test_ci_runs_recovery_only_after_existing_smoke_suite(self):
         ci = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
         self.assertIn("bash scripts/lab-recovery-smoke.sh", ci)

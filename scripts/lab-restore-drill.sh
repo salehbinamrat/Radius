@@ -6,6 +6,13 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 [[ $# -ge 1 && $# -le 3 && "$1" == /* && -f "$1" && -f "$1.sha256" ]] || { echo "Usage: lab-restore-drill.sh /absolute/path/backup.pgp [expected-plan-uuid expected-lab-user]" >&2; exit 1; }
 [[ $# == 1 || $# == 3 ]] || { echo "Supply both expected fixture identifiers or neither" >&2; exit 1; }
 backup="$1"
+# Content comparison is opt-in for the populated isolated HTTPS CI fixture.
+audit_digest="${LAB_AUDIT_RESTORE_SHA256:-}"
+if [[ -n "$audit_digest" ]]; then
+  [[ "${CI:-}" == true && "${LAB_HTTPS_TEST_ACK:-}" == isolated-ci && "$audit_digest" =~ ^[a-f0-9]{64}$ ]] || {
+    echo "Audit content comparison requires isolated HTTPS CI and a valid digest" >&2; exit 1;
+  }
+fi
 [[ -n "${BACKUP_PASSPHRASE_FILE:-}" && -f "$BACKUP_PASSPHRASE_FILE" && ! -L "$BACKUP_PASSPHRASE_FILE" ]] || { echo "Private passphrase file required" >&2; exit 1; }
 mode=$(stat -c %a "$BACKUP_PASSPHRASE_FILE")
 [[ "$mode" =~ ^[0-7]{3,4}$ ]] && (( (8#$mode & 0077) == 0 )) || { echo "Insecure passphrase file permissions" >&2; exit 1; }
@@ -45,10 +52,12 @@ count=$(docker compose -p "$restore_project" -f "$compose_file" exec -T restore-
 SELECT count(*) FROM pg_catalog.pg_tables
 WHERE schemaname='public' AND tablename IN
  ('radcheck','radreply','radgroupcheck','radgroupreply','radusergroup','radacct','radpostauth','nas',
-  'app_plans','app_lab_accounts','app_nas_drafts','app_nas_draft_events','app_lab_account_owners','app_lab_owner_transfers')
+  'app_plans','app_lab_accounts','app_nas_drafts','app_nas_draft_events','app_lab_account_owners','app_lab_owner_transfers',
+  'app_admin_audit_events','app_admin_sessions','app_schema_migrations',
+  'AspNetUsers','AspNetRoles','AspNetUserRoles','AspNetUserClaims','AspNetRoleClaims','AspNetUserLogins','AspNetUserTokens')
 ")
 count="${count//[[:space:]]/}"
-[[ "$count" == "14" ]] || { echo "Restored schema incomplete: $count of 14 expected tables for schema 008" >&2; exit 1; }
+[[ "$count" == "24" ]] || { echo "Restored schema incomplete: $count of 24 expected tables for schema 008" >&2; exit 1; }
 docker compose -p "$restore_project" -f "$compose_file" exec -T restore-db \
   psql -X -v ON_ERROR_STOP=1 -U radius -d radius -tAc "
 SELECT count(*) FROM information_schema.columns
@@ -76,5 +85,13 @@ THEN 'RESTORE_FIXTURE_OK' ELSE 'RESTORE_FIXTURE_MISSING' END;
 SQL
 )
   [[ "$check" == "RESTORE_FIXTURE_OK" ]] || { echo "Expected fixture not recovered" >&2; exit 1; }
+fi
+if [[ -n "$audit_digest" ]]; then
+  restored_digest=$(docker compose -p "$restore_project" -f "$compose_file" exec -T restore-db \
+    psql -X -qAt -v ON_ERROR_STOP=1 -U radius -d radius < tests/audit_recovery_fingerprint.sql | sha256sum | cut -d ' ' -f1)
+  [[ "$restored_digest" == "$audit_digest" ]] || {
+    echo "Restored audit content fingerprint mismatch" >&2; exit 1;
+  }
+  echo "Restored populated audit and ownership content fingerprint PASS"
 fi
 echo "Encrypted backup restore verified in disposable PostgreSQL; elapsed seconds: $(($(date +%s)-started_at))"

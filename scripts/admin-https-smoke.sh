@@ -255,3 +255,5 @@ python3 tests/reseller_scope_https_smoke.py "$tmp/tls/server.crt" "$project" "$c
 restart_fixture_api
 # A separate browser session signs in with the rotated password.
 node tests/browser/https-live-status-smoke.mjs
+# Restore the actual populated, disposable HTTPS database, not the Basic lab.
+bash scripts/audit-recovery-smoke.sh "$project" "$compose_file"
