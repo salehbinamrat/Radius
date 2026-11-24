@@ -74,7 +74,8 @@ function closeMenu() {
 // This event is a lifecycle hint only; the hub validates its own server session.
 function publishLiveStatusScope() {
   const enabled = sessionMode && !el('dashboard').hidden && !el('view-overview').hidden;
-  window.dispatchEvent(new CustomEvent('radius-live-status-scope', { detail: { enabled } }));
+  const ownershipEnabled = sessionMode && !el('dashboard').hidden && !el('view-vouchers').hidden;
+  window.dispatchEvent(new CustomEvent('radius-live-status-scope', { detail: { enabled, ownershipEnabled } }));
 }
 window.addEventListener('radius-live-status-request', publishLiveStatusScope);
 function switchView(view, focusId = '') {

@@ -187,3 +187,8 @@ html.noc-dark .noc-activity-item{border-color:#31435b;background:#152640}
 .service-alerts .incident-table-wrap{overflow:auto;max-height:360px}
 .service-alerts .incident-table-wrap table{width:100%;border-collapse:collapse;font-size:.85rem}
 .service-alerts .incident-table-wrap td,.service-alerts .incident-table-wrap th{white-space:nowrap;text-align:start;padding:8px;border-bottom:1px solid #8994a340}
+
+.ownership-panel{margin-top:16px;min-width:0}
+.ownership-panel .ownership-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,230px),1fr));gap:12px;margin:12px 0}
+.ownership-panel .ownership-fields select{width:100%;min-width:0}
+.ownership-panel .ownership-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
