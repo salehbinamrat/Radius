@@ -5,7 +5,7 @@ public sealed record ServiceObservation(DateTimeOffset ObservedAtUtc, string Dat
 public sealed record ServiceHistorySnapshot(string Scope, string Retention, int IntervalSeconds,
     int Capacity, ServiceObservation[] Samples);
 
-/// <summary>Process-local observations, not a billing ledger or an uptime SLA.</summary>
+/// <summary>Bounded observations with optional independent local persistence, not an uptime SLA.</summary>
 public sealed class ServiceObservationHistory
 {
     public const int Capacity = 240;
@@ -13,18 +13,35 @@ public sealed class ServiceObservationHistory
     private readonly object gate = new();
     private readonly Queue<ServiceObservation> samples = new(Capacity);
 
+    private readonly ServiceHistoryStore? store;
+    private bool persistenceHealthy;
+
+    public ServiceObservationHistory() { }
+
+    public ServiceObservationHistory(ServiceHistoryStore store)
+    {
+        this.store = store;
+        persistenceHealthy = store.TryLoad(out var restored);
+        foreach (var sample in restored) samples.Enqueue(sample);
+    }
+
     public void Add(ServiceObservation observation)
     {
         lock (gate)
         {
+            // Never invent or reorder observations if the wall clock moves backwards.
+            if (samples.Count > 0 && observation.ObservedAtUtc < samples.Last().ObservedAtUtc)
+                return;
             if (samples.Count == Capacity) samples.Dequeue();
             samples.Enqueue(observation);
+            if (store is not null) persistenceHealthy = store.TrySave(samples.ToArray());
         }
     }
 
     public ServiceHistorySnapshot Snapshot()
     {
         lock (gate)
-            return new("lab", "process-memory", IntervalSeconds, Capacity, samples.ToArray());
+            return new("lab", store is null ? "process-memory" : persistenceHealthy ? "volume-snapshot" : "storage-degraded",
+                IntervalSeconds, Capacity, samples.ToArray());
     }
 }

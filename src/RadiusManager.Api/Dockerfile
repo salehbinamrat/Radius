@@ -22,7 +22,10 @@ COPY --from=build /app/out ./
 # Empty Docker volumes copy this directory's secure ownership on first mount.
 RUN mkdir -p /var/lib/radius-admin-keys \
     && chown "$APP_UID:$APP_UID" /var/lib/radius-admin-keys \
-    && chmod 700 /var/lib/radius-admin-keys
+    && chmod 700 /var/lib/radius-admin-keys \
+    && mkdir -p /var/lib/radius-service-history \
+    && chown "$APP_UID:$APP_UID" /var/lib/radius-service-history \
+    && chmod 700 /var/lib/radius-service-history
 USER $APP_UID
 EXPOSE 8080
 ENTRYPOINT ["dotnet", "RadiusManager.Api.dll"]

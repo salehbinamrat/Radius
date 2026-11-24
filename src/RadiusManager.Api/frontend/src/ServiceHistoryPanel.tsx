@@ -66,7 +66,12 @@ export function ServiceHistoryPanel() {
   return <section className="surface-card service-history" data-history-status={view.status} data-history-count={samples.length}
     aria-labelledby="serviceHistoryTitle">
     <h2 id="serviceHistoryTitle">سجل مراقبة الخدمات</h2>
-    <p className="section-note">آخر 240 عينة في ذاكرة API (نحو ساعة). يعاد السجل عند تشغيل الخدمة مجددا، ولا يمثل نسبة التوفر أو مدة الانقطاع.</p>
+    <p className="section-note" data-history-retention={view.data?.retention}>
+      آخر 240 عينة (نحو ساعة عند انتظام الرصد)، ولا تمثل نسبة التوفر أو مدة الانقطاع.
+      {view.data?.retention==='volume-snapshot'?' الحفظ المحلي فعال، وتستعاد العينات بعد إعادة تشغيل API.'
+        :view.data?.retention==='storage-degraded'?' تعذر الحفظ الدائم؛ العينات الحالية قد تفقد عند إعادة التشغيل.'
+        :view.data?.retention==='process-memory'?' السجل في ذاكرة API فقط.':''}
+    </p>
     {view.status!=='ready'?<p role="status">{view.status==='loading'?'جار قراءة سجل المراقبة...':view.status==='denied'?'لا توجد صلاحية لعرض السجل.':'تعذر قراءة سجل المراقبة. لا تعرض بيانات قديمة.'}</p>:
       samples.length===0?<p role="status">لا توجد عينات مسجلة بعد.</p>:<>
       <div className="history-summary">

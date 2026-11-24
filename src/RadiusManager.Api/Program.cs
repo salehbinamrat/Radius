@@ -47,7 +47,10 @@ if (sessionMode)
 }
 
 builder.Services.AddSingleton(NpgsqlDataSource.Create(connectionString));
-builder.Services.AddSingleton<ServiceObservationHistory>();
+builder.Services.AddSingleton(_ =>
+    Environment.GetEnvironmentVariable("RADIUS_SERVICE_HISTORY_PERSIST") == "1"
+        ? new ServiceObservationHistory(new ServiceHistoryStore("/var/lib/radius-service-history"))
+        : new ServiceObservationHistory());
 builder.Services.AddHostedService<ServiceObservationWorker>();
 builder.Services.AddDbContext<AdminIdentityDbContext>(o => o.UseNpgsql(connectionString));
 builder.Services.AddIdentity<IdentityUser, IdentityRole>(options =>

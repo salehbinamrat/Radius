@@ -6,7 +6,7 @@ const exact = (value, keys) => !!value && typeof value === 'object' && !Array.is
 
 export function parseServiceHistory(value) {
   if (!exact(value,['scope','retention','intervalSeconds','capacity','samples'])
-      || value.scope !== 'lab' || value.retention !== 'process-memory'
+      || value.scope !== 'lab' || !['process-memory','volume-snapshot','storage-degraded'].includes(value.retention)
       || value.intervalSeconds !== 15 || value.capacity !== 240
       || !Array.isArray(value.samples) || value.samples.length > 240) return null;
   const samples = [];
@@ -29,7 +29,7 @@ export function parseServiceHistory(value) {
     samples.push({observedAtUtc:row.observedAtUtc,database:row.database,
       databaseCheckMs:row.databaseCheckMs,radius:row.radius,radiusCheckedAtUtc:row.radiusCheckedAtUtc});
   }
-  return {scope:'lab',retention:'process-memory',intervalSeconds:15,capacity:240,samples};
+  return {scope:'lab',retention:value.retention,intervalSeconds:15,capacity:240,samples};
 }
 
 export function historyMetrics(samples) {
