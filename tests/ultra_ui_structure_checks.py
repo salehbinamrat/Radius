@@ -23,8 +23,11 @@ class UltraUiTests(unittest.TestCase):
         self.assertEqual(len(p.ids),len(set(p.ids)))
         self.assertEqual(p.onattrs,[])
     def test_real_existing_app_preserved(self):
-        for ident in ['view-overview','view-vouchers','view-plans','view-accounting','view-sessions','view-capacity','planForm','labForm','usageReport']:
+        for ident in ['view-overview','view-vouchers','view-plans','view-accounting','view-sessions','view-capacity','reactPlanEditor','labForm','usageReport']:
             self.assertIn(f'id="{ident}"',HTML)
+        plan_ui=(ROOT.parent/'frontend/src/PlanManagement.tsx').read_text(encoding='utf-8')
+        self.assertIn('id="planForm"',plan_ui)
+        self.assertIn('id="planName"',plan_ui)
         self.assertIn('initializeNocUi',APP)
         self.assertIn('initializeUltraFeatures',APP)
     def test_no_unsafe_promises_or_demo_state_leaked_into_production(self):

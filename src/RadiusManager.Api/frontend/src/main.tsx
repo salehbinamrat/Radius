@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { StatusPanel } from './StatusPanel';
 import { OverviewKpis, OverviewRecent, OverviewPackages, OverviewServices } from './Overview';
 import { SessionLogin } from './SessionLogin';
+import { PlanEditor, PlansTable } from './PlanManagement';
 
 // Incremental migration: the original JavaScript dashboard still owns all
 // existing forms, routes, RADIUS workflows and operator interactions.
@@ -36,4 +37,13 @@ if (overviewPackagesMount) {
 const overviewServicesMount = document.getElementById('reactOverviewServices');
 if (overviewServicesMount) {
   createRoot(overviewServicesMount).render(<StrictMode><OverviewServices /></StrictMode>);
+}
+
+const planEditorMount = document.getElementById('reactPlanEditor');
+if (planEditorMount) {
+  createRoot(planEditorMount).render(<StrictMode><PlanEditor /></StrictMode>);
+}
+const plansTableMount = document.getElementById('reactPlansTable');
+if (plansTableMount) {
+  createRoot(plansTableMount).render(<StrictMode><PlansTable /></StrictMode>);
 }

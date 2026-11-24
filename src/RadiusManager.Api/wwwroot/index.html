@@ -141,16 +141,12 @@
 
         <section class="view" id="view-plans" data-page="plans" hidden>
           <div class="page-heading"><div><span class="eyebrow">إدارة الخدمات</span><h1>الباقات والسرعات</h1><p>إدارة باقات RADIUS التجريبية والسرعات التي تُرجعها المصادقة إلى MikroTik.</p></div><button type="button" class="btn primary" id="openPlanForm"><svg class="ico"><use href="#i-plus"/></svg> إضافة باقة</button></div>
-          <div class="plan-grid"><section class="surface-card" id="planEditor"><div class="section-title"><div><span class="eyebrow">بيانات الباقة</span><h2 id="planFormTitle">إنشاء باقة تجريبية</h2></div></div>
-              <form id="planForm" class="form-stack"><label for="planName">اسم الباقة <span>*</span></label><input id="planName" maxlength="80" placeholder="مثال: باقة 1M" required>
-                <div class="field-pair"><div><label for="planDown">التنزيل (Kbps) <span>*</span></label><input id="planDown" type="number" min="64" max="1000000" value="1024" required inputmode="numeric"></div><div><label for="planUp">الرفع (Kbps) <span>*</span></label><input id="planUp" type="number" min="64" max="1000000" value="256" required inputmode="numeric"></div></div>
-                <div class="info-hint"><svg class="ico"><use href="#i-info"/></svg> ترتيب السرعات في RADIUS: الرفع / التنزيل، وسيجري تحويل القيم تلقائيا.</div>
-                <div class="field-pair"><div><label for="planQuota">الحجم (MB) <span class="optional">غير مفعل</span></label><input id="planQuota" type="number" min="1" placeholder="بدون حد" inputmode="numeric"></div><div><label for="planDays">المدة (يوم) <span class="optional">غير مفعلة</span></label><input id="planDays" type="number" min="1" max="3650" placeholder="بدون حد" inputmode="numeric"></div></div>
-                <div class="form-actions"><button id="savePlan" class="btn primary" type="submit">حفظ الباقة</button><button id="cancelEdit" class="btn subtle" type="button" hidden>إلغاء التعديل</button></div><p id="planError" class="form-error" role="alert" aria-live="polite"></p>
-              </form></section>
+          <div class="plan-grid"><section class="surface-card" id="planEditor">
+            <div class="section-title"><div><span class="eyebrow">بيانات الباقة</span><h2>إنشاء أو تعديل باقة تجريبية</h2></div></div>
+            <div id="reactPlanEditor"></div></section>
             <section class="surface-card"><div class="section-title"><div><span class="eyebrow">السجلات</span><h2>الباقات المحفوظة</h2><p class="section-note">أول 100 باقة حسب تاريخ الإنشاء</p></div></div>
               <div class="filter-toolbar"><label class="search-field"><svg class="ico"><use href="#i-search"/></svg><input id="planSearch" type="search" placeholder="ابحث باسم الباقة..." aria-label="ابحث باسم الباقة"></label><button id="nocExportPlans" type="button" class="btn subtle noc-export-btn" title="تصدير الباقات المعروضة فقط"><svg class="ico"><use href="#i-download"/></svg>CSV</button><button id="refresh" type="button" class="btn subtle icon-only" title="تحديث الباقات" aria-label="تحديث الباقات"><svg class="ico"><use href="#i-refresh"/></svg></button></div>
-              <div class="table-wrap"><table><thead><tr><th>الباقة</th><th>التنزيل</th><th>الرفع</th><th>الحالة</th><th>الإجراء</th></tr></thead><tbody id="plansList"><tr><td colspan="5">لا توجد بيانات محملة</td></tr></tbody></table></div><p id="planCount" class="table-caption"></p>
+              <div id="reactPlansTable" class="table-wrap" aria-live="polite"></div>
             </section></div>
         </section>
 
