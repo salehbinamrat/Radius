@@ -47,7 +47,8 @@ public static class LabSessionEndpoints
                        COALESCE(a.callingstationid,''),
                        a.acctstarttime, a.acctupdatetime, a.acctstoptime,
                        a.acctinputoctets, a.acctoutputoctets,
-                       COALESCE(a.acctterminatecause,'')
+                       COALESCE(a.acctterminatecause,''),
+                       public.app_accounting_row_anomalous(a)
                 FROM radacct a
                 JOIN app_lab_accounts l ON l.username = a.username
                 WHERE (@user = '' OR a.username = @user)
@@ -78,9 +79,7 @@ public static class LabSessionEndpoints
                 var stopped = when(7);
                 long? upload = reader.IsDBNull(8) ? null : reader.GetInt64(8);
                 long? download = reader.IsDBNull(9) ? null : reader.GetInt64(9);
-                var anomalous = !started.HasValue || (started.HasValue && stopped.HasValue && stopped < started)
-                    || (started.HasValue && lastUpdated.HasValue && lastUpdated < started)
-                    || upload is null or < 0 || download is null or < 0;
+                var anomalous = reader.GetBoolean(11);
                 var classification = LabSessionRules.Classify(stopped, lastUpdated ?? started, anomalous, observedAt);
                 rows.Add(new
                 {

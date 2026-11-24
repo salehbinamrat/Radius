@@ -81,6 +81,30 @@ docker compose exec -T db psql -X -v ON_ERROR_STOP=1 -U radius -d radius -v user
 UPDATE radacct SET acctinputoctets=-1 WHERE username=:'username' AND acctsessionid='acct-2';
 SQL
 verify 0 1000 3007 1 0
+# Missing counters are unknown, not evidence of zero consumption or a final report.
+docker compose exec -T db psql -X -v ON_ERROR_STOP=1 -U radius -d radius -v username="$username" <<'SQL'
+UPDATE radacct SET acctinputoctets=NULL, acctoutputoctets=NULL
+ WHERE username=:'username' AND acctsessionid='acct-2';
+SQL
+verify 0 1000 3000 1 0
+curl -fsS -u "$ADMIN_USER:$ADMIN_PASSWORD" "$API/lab-sessions?username=$username&state=all" | python3 -c '
+import json,sys
+rows=json.load(sys.stdin)["sessions"]
+r=next(x for x in rows if x["sessionId"]=="acct-2")
+assert r["classification"]=="anomaly" and r["uploadBytes"] is None and r["downloadBytes"] is None, r
+'
+# More than one anomaly on the same row must still count only one session.
+docker compose exec -T db psql -X -v ON_ERROR_STOP=1 -U radius -d radius -v username="$username" <<'SQL'
+UPDATE radacct SET acctinputoctets=NULL, acctoutputoctets=-1
+ WHERE username=:'username' AND acctsessionid='acct-2';
+SQL
+verify 0 1000 3000 1 0
+# Known zero is valid, unlike NULL.
+docker compose exec -T db psql -X -v ON_ERROR_STOP=1 -U radius -d radius -v username="$username" <<'SQL'
+UPDATE radacct SET acctinputoctets=0, acctoutputoctets=0
+ WHERE username=:'username' AND acctsessionid='acct-2';
+SQL
+verify 0 1000 3000 0 1
 
 code=$(curl -sS -o /dev/null -w '%{http_code}' "$API/lab-accounts/$username/usage")
 [[ "$code" == 401 ]] || { echo 'Accounting endpoint missing auth' >&2; exit 1; }
