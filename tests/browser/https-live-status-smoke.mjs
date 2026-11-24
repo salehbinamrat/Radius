@@ -15,7 +15,7 @@ const statuses = [];
 let pageErrors = 0, cspErrors = 0, failedRequests = 0;
 const allowedPaths = new Set(['/', '/modern/noc-react.mjs', '/app.mjs',
   '/api/admin/auth/mode', '/api/admin/auth/csrf', '/api/admin/auth/login',
-  '/api/admin/auth/me', '/api/admin/auth/logout', '/api/summary', '/api/plans', '/api/lab-accounts']);
+  '/api/admin/auth/me', '/api/admin/auth/logout', '/api/summary', '/api/plans', '/api/lab-accounts', '/api/service-status/history']);
 const step = name => { stage = name; console.log('HTTPS Chromium step: ' + name); };
 try {
   browser = await chromium.launch({ headless: true,
@@ -71,9 +71,17 @@ try {
   assert.equal(await live.locator('[data-radius-state]').getAttribute('data-radius-state'), 'unknown',
     'HTTPS fixture without a RADIUS mount must not claim availability');
   assert.ok(sockets.length > 0, 'Missing real browser WebSocket');
+  step('service history');
+  const history = page.locator('#reactServiceHistory [data-history-status="ready"]');
+  await history.waitFor({ state: 'visible', timeout: 25000 });
+  const sampleCount = Number(await history.getAttribute('data-history-count'));
+  assert.ok(sampleCount > 0 && sampleCount <= 240, 'Expected real service history samples');
+  assert.ok(await history.locator('tbody tr').count() > 0, 'History table not rendered');
+  assert.ok(await history.locator('svg.history-chart').count() === 1, 'History chart absent');
   step('navigate away');
   await page.locator('[data-view="plans"]').click();
-  await page.waitForFunction(() => document.querySelector('#reactLiveStatus')?.childElementCount === 0);
+  await page.waitForFunction(() => document.querySelector('#reactLiveStatus')?.childElementCount === 0
+    && document.querySelector('#reactServiceHistory')?.childElementCount === 0);
   for (let i = 0; i < 50 && sockets.some(s => !s.closed); i++)
     await new Promise(resolve => setTimeout(resolve, 100));
   assert.ok(sockets.every(s => s.closed), 'WebSocket remained after navigation');
@@ -81,10 +89,12 @@ try {
   await page.locator('[data-view="overview"]').click();
   await live.waitFor({ state: 'visible', timeout: 25000 });
   assert.ok(sockets.length >= 2, 'Missing new connection on overview return');
+  await history.waitFor({ state: 'visible', timeout: 25000 });
   step('logout');
   await page.locator('#logout').click();
   await page.locator('#loginPanel').waitFor({ state: 'visible' });
-  await page.waitForFunction(() => document.querySelector('#reactLiveStatus')?.childElementCount === 0);
+  await page.waitForFunction(() => document.querySelector('#reactLiveStatus')?.childElementCount === 0
+    && document.querySelector('#reactServiceHistory')?.childElementCount === 0);
   for (let i = 0; i < 50 && sockets.some(s => !s.closed); i++)
     await new Promise(resolve => setTimeout(resolve, 100));
   assert.ok(sockets.every(s => s.closed), 'WebSocket remained after logout');
