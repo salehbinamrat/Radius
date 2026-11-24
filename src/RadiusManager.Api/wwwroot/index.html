@@ -116,15 +116,11 @@
           <div class="noc-insights-grid">
             <section class="surface-card noc-usage-card" aria-labelledby="nocMixTitle">
               <div class="section-title"><div><span class="eyebrow">توزيع فعلي للبيانات المحملة</span><h2 id="nocMixTitle">كروت المختبر حسب الباقة</h2><p class="section-note">التوزيع من أول 100 كرت مسترجع فقط، وليس إحصاء لجميع المشتركين.</p></div></div>
-              <div id="nocPackageBars" class="noc-package-bars" aria-live="polite"><p class="section-note">سيتوفر التوزيع بعد قراءة بيانات الخادم.</p></div>
+              <div id="reactOverviewPackages" class="noc-package-bars" aria-live="polite"></div>
             </section>
             <section class="surface-card noc-services-card" aria-labelledby="nocServicesTitle">
               <div class="section-title"><div><span class="eyebrow">حالة الخدمات • دون بيانات افتراضية</span><h2 id="nocServicesTitle">مراقبة التكامل</h2></div></div>
-              <div class="noc-service-row"><span><i class="noc-led" id="nocApiLed"></i> واجهة API وقاعدة PostgreSQL</span><strong id="nocApiState">لم تُفحص بعد</strong></div>
-              <div class="noc-service-row"><span><i class="noc-led unknown"></i> محرك FreeRADIUS</span><strong>غير مفحوص من الواجهة</strong></div>
-              <div class="noc-service-row"><span><i class="noc-led unknown"></i> راوترات NAS / CoA</span><strong>غير مفعلة بعد</strong></div>
-              <p class="section-note noc-last-sync" id="nocLastSync">آخر استعلام ناجح: لم يحدث بعد</p>
-              <div class="info-hint"><svg class="ico"><use href="#i-info"/></svg> الحالة «متصل» تعني نجاح طلبات الإدارة وقاعدة البيانات فقط، ولا تعني اتصال أجهزة MikroTik.</div>
+              <div id="reactOverviewServices" aria-live="polite"></div>
             </section>
           </div>
           <div class="overview-grid">
