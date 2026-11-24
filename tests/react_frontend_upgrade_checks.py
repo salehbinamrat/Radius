@@ -21,17 +21,7 @@ class FrontendUpgradeChecks(unittest.TestCase):
                      'bash scripts/ui-smoke.sh'):
             self.assertIn(line,ci)
         self.assertIn('needs: [dotnet-tests, config-tests]',ci)
-        self.assertRegex(docker, r'(?m)^FROM node:24-bookworm-slim@sha256:[a-f0-9]{64} AS ui-build
-        self.assertIn('npm run check && npm run build',docker)
-    def test_stage_execution_doc_is_present(self):
-        doc=(ROOT/'STAGE3K_FRONTEND_DEPENDENCIES_AR.md').read_text(encoding='utf-8')
-        self.assertIn('React 19.3.1',doc)
-        self.assertIn('TypeScript 7.0.2',doc)
-        self.assertIn('Vite 8.3.8',doc)
-        self.assertIn('npm run check',doc)
-        self.assertIn('npm run build',doc)
-if __name__=='__main__': unittest.main(verbosity=2)
-)
+        self.assertRegex(docker, r'(?m)^FROM node:24-bookworm-slim@sha256:[a-f0-9]{64} AS ui-build$')
         self.assertIn('npm run check && npm run build',docker)
     def test_stage_execution_doc_is_present(self):
         doc=(ROOT/'STAGE3K_FRONTEND_DEPENDENCIES_AR.md').read_text(encoding='utf-8')
