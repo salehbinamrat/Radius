@@ -16,11 +16,29 @@ async function showCapacityWithoutAuth(page) {
 
 test('unauthenticated shell loads local React assets and protected API remains denied', async ({ page, request }) => {
   const pageErrors = [];
+  const consoleErrors = [];
+  const failedRequests = [];
   page.on('pageerror', err => pageErrors.push(err.message));
+  page.on('console', msg => { if (msg.type() === 'error') consoleErrors.push(msg.text()); });
+  page.on('requestfailed', req => failedRequests.push(req.url() + ': ' + req.failure()?.errorText));
   const response = await page.goto('/', { waitUntil: 'domcontentloaded' });
   expect(response?.status()).toBe(200);
   await expect(page.locator('#loginPanel')).toBeVisible();
   await expect(page.locator('#dashboard')).toBeHidden();
+  if (await page.locator('#reactCapacityCalculator #capForm').count() === 0) {
+    await page.waitForTimeout(1000);
+    if (await page.locator('#reactCapacityCalculator #capForm').count() === 0) {
+      const scripts = await page.locator('script').evaluateAll(items =>
+        items.map(item => ({ src: item.src, type: item.type })));
+      const response = await request.get('/modern/noc-react.mjs');
+      throw new Error('React did not mount: ' + JSON.stringify({
+        pageErrors, consoleErrors, failedRequests, scripts,
+        bundleStatus: response.status(),
+        capacityRootCount: await page.locator('#reactCapacityCalculator').count(),
+        planRootCount: await page.locator('#reactPlanEditor').count(),
+      }));
+    }
+  }
   await expect(page.locator('#reactCapacityCalculator #capForm')).toHaveCount(1);
   await expect(page.locator('#reactPlanEditor #planForm')).toHaveCount(1);
   await expect(page.locator('#reactVoucherCreator #labForm')).toHaveCount(1);
