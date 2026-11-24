@@ -111,3 +111,6 @@ if (resellerMount) {
 
 const auditMount = document.getElementById('reactAuditLog');
 if (auditMount) createRoot(auditMount).render(<StrictMode><AuditLogPanel /></StrictMode>);
+
+const auditorMount = document.getElementById('reactAuditorWorkspace');
+if (auditorMount) createRoot(auditorMount).render(<StrictMode><AuditLogPanel workspace="auditor" /></StrictMode>);

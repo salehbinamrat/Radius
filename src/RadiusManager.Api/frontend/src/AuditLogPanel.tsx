@@ -34,16 +34,19 @@ function parse(x:unknown):Page|null{
   return {events:rows,nextBefore:x.nextBefore};
 }
 
-export function AuditLogPanel(){
+export function AuditLogPanel({workspace='admin'}:{workspace?:'admin'|'auditor'}){
   const [enabled,setEnabled]=useState(false);
   useEffect(()=>{
-    const scope=(e:Event)=>setEnabled(location.protocol==='https:'&&(e as CustomEvent<{auditEnabled?:boolean}>).detail?.auditEnabled===true);
+    const scope=(e:Event)=>{
+      const detail=(e as CustomEvent<{auditEnabled?:boolean;auditorEnabled?:boolean}>).detail;
+      setEnabled(location.protocol==='https:'&&(workspace==='auditor'?detail?.auditorEnabled:detail?.auditEnabled)===true);
+    };
     const logout=()=>setEnabled(false);
     window.addEventListener('radius-live-status-scope',scope);
     window.addEventListener('radius-session-logged-out',logout);
     window.dispatchEvent(new Event('radius-live-status-request'));
     return ()=>{window.removeEventListener('radius-live-status-scope',scope);window.removeEventListener('radius-session-logged-out',logout);};
-  },[]);
+  },[workspace]);
   return enabled?<AuditTable/>:null;
 }
 function AuditTable(){
@@ -63,7 +66,11 @@ function AuditTable(){
       try{
         const r=await fetch('/api/admin-audit?'+p.toString(),{credentials:'same-origin',cache:'no-store',signal:c.signal});
         if(disposed)return;
-        if(r.status===401||r.status===403){setState('denied');return;}
+        if(r.status===401||r.status===403){
+          setState('denied');
+          if(r.status===401)window.dispatchEvent(new Event('radius-audit-expired'));
+          return;
+        }
         if(!r.ok)throw new Error('read');
         const parsed=parse(await r.json());
         if(!parsed)throw new Error('contract');
