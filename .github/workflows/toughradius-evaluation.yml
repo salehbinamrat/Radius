@@ -1,0 +1,90 @@
+name: Isolated ToughRADIUS evaluation
+on:
+  push:
+    branches: [lab/toughradius-engine-evaluation]
+permissions:
+  contents: read
+jobs:
+  candidate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      CGO_ENABLED: '0'
+      GOTOOLCHAIN: local
+      GOFLAGS: -mod=readonly
+    steps:
+      - name: Checkout pinned public fork (no credentials retained)
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: salehbinamrat/toughradius
+          ref: 2cb8a425faa3c054273b4bb08d321e9e7fed44d9
+          persist-credentials: false
+      - name: Verify exact candidate revision
+        run: |
+          test "$(git rev-parse HEAD)" = 2cb8a425faa3c054273b4bb08d321e9e7fed44d9
+          mkdir -p "$RUNNER_TEMP/engine-evaluation"
+          git rev-parse HEAD > "$RUNNER_TEMP/engine-evaluation/revision.txt"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version: '1.26.x'
+          cache: false
+      - name: Compile embedded frontend assets
+        working-directory: web
+        run: |
+          npm ci --no-audit --no-fund --ignore-scripts
+          npm run build
+          test -f dist/admin/index.html
+      - name: Test before building
+        run: |
+          set -euo pipefail
+          go version
+          go mod download
+          go mod verify
+          go test -short -count=1 -v ./... | tee "$RUNNER_TEMP/engine-evaluation/tests.txt"
+          git diff --exit-code -- go.mod go.sum web/package-lock.json
+      - name: Build Linux candidate after tests
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/candidate-bin"
+          go build -trimpath -o "$RUNNER_TEMP/candidate-bin/toughradius" .
+          go version -m "$RUNNER_TEMP/candidate-bin/toughradius" > "$RUNNER_TEMP/engine-evaluation/binary-modules.txt"
+          sha256sum "$RUNNER_TEMP/candidate-bin/toughradius" > "$RUNNER_TEMP/engine-evaluation/binary.sha256"
+      - name: Mandatory dependency and binary vulnerability gates
+        run: |
+          set -euo pipefail
+          reports="$RUNNER_TEMP/engine-evaluation"
+          tmp="$(mktemp -d)"
+          trap 'rm -rf "$tmp"' EXIT
+          curl --fail --silent --show-error --location --retry 2 https://github.com/aquasecurity/trivy/releases/download/v0.76.2/trivy_0.76.2_Linux-64bit.tar.gz -o "$tmp/trivy.tar.gz"
+          printf '%s  %s\n' bc0fc726e017b8927a62b2d3531d7a84ee01769daf5c99ed866dced54089fdbf "$tmp/trivy.tar.gz" | sha256sum -c -
+          tar -xzf "$tmp/trivy.tar.gz" -C "$tmp" trivy
+          mkdir -p "$tmp/locks/web"
+          cp go.mod go.sum "$tmp/locks/"
+          cp web/package.json web/package-lock.json "$tmp/locks/web/"
+          "$tmp/trivy" fs --format cyclonedx --output "$reports/dependencies.cdx.json" "$tmp/locks"
+          failed=0
+          "$tmp/trivy" fs --scanners vuln --severity HIGH,CRITICAL --exit-code 1 --format json --output "$reports/dependencies.vulnerabilities.json" "$tmp/locks" || failed=1
+          "$tmp/trivy" rootfs --format cyclonedx --output "$reports/binary.cdx.json" "$RUNNER_TEMP/candidate-bin"
+          "$tmp/trivy" rootfs --scanners vuln --severity HIGH,CRITICAL --exit-code 1 --format json --output "$reports/binary.vulnerabilities.json" "$RUNNER_TEMP/candidate-bin" || failed=1
+          python3 - "$reports" <<'PY'
+          import json, sys
+          from pathlib import Path
+          root = Path(sys.argv[1])
+          for name in ("dependencies", "binary"):
+              bom = json.loads((root / (name + ".cdx.json")).read_text())
+              report = json.loads((root / (name + ".vulnerabilities.json")).read_text())
+              if bom.get("bomFormat") != "CycloneDX" or not bom.get("components") or not report.get("Results"):
+                  raise SystemExit("Missing inventory or scan targets: " + name)
+          PY
+          exit "$failed"
+      - name: Retain test evidence only
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: isolated-engine-evaluation
+          path: ${{ runner.temp }}/engine-evaluation/
+          if-no-files-found: error
+          retention-days: 14
