@@ -9,7 +9,8 @@ from radius_secret_input import load_hex
 
 def main():
     assert os.environ["RADIUS_DB_USER"]=="radius_runtime"
-    conn=psycopg2.connect(host="db",dbname="radius",user="radius_runtime",
+    host=os.environ.get("RADIUS_ROLE_PROBE_HOST","db")
+    conn=psycopg2.connect(host=host,dbname="radius",user="radius_runtime",
                           password=load_hex("DB_PASSWORD"),connect_timeout=5)
     try:
         conn.autocommit=True
@@ -21,7 +22,8 @@ def main():
             """)
             assert cur.fetchone()==("radius_runtime",False,False,False,False,False,False)
             cur.execute("SELECT count(*) FROM public.radcheck WHERE username='lab_00000000d2a1'")
-            assert cur.fetchone()==(1,)
+            expected=0 if host=="restore-db" else 1
+            assert cur.fetchone()==(expected,)
             for statement in (
                 'SELECT "PasswordHash" FROM public."AspNetUsers"',
                 "SELECT * FROM public.app_admin_audit_events",

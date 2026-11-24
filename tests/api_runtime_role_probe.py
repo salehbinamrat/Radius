@@ -1,13 +1,15 @@
 """Verify actual TCP login grants, with no credential output."""
 from pathlib import Path
 import sys
+import os
 import psycopg2
 
 def main():
     assert not Path("/run/radius-secrets/db-password").exists()
     assert not Path("/run/radius-secrets/bootstrap-db-password").exists()
     password=Path("/run/radius-secrets/api-db-password").read_text(encoding="ascii")
-    conn=psycopg2.connect(host="db",dbname="radius",user="radius_api",password=password,connect_timeout=5)
+    host=os.environ.get("RADIUS_ROLE_PROBE_HOST","db")
+    conn=psycopg2.connect(host=host,dbname="radius",user="radius_api",password=password,connect_timeout=5)
     try:
         conn.autocommit=True
         with conn.cursor() as cur:

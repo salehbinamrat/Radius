@@ -70,6 +70,23 @@ class RecoverySafetyChecks(unittest.TestCase):
         self.assertLess(https.index('node tests/browser/https-live-status-smoke.mjs'),
                         https.index('bash scripts/audit-recovery-smoke.sh'))
 
+    def test_recovery_reapplies_and_compares_roles_without_restoring_credentials(self):
+        restore=(SCRIPTS/"lab-restore-drill.sh").read_text()
+        roles=(SCRIPTS/"restore-runtime-roles-smoke.sh").read_text()
+        source=(SCRIPTS/"audit-recovery-smoke.sh").read_text()
+        self.assertIn('LAB_ROLE_RESTORE_SHA256="$roles_before"',source)
+        self.assertIn('[[ "$(role_fingerprint)" == "$roles_before" ]]',source)
+        self.assertLess(restore.index("Restored populated audit and ownership content fingerprint PASS"),
+                        restore.index("bash scripts/restore-runtime-roles-smoke.sh"))
+        for marker in ("^radiusrestore[a-f0-9]{8}$", "radius_runtime_grants.sql",
+                       "api_runtime_grants.sql", "radius_bootstrap NOLOGIN",
+                       "runtime_role_fingerprint.sql", "Restored role policy fingerprint mismatch",
+                       "api_runtime_role_probe.py","radius_runtime_role_probe.py"):
+            self.assertIn(marker,roles)
+        self.assertIn("secrets.token_hex(24)",roles)
+        self.assertNotIn("pg_dumpall",roles)
+        self.assertNotIn("RADIUS_HTTPS_SECRET_DIR",roles)
+
     def test_ci_runs_recovery_only_after_existing_smoke_suite(self):
         ci = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
         self.assertIn("bash scripts/lab-recovery-smoke.sh", ci)
