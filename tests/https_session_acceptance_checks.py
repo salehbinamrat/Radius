@@ -36,9 +36,19 @@ class HttpsSessionContracts(unittest.TestCase):
                      "down -v --remove-orphans", "--cacert",
                      "/api/admin/auth/csrf", "/api/admin/auth/login",
                      "/api/summary",
-                     "bootstrap-admin", "401", "403", "200",
+                     "401", "403", "200",
                      "docker compose -p"):
             self.assertIn(item, source)
+        # Bootstrap moved to a two-PTY helper. Verify the actual invocation,
+        # not a comment or an obsolete string in the parent shell.
+        race = (ROOT / "tests/concurrent_admin_bootstrap_smoke.py").read_text(encoding="utf-8")
+        self.assertIn('python3 tests/concurrent_admin_bootstrap_smoke.py "$project" "$compose_file"', source)
+        self.assertIn('"RadiusManager.Api.dll", "--bootstrap-admin"', race)
+        self.assertIn('subprocess.Popen(cmd, stdin=slave, stdout=slave, stderr=slave', race)
+        self.assertIn('sorted(codes) != [0, 2]', race)
+        self.assertIn('all(w["ready"] for w in workers)', race)
+        self.assertLess(source.index("python3 tests/concurrent_admin_bootstrap_smoke.py"),
+                        source.index('build_body login'))
         self.assertNotIn("curl -k", source)
         self.assertNotIn("curl --insecure", source)
         self.assertIn("docker compose -p", source)
