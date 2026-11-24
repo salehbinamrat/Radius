@@ -56,6 +56,16 @@ public sealed class AdminSecurityRulesTests
         Assert.False(AdminAuthorizationRules.IsAllowed(Principal(), "GET", "/api/summary"));
 
     [Fact]
+    public void CookieRolesMustExactlyMatchCurrentMembership()
+    {
+        Assert.True(AdminSessionSecurity.RolesMatch(Principal("auditor", "noc-operator"), ["noc-operator", "auditor"]));
+        Assert.False(AdminSessionSecurity.RolesMatch(Principal("super-admin"), ["auditor"]));
+        Assert.False(AdminSessionSecurity.RolesMatch(Principal("auditor"), ["auditor", "super-admin"]));
+        Assert.False(AdminSessionSecurity.RolesMatch(Principal("super-admin"), []));
+        Assert.False(AdminSessionSecurity.RolesMatch(Principal(), []));
+    }
+
+    [Fact]
     public void SessionSecretUsesRandomMaterialAndOneWayDigest()
     {
         var a = AdminSessionSecurity.NewToken();
