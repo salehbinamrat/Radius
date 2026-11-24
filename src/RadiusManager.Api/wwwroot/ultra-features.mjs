@@ -1,5 +1,4 @@
 import { buildSafeCsv } from './noc-utils.mjs';
-import { estimateCapacity } from './capacity-utils.mjs';
 import { buildSessionViewSnapshot, filterLoadedSessions } from './session-view-model.mjs';
 
 /** Read-only laboratory accounting + purely hypothetical capacity planning. */
@@ -58,22 +57,7 @@ export function initializeUltraFeatures({ request, notify, record }) {
     record(`تصدير ${rows.length} سجل محاسبة تجريبي`);notify(`تم تصدير ${rows.length} سجل من النتائج المعروضة فقط.`,'success');
   });
   function calculate(event){
-    event?.preventDefault();
-    const data={users:Number(el('capUsers').value),averageMbps:Number(el('capSpeed').value),
-      peakConcurrencyPercent:Number(el('capConcurrency').value),contentionRatio:Number(el('capSharing').value),
-      dailyPeakEquivalentHours:Number(el('capHours').value)};
-    try{
-      const result=estimateCapacity(data);
-      text('capPeakOut',result.peakUsers.toLocaleString('en-US'));
-      text('capSpeedOut',`${result.upstreamMbps.toLocaleString('en-US')} Mbps`);
-      text('capVolumeOut',`${result.monthlyDecimalTb.toLocaleString('en-US')} TB`);
-      text('capError','');el('capResults').hidden=false;
-    }catch(error){text('capError',error.message);el('capResults').hidden=true;}
-  }
-  el('capForm').addEventListener('submit',calculate);
-  for(const x of el('capForm').querySelectorAll('input'))x.addEventListener('input',calculate);
-  calculate();
-  return {
+    event?.preventDefault();  return {
     refresh,
     reset(){activeFetch=null;el('ultraSessionsRefresh').disabled=false;sessions=[];sessionHealth='unloaded';draw();text('ultraSessionUpdated','لم يتم الاستعلام');
       text('ultraSessionsWarning','سجلات المحاسبة لم تُحمّل بعد. افتح القسم واختر تحديث للعرض.');}
