@@ -20,6 +20,12 @@ public sealed class AdminSecurityRulesTests
         Assert.True(AdminAuthorizationRules.IsAllowed(Principal("super-admin"), method, path));
 
     [Theory]
+    [InlineData("voucher-operator", "PUT", "/api/plans/invalid")]
+    [InlineData("voucher-operator", "PUT", "/api/plans/11111111-1111-4111-8111-111111111111/extra")]
+    [InlineData("voucher-operator", "POST", "/api/lab-accounts/lab_0123456789ab/extra/disable")]
+    [InlineData("voucher-operator", "POST", "/api/lab-accounts/external/disable")]
+    [InlineData("auditor", "GET", "/api/lab-accounts/lab_0123456789ab/extra/usage")]
+    [InlineData("auditor", "GET", "/api/lab-accounts/lab_0123456789ab\n/usage")]
     [InlineData("voucher-operator", "GET", "/api/service-status/incidents")]
     [InlineData("reseller", "GET", "/api/service-status/incidents")]
     [InlineData("noc-operator", "POST", "/api/service-status/incidents")]
@@ -38,6 +44,9 @@ public sealed class AdminSecurityRulesTests
         Assert.False(AdminAuthorizationRules.IsAllowed(Principal(role), method, path));
 
     [Theory]
+    [InlineData("voucher-operator", "PUT", "/api/plans/11111111-1111-4111-8111-111111111111")]
+    [InlineData("voucher-operator", "POST", "/api/lab-accounts/lab_0123456789ab/disable")]
+    [InlineData("auditor", "GET", "/api/lab-accounts/lab_0123456789ab/usage")]
     [InlineData("noc-operator", "GET", "/api/service-status/incidents")]
     [InlineData("auditor", "GET", "/api/service-status/incidents")]
     [InlineData("noc-operator", "GET", "/api/service-status/alerts")]
@@ -50,6 +59,19 @@ public sealed class AdminSecurityRulesTests
     [InlineData("auditor", "GET", "/api/summary")]
     public void ExplicitAllowList(string role, string method, string path) =>
         Assert.True(AdminAuthorizationRules.IsAllowed(Principal(role), method, path));
+
+    [Theory]
+    [InlineData("super-admin")]
+    [InlineData("noc-operator")]
+    [InlineData("voucher-operator")]
+    [InlineData("auditor")]
+    public void ResellerMembershipCannotInheritSharedResources(string otherRole)
+    {
+        var mixed = Principal("reseller", otherRole);
+        Assert.False(AdminAuthorizationRules.IsAllowed(mixed, "GET", "/api/summary"));
+        Assert.False(AdminAuthorizationRules.IsAllowed(mixed, "GET", "/api/service-status/incidents"));
+        Assert.False(LabStatusHubRules.CanRead(mixed));
+    }
 
     [Fact]
     public void NoRoleDoesNotInheritAnyAccess() =>

@@ -204,5 +204,34 @@ python3 tests/signalr_https_wire_smoke.py "$tmp/tls/server.crt" "$jar"
 check 401 -b "$tmp/stale-after-logout.cookies" "$url/api/summary"
 check 401 -b "$tmp/stale-after-logout.cookies" -H "Origin: $url" -X POST "$url/hubs/lab-status/negotiate?negotiateVersion=1"
 echo "Isolated HTTPS login, Secure cookies, key persistence, RBAC, CSRF, password rotation and logout revocation PASS."
+# A real mixed reseller/auditor session must not inherit shared lab or hub access.
+# This database is the disposable HTTPS fixture only; no production role is changed.
+docker compose -p "$project" -f "$compose_file" exec -T db psql -X -v ON_ERROR_STOP=1 -U radius -d radius <<'SQL' >/dev/null
+UPDATE "AspNetUserRoles" SET "RoleId"='role-reseller' WHERE "RoleId"='role-super-admin';
+INSERT INTO "AspNetUserRoles" ("UserId","RoleId")
+SELECT "UserId",'role-auditor' FROM "AspNetUserRoles" WHERE "RoleId"='role-reseller';
+SQL
+jar="$tmp/reseller.cookies"
+fetch_csrf
+build_body next
+check 200 -b "$jar" -c "$jar" -H "X-CSRF-TOKEN: $csrf" \
+  -H "Content-Type: application/json" --data-binary @"$tmp/payload.json" "$url/api/admin/auth/login"
+check 200 -b "$jar" "$url/api/admin/auth/me"
+python3 - "$out" <<'PY'
+import json,sys
+assert set(json.load(open(sys.argv[1]))["roles"])=={"reseller","auditor"}
+PY
+for path in summary plans lab-accounts lab-sessions service-status/incidents service-status/history nas-drafts; do
+  check 403 -b "$jar" "$url/api/$path"
+done
+check 403 -b "$jar" -H "Origin: $url" -X POST "$url/hubs/lab-status/negotiate?negotiateVersion=1"
+fetch_csrf
+check 200 -b "$jar" -c "$jar" -H "X-CSRF-TOKEN: $csrf" -H "Content-Type: application/json" \
+  -d '{}' "$url/api/admin/auth/logout"
+docker compose -p "$project" -f "$compose_file" exec -T db psql -X -v ON_ERROR_STOP=1 -U radius -d radius <<'SQL' >/dev/null
+DELETE FROM "AspNetUserRoles" WHERE "RoleId"='role-auditor';
+UPDATE "AspNetUserRoles" SET "RoleId"='role-super-admin' WHERE "RoleId"='role-reseller';
+SQL
+echo "Isolated mixed reseller role denied shared HTTP and SignalR data PASS."
 # A separate browser session signs in with the rotated password.
 node tests/browser/https-live-status-smoke.mjs

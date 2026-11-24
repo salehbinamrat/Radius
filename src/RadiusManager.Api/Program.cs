@@ -92,7 +92,8 @@ builder.Services.AddAntiforgery(options =>
     options.Cookie.Path = "/";
 });
 builder.Services.AddAuthorization(options => options.AddPolicy(LabStatusHubRules.Policy,
-    policy => policy.RequireAuthenticatedUser().RequireRole("super-admin", "noc-operator", "auditor")));
+    policy => policy.RequireAuthenticatedUser().RequireRole("super-admin", "noc-operator", "auditor")
+        .RequireAssertion(context => LabStatusHubRules.CanRead(context.User))));
 if (sessionMode)
 {
     builder.Services.AddSignalR(options =>
@@ -229,7 +230,7 @@ var api = app.MapGroup("/api").RequireRateLimiting("admin");
 
 api.MapGet("/summary", async (NpgsqlDataSource dataSource, CancellationToken ct) =>
 {
-    await using var cmd = dataSource.CreateCommand("SELECT (SELECT count(*) FROM app_plans), (SELECT count(DISTINCT username) FROM radcheck)");
+    await using var cmd = dataSource.CreateCommand("SELECT (SELECT count(*) FROM app_plans), (SELECT count(*) FROM app_lab_accounts)");
     await using var reader = await cmd.ExecuteReaderAsync(ct);
     await reader.ReadAsync(ct);
     return Results.Ok(new { plans = reader.GetInt64(0), labAccounts = reader.GetInt64(1), phase = 1, accountingEnforced = false });

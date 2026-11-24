@@ -11,6 +11,10 @@ public static class LabStatusHubRules
     public static bool IsReadRole(string? role) =>
         role is "super-admin" or "noc-operator" or "auditor";
 
+    public static bool CanRead(ClaimsPrincipal? user) =>
+        AdminAuthorizationRules.CanAccessSharedLab(user)
+        && user!.FindAll(ClaimTypes.Role).Any(c => IsReadRole(c.Value));
+
     public static bool IsTrustedTransport(bool https, string? origin, string? fetchSite, string? host) =>
         https && !string.IsNullOrWhiteSpace(origin)
         && RequestOriginRules.IsAllowed("POST", origin, fetchSite, "https", host);
@@ -87,6 +91,6 @@ public sealed class LabStatusHub(IServiceScopeFactory scopes) : Hub
         await using var scope = scopes.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<AdminIdentityDbContext>();
         var session = await AdminSessionSecurity.GetCurrentAsync(db, principal, DateTime.UtcNow, ct);
-        return session is not null && principal.FindAll(ClaimTypes.Role).Any(c => LabStatusHubRules.IsReadRole(c.Value));
+        return session is not null && LabStatusHubRules.CanRead(principal);
     }
 }

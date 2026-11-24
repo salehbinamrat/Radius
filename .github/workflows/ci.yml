@@ -62,6 +62,10 @@ jobs:
           RADIUS_PERF_TEST_ACK: isolated-ci
         run: bash scripts/lab-read-performance.sh
       - run: bash scripts/api-contract-smoke.sh
+      - name: 'Lab data boundary and foreign RADIUS rows'
+        env:
+          LAB_SCOPE_ACK: isolated-ci
+        run: bash scripts/lab-scope-smoke.sh
       - run: bash scripts/admin-identity-smoke.sh
       - run: bash scripts/concurrent-plan-smoke.sh
       - run: bash scripts/smoke-test.sh
