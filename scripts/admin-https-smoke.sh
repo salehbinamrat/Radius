@@ -122,6 +122,7 @@ if kind=="wrong": value={"username":user,"password":"incorrect-password"}
 elif kind=="login": value={"username":user,"password":old}
 elif kind=="next": value={"username":user,"password":new}
 elif kind=="change": value={"currentPassword":old,"newPassword":new}
+elif kind=="wrong-change": value={"currentPassword":"incorrect-password","newPassword":new}
 else: raise RuntimeError("invalid CI payload type")
 with open(path,'w',encoding="utf-8") as f: json.dump(value,f)
 PY
@@ -185,11 +186,46 @@ grep -q "super-admin" "$out"
 # Changing password must revoke all old sessions immediately.
 fetch_csrf
 export LAB_ADMIN_PASSWORD_NEXT="Z!n$(python3 -c 'import secrets;print(secrets.token_urlsafe(28))')8"
+# A failed current password must not change the session or record success.
+build_body wrong-change
+check 400 -b "$jar" -c "$jar" -H "X-CSRF-TOKEN: $csrf" \
+  -H "Content-Type: application/json" --data-binary @"$tmp/payload.json" "$url/api/admin/auth/change-password"
+check 200 -b "$jar" "$url/api/summary"
+# Fingerprint only inside PostgreSQL/pipe, never print credential hashes or tokens.
+password_state() {
+  docker compose -p "$project" -f "$compose_file" exec -T db \
+    psql -X -qAt -v ON_ERROR_STOP=1 -U radius -d radius <<'SQL' | sha256sum | cut -d ' ' -f1
+SELECT jsonb_build_array("Id","PasswordHash","SecurityStamp","ConcurrencyStamp") FROM "AspNetUsers" ORDER BY "Id";
+SELECT jsonb_build_array(id,user_id,security_stamp,revoked_at) FROM app_admin_sessions ORDER BY id;
+SELECT count(*) FROM app_admin_audit_events WHERE action='password_changed' AND outcome='success';
+SQL
+}
+prior_password_state=$(password_state)
+docker compose -p "$project" -f "$compose_file" exec -T db psql -X -v ON_ERROR_STOP=1 -U radius -d radius \
+  -c "ALTER TABLE app_admin_audit_events ADD CONSTRAINT ci_reject_password_audit CHECK (action <> 'password_changed') NOT VALID" >/dev/null
+build_body change
+check 503 -b "$jar" -c "$jar" -H "X-CSRF-TOKEN: $csrf" \
+  -H "Content-Type: application/json" --data-binary @"$tmp/payload.json" "$url/api/admin/auth/change-password"
+[[ "$(password_state)" == "$prior_password_state" ]] || {
+  echo 'Password state or session revocation changed despite failed audit' >&2; exit 1;
+}
+check 200 -b "$jar" "$url/api/summary"
+docker compose -p "$project" -f "$compose_file" exec -T db psql -X -v ON_ERROR_STOP=1 -U radius -d radius \
+  -c 'ALTER TABLE app_admin_audit_events DROP CONSTRAINT ci_reject_password_audit' >/dev/null
+echo 'Password rotation rollback on forced audit failure PASS'
+fetch_csrf
 build_body change
 cp "$jar" "$tmp/stale-after-change.cookies"
 check 200 -b "$jar" -c "$jar" -H "X-CSRF-TOKEN: $csrf" \
   -H "Content-Type: application/json" --data-binary @"$tmp/payload.json" \
   "$url/api/admin/auth/change-password"
+# Check revocation directly BEFORE attempting the old cookie, so lazy validation
+# cannot mask a missing transactional revocation.
+docker compose -p "$project" -f "$compose_file" exec -T db psql -X -At -v ON_ERROR_STOP=1 -U radius -d radius <<'SQL' | python3 -c 'import sys; assert sys.stdin.read().splitlines()==["0","1","1"]'
+SELECT count(*) FROM app_admin_sessions WHERE revoked_at IS NULL;
+SELECT count(*) FROM app_admin_audit_events WHERE action='password_changed' AND outcome='success';
+SELECT count(*) FROM app_admin_audit_events WHERE action='password_change_rejected' AND outcome='denied';
+SQL
 check 401 -b "$tmp/stale-after-change.cookies" "$url/api/summary"
 
 # New password signs in; logout then must reject a stolen pre-logout cookie.
