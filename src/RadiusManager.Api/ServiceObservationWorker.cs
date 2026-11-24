@@ -5,7 +5,7 @@ namespace RadiusManager.Api;
 
 /// <summary>One independent, bounded read-only probe per cycle, regardless of UI connections.</summary>
 public sealed class ServiceObservationWorker(NpgsqlDataSource dataSource,
-    ServiceObservationHistory history) : BackgroundService
+    ServiceObservationHistory history, ServiceIncidentArchive incidents) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -40,7 +40,9 @@ public sealed class ServiceObservationWorker(NpgsqlDataSource dataSource,
             }
             stoppingToken.ThrowIfCancellationRequested();
             var radius = RadiusHealthEvidence.Read();
-            history.Add(new(DateTimeOffset.UtcNow, state, duration, radius.State, radius.CheckedAtUtc));
+            var sample = new ServiceObservation(DateTimeOffset.UtcNow, state, duration, radius.State, radius.CheckedAtUtc);
+            history.Add(sample);
+            incidents.Observe(sample);
         } while (await timer.WaitForNextTickAsync(stoppingToken));
     }
 }

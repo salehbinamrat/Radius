@@ -64,4 +64,15 @@ assert {s["service"] for s in x["services"]}=={"postgresql","freeradius"}
 assert all(s["state"] in {"healthy","pending","failed","unknown"} for s in x["services"])
 assert len(x["events"])<=480
 '
-echo 'Protected bounded independent service observation history, restart recovery and alert projection PASS'
+incidents=http://127.0.0.1:8080/api/service-status/incidents
+[[ "$(curl --silent --show-error --max-time 5 -o /dev/null -w '%{http_code}' "$incidents")" == 401 ]]
+curl --fail --silent --show-error --max-time 5 --netrc-file "$netrc" "$incidents" |
+  python3 -c '
+import json,sys
+x=json.load(sys.stdin)
+assert set(x)=={"scope","retention","closedCapacity","services","incidents"}
+assert x["scope"]=="lab" and x["retention"]=="volume-snapshot" and x["closedCapacity"]==256
+assert {s["service"] for s in x["services"]}=={"postgresql","freeradius"}
+assert len(x["incidents"])<=258
+'
+echo 'Protected service observation history, restart recovery, alert projection and incident archive PASS'

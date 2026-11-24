@@ -20,6 +20,9 @@ public sealed class AdminSecurityRulesTests
         Assert.True(AdminAuthorizationRules.IsAllowed(Principal("super-admin"), method, path));
 
     [Theory]
+    [InlineData("voucher-operator", "GET", "/api/service-status/incidents")]
+    [InlineData("reseller", "GET", "/api/service-status/incidents")]
+    [InlineData("noc-operator", "POST", "/api/service-status/incidents")]
     [InlineData("voucher-operator", "GET", "/api/service-status/alerts")]
     [InlineData("reseller", "GET", "/api/service-status/alerts")]
     [InlineData("noc-operator", "POST", "/api/service-status/alerts")]
@@ -35,6 +38,8 @@ public sealed class AdminSecurityRulesTests
         Assert.False(AdminAuthorizationRules.IsAllowed(Principal(role), method, path));
 
     [Theory]
+    [InlineData("noc-operator", "GET", "/api/service-status/incidents")]
+    [InlineData("auditor", "GET", "/api/service-status/incidents")]
     [InlineData("noc-operator", "GET", "/api/service-status/alerts")]
     [InlineData("auditor", "GET", "/api/service-status/alerts")]
     [InlineData("noc-operator", "GET", "/api/service-status/history")]
