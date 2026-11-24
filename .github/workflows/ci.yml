@@ -90,6 +90,10 @@ jobs:
         env:
           LAB_RADIUS_STATUS_ACK: isolated-ci
         run: bash scripts/radius-health-smoke.sh
+      - name: Strict RADIUS authenticator acceptance
+        env:
+          LAB_RADIUS_AUTHENTICATOR_ACK: isolated-ci
+        run: bash scripts/radius-authenticator-smoke.sh
       - name: Bounded service observation history acceptance
         env:
           LAB_SERVICE_HISTORY_ACK: isolated-ci
