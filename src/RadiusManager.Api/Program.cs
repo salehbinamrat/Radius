@@ -1,5 +1,7 @@
 using System.Threading.RateLimiting;
 using System.Security.Claims;
+using System.Security.Cryptography.X509Certificates;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.EntityFrameworkCore;
@@ -21,6 +23,27 @@ var adminPassword = Environment.GetEnvironmentVariable("RADIUS_ADMIN_PASSWORD") 
 var connectionString = builder.Configuration.GetConnectionString("RadiusDb");
 if (adminUser.Length < 3 || adminPassword.Length < 24 || string.IsNullOrWhiteSpace(connectionString))
     throw new InvalidOperationException("Provide strong admin credentials and a database connection string.");
+
+// Session mode cannot start with ephemeral (restart-invalidating) cookie keys.
+// Protect the persistent key ring using a certificate with its private key,
+// supplied exclusively through a locally mounted secure file.
+if (sessionMode)
+{
+    var certificatePath = Environment.GetEnvironmentVariable("ASPNETCORE_Kestrel__Certificates__Default__Path");
+    var certificatePassword = Environment.GetEnvironmentVariable("ASPNETCORE_Kestrel__Certificates__Default__Password");
+    var keysPath = Environment.GetEnvironmentVariable("RADIUS_ADMIN_DATA_PROTECTION_PATH");
+    if (string.IsNullOrWhiteSpace(certificatePath) || string.IsNullOrEmpty(certificatePassword)
+        || string.IsNullOrWhiteSpace(keysPath) || !Path.IsPathFullyQualified(keysPath)
+        || !File.Exists(certificatePath) || !Directory.Exists(keysPath))
+        throw new InvalidOperationException("Session mode requires mounted TLS certificate and persistent key directory");
+    var certificate = X509CertificateLoader.LoadPkcs12FromFile(certificatePath, certificatePassword);
+    if (!certificate.HasPrivateKey)
+        throw new InvalidOperationException("Session key encryption certificate must have a private key");
+    builder.Services.AddDataProtection()
+        .SetApplicationName("RadiusNocAdminSessions")
+        .PersistKeysToFileSystem(new DirectoryInfo(keysPath))
+        .ProtectKeysWithCertificate(certificate);
+}
 
 builder.Services.AddSingleton(NpgsqlDataSource.Create(connectionString));
 builder.Services.AddDbContext<AdminIdentityDbContext>(o => o.UseNpgsql(connectionString));
