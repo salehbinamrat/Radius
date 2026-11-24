@@ -3,7 +3,7 @@ sql {
     driver = "rlm_sql_postgresql"
     server = "db"
     port = 5432
-    login = "radius"
+    login = "__DB_USER__"
     password = "__DB_PASSWORD__"
     radius_db = "radius"
     acct_table1 = "radacct"

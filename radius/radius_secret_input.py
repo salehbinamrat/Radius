@@ -33,6 +33,9 @@ def render():
     import tempfile
     db = load_hex("DB_PASSWORD")
     secret = load_hex("RADIUS_SECRET")
+    user = os.environ.get("RADIUS_DB_USER", "radius")
+    if user not in ("radius", "radius_runtime"):
+        raise RuntimeError("Invalid RADIUS_DB_USER")
     cidr = os.environ.get("RADIUS_CLIENT_CIDR", "")
     try:
         if not re.fullmatch(r"[0-9./]+", cidr):
@@ -42,7 +45,7 @@ def render():
         raise RuntimeError("Invalid RADIUS_CLIENT_CIDR") from None
     gid = grp.getgrnam("freerad").gr_gid
     for template, dest, replacements in (
-        ("sql.template", "/etc/freeradius/3.0/mods-available/sql", {"__DB_PASSWORD__": db}),
+        ("sql.template", "/etc/freeradius/3.0/mods-available/sql", {"__DB_PASSWORD__": db, "__DB_USER__": user}),
         ("clients.template", "/etc/freeradius/3.0/clients.conf",
          {"__RADIUS_SECRET__": secret, "__RADIUS_CLIENT_CIDR__": cidr}),
     ):

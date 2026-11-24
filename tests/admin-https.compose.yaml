@@ -40,6 +40,23 @@ services:
       db: {condition: service_healthy}
     networks: [private]
 
+  # Explicit one-off profile; never mounts the owner password or publishes ports.
+  radius-runtime:
+    image: radius-stage3-ci-schema:latest
+    profiles: ["role-test"]
+    restart: "no"
+    environment:
+      RADIUS_DB_USER: radius_runtime
+      DB_PASSWORD_FILE: /run/radius-secrets/runtime-db-password
+      RADIUS_SECRET_FILE: /run/radius-secrets/radius-secret
+      RADIUS_CLIENT_CIDR: 10.255.70.0/24
+    volumes:
+      - ${RADIUS_HTTPS_SECRET_DIR:?Private temporary secret directory required}/runtime-db-password:/run/radius-secrets/runtime-db-password:ro
+      - ${RADIUS_HTTPS_SECRET_DIR:?Private temporary secret directory required}/radius-secret:/run/radius-secrets/radius-secret:ro
+      - ${RADIUS_HTTPS_SECRET_DIR:?Private temporary secret directory required}/runtime-user-password:/run/radius-secrets/runtime-user-password:ro
+      - ./radius_runtime_role_probe.py:/opt/radius/runtime-role-probe.py:ro
+    networks: [private]
+
   api:
     image: radius-stage3-ci-api:latest
     restart: "no"

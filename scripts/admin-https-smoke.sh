@@ -58,7 +58,14 @@ printf '%s' "$DB_PASSWORD" > "$RADIUS_HTTPS_SECRET_DIR/db-password"
 printf '%s' "$RADIUS_HTTPS_PFX_PASSWORD" > "$RADIUS_HTTPS_SECRET_DIR/tls-password"
 printf '%s' "$RADIUS_SECRET" > "$RADIUS_HTTPS_SECRET_DIR/radius-secret"
 chmod 444 "$RADIUS_HTTPS_SECRET_DIR/db-password" "$RADIUS_HTTPS_SECRET_DIR/tls-password"
-chmod 400 "$RADIUS_HTTPS_SECRET_DIR/radius-secret"
+python3 - "$RADIUS_HTTPS_SECRET_DIR" <<'PY'
+from pathlib import Path
+import secrets,sys
+root=Path(sys.argv[1])
+for name in ("runtime-db-password","runtime-user-password"):
+    (root/name).write_text(secrets.token_hex(24),encoding="ascii")
+PY
+chmod 400 "$RADIUS_HTTPS_SECRET_DIR/radius-secret" "$RADIUS_HTTPS_SECRET_DIR/runtime-db-password" "$RADIUS_HTTPS_SECRET_DIR/runtime-user-password"
 unset RADIUS_HTTPS_PFX_PASSWORD
 # No database, Basic or PFX password should appear in the API container env.
 docker compose -p "$project" -f "$compose_file" config --format json | python3 -c '
@@ -89,9 +96,8 @@ for i in $(seq 1 45); do
   fi
   sleep 2
 done
-# A one-off FreeRADIUS process on the same disposable network uses files
-# only; no host ports or health evidence are published by it.
-bash scripts/radius-file-secret-smoke.sh "$project" "$compose_file"
+# Provision a distinct non-owner login in this disposable DB only.
+bash scripts/radius-runtime-role-smoke.sh "$project" "$compose_file"
 out="$tmp/response"
 check() {
   local expected="$1"; shift
