@@ -31,7 +31,7 @@ jobs:
           npm run check
           npm run build
           node --check ../wwwroot/modern/noc-react.mjs
-          if grep -q 'process\\.env\\.NODE_ENV' ../wwwroot/modern/noc-react.mjs; then
+          if grep -Fq 'process.env.NODE_ENV' ../wwwroot/modern/noc-react.mjs; then
             echo 'Vite library bundle retained Node process.env; browser startup unsafe' >&2
             exit 1
           fi
