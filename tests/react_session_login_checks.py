@@ -26,7 +26,7 @@ class SessionLoginContracts(unittest.TestCase):
             self.assertIn(value,src)
         self.assertIn("https:",src)
         self.assertIn("SessionLogin", (UI / "src/main.tsx").read_text())
-        for forbidden in ("localStorage","sessionStorage","indexedDB","Basic "):
+        for forbidden in ("localStorage","sessionStorage","indexedDB","Authorization:"):
             self.assertNotIn(forbidden,src)
         self.assertIn('id="reactAdminLogin"',(WEB / "index.html").read_text())
         self.assertIn('id="loginForm"',(WEB / "index.html").read_text())
