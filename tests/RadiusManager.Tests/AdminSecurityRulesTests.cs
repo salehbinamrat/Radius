@@ -108,8 +108,22 @@ public sealed class AdminSecurityRulesTests
         Assert.Equal(expected, AdminAuthorizationRules.IsAllowed(user, "POST", "/api/ownership/accounts/lab_0123456789ab/assign"));
         Assert.False(AdminAuthorizationRules.IsAllowed(user, "POST", "/api/ownership/accounts/external/assign"));
         Assert.False(AdminAuthorizationRules.IsAllowed(user, "DELETE", "/api/ownership/accounts/lab_0123456789ab/assign"));
-        Assert.False(AdminAuthorizationRules.IsAllowed(user, "POST", "/api/ownership/accounts/lab_0123456789ab/transfer"));
+        Assert.Equal(expected, AdminAuthorizationRules.IsAllowed(user, "POST", "/api/ownership/accounts/lab_0123456789ab/transfer"));
+        Assert.Equal(expected, AdminAuthorizationRules.IsAllowed(user, "GET", "/api/ownership/accounts/lab_0123456789ab"));
+        Assert.False(AdminAuthorizationRules.IsAllowed(user, "DELETE", "/api/ownership/accounts/lab_0123456789ab/transfer"));
         Assert.False(AdminAuthorizationRules.IsAllowed(Principal("super-admin"), "GET", "/api/ownership/resellers"));
+    }
+
+    [Fact]
+    public void TransferRequiresDistinctOwnersAndExplicitNonnegativeRevision()
+    {
+        Assert.True(OwnershipRules.ValidTransfer(new("a", 0, "b")));
+        Assert.False(OwnershipRules.ValidTransfer(new("a", null, "b")));
+        Assert.False(OwnershipRules.ValidTransfer(new("a", -1, "b")));
+        Assert.False(OwnershipRules.ValidTransfer(new("a", long.MaxValue, "b")));
+        Assert.False(OwnershipRules.ValidTransfer(new("a", 1, "a")));
+        Assert.False(OwnershipRules.ValidTransfer(new("a", 1, " b")));
+        Assert.False(OwnershipRules.ValidTransfer(null));
     }
 
     [Fact]

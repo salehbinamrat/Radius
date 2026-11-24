@@ -40,6 +40,9 @@ MIGRATIONS = (
     (6, "006_reseller_ownership.sql", (
         "public.app_lab_account_owners", "public.idx_lab_account_owners_owner",
     )),
+    (7, "007_ownership_transfers.sql", (
+        "public.app_lab_ownership_transfers",
+    )),
 )
 FREERADIUS_OBJECTS = (
     "radcheck", "radreply", "radgroupcheck", "radgroupreply",
@@ -165,7 +168,7 @@ def run():
         raise RuntimeError("Non-default migration database is restricted to isolated CI")
     fail_version = os.environ.get("MIGRATION_FAIL_AFTER_SQL_VERSION")
     if fail_version and not (
-        lab_mode and dbname != "radius" and fail_version in ("2", "3", "4", "6")
+        lab_mode and dbname != "radius" and fail_version in ("2", "3", "4", "6", "7")
     ):
         raise RuntimeError("Migration failure injection requires an isolated CI database")
     files = migration_files()

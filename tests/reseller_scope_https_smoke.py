@@ -125,6 +125,48 @@ def main():
                            "psql","-X","-At","-v","ON_ERROR_STOP=1","-U","radius","-d","radius"],
                           input=check_sql,text=True,capture_output=True,check=True,timeout=20)
     assert result.stdout.strip()=="1"
+    # Exercise real transfer with separate sessions and a compare-and-swap revision.
+    detail="/api/ownership/accounts/lab_0000000000a1"
+    transfer=detail+"/transfer"
+    before=admin("GET",detail,200)
+    assert before["ownerId"]=="ci-owner-a" and before["revision"]==0
+    payload={"expectedOwnerId":"ci-owner-a","expectedRevision":0,"newOwnerId":"ci-owner-b"}
+    admin("POST",transfer,403,payload)
+    reseller("POST",transfer,403,payload,reseller_csrf)
+    reseller("GET",detail,403)
+    admin("POST",transfer,400,{**payload,"newOwnerId":"ci-owner-a"},csrf)
+    admin("POST",transfer,400,{"expectedOwnerId":"ci-owner-a","newOwnerId":"ci-owner-b"},csrf)
+    admin("POST",transfer,409,{**payload,"newOwnerId":"missing-owner"},csrf)
+    admin("POST",transfer,409,{**payload,"expectedRevision":1},csrf)
+    race_sessions=[session(os.environ["LAB_ADMIN_USER"]) for _ in range(2)]
+    def transfer_once(request):
+        token=request("GET","/api/admin/auth/csrf",200)["requestToken"]
+        return request("POST",transfer,(200,409),payload,token)[0]
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        assert sorted(pool.map(transfer_once,race_sessions))==[200,409]
+    assert admin("GET",detail,200)["revision"]==1
+    owner_a=session("ci_owner_a")
+    owner_b=session("ci_owner_b")
+    assert "lab_0000000000a1" not in {r["username"] for r in owner_a("GET","/api/reseller/accounts",200)["accounts"]}
+    assert "lab_0000000000a1" in {r["username"] for r in owner_b("GET","/api/reseller/accounts",200)["accounts"]}
+    # Transfer back, then reject the original stale request even though owner A returned.
+    result=admin("POST",transfer,200,{"expectedOwnerId":"ci-owner-b","expectedRevision":1,"newOwnerId":"ci-owner-a"},csrf)
+    assert result["revision"]==2
+    admin("POST",transfer,409,payload,csrf)
+    assert admin("GET",detail,200)["ownerId"]=="ci-owner-a"
+    journal_sql="""
+    SELECT t.revision,t.previous_owner_id,t.new_owner_id
+    FROM app_lab_ownership_transfers t JOIN app_admin_audit_events a ON a.id=t.audit_event_id
+    WHERE t.username='lab_0000000000a1' AND a.action='voucher_owner_transferred'
+      AND a.subject_id=t.username AND a.outcome='success'
+      AND a.actor_user_id IN (SELECT "UserId" FROM "AspNetUserRoles" WHERE "RoleId"='role-super-admin')
+    ORDER BY t.revision;
+    """
+    result=subprocess.run(["docker","compose","-p",project,"-f",compose_file,"exec","-T","db",
+                           "psql","-X","-At","-v","ON_ERROR_STOP=1","-U","radius","-d","radius"],
+                          input=journal_sql,text=True,capture_output=True,check=True,timeout=20)
+    assert result.stdout.splitlines()==["1|ci-owner-a|ci-owner-b","2|ci-owner-b|ci-owner-a"]
+    print("Ownership transfer: single concurrent winner, current owner isolation, stale ABA rejection, linked audit PASS")
     # Leave exactly one active unassigned and one disabled unassigned voucher
     # in this disposable database for the subsequent real Chromium acceptance.
     browser_sql="""
