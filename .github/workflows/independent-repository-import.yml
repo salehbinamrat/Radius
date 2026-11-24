@@ -1,0 +1,88 @@
+name: Independent repository import (one-time)
+on:
+  push:
+    branches: [lab/independent-repository-import]
+    paths: ['.github/import-approved.txt']
+permissions: {}
+jobs:
+  mirror:
+    if: github.repository == 'salehbinamrat/Radius' && github.ref == 'refs/heads/lab/independent-repository-import'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - source: daloradius
+            destination: R1
+          - source: toughradius
+            destination: R2
+          - source: phpnuxbill
+            destination: R3
+          - source: mikhmonv3
+            destination: R4
+    steps:
+      - name: Copy and verify Git branches and tags (no force or deletion)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.RADIUS_IMPORT_TOKEN }}
+          SOURCE: ${{ matrix.source }}
+          DESTINATION: ${{ matrix.destination }}
+          GIT_TERMINAL_PROMPT: '0'
+        run: |
+          set -euo pipefail
+          export LC_ALL=C
+          case "$SOURCE:$DESTINATION" in
+            daloradius:R1|toughradius:R2|phpnuxbill:R3|mikhmonv3:R4) ;;
+            *) exit 1 ;;
+          esac
+          if [[ -z "${GH_TOKEN:-}" ]]; then
+            echo 'Missing explicitly granted RADIUS_IMPORT_TOKEN' >&2
+            exit 1
+          fi
+          src="https://github.com/salehbinamrat/$SOURCE.git"
+          dst="https://github.com/salehbinamrat/$DESTINATION.git"
+          tmp=$(mktemp -d)
+          trap 'rm -rf -- "$tmp"' EXIT
+          # Never execute source code, checkout hooks, or install dependencies.
+          # The authenticated credential helper is scoped to destination operations.
+          authgit() {
+            git -c credential.helper= -c 'credential.helper=!gh auth git-credential' "$@"
+          }
+          env -u GH_TOKEN git -c credential.helper= ls-remote --refs --heads --tags "$src" | sort > "$tmp/expected"
+          test -s "$tmp/expected"
+          authgit ls-remote --refs "$dst" | sort > "$tmp/before"
+          if cmp -s "$tmp/expected" "$tmp/before"; then
+            echo "Already identical: $DESTINATION"
+          elif [[ -s "$tmp/before" ]]; then
+            echo "STOP: $DESTINATION is not empty or differs; no changes made" >&2
+            exit 1
+          else
+            env -u GH_TOKEN git -c credential.helper= clone --mirror "$src" "$tmp/source.git"
+            git -C "$tmp/source.git" for-each-ref --format='%(objectname)%09%(refname)' refs/heads refs/tags | sort > "$tmp/fetched"
+            cmp "$tmp/expected" "$tmp/fetched"
+            git -C "$tmp/source.git" fsck --full --no-dangling
+            # Recheck emptiness immediately before the atomic, non-forced push.
+            authgit ls-remote --refs "$dst" > "$tmp/recheck"
+            test ! -s "$tmp/recheck"
+            specs=()
+            while IFS=$'\t' read -r oid ref; do
+              case "$ref" in refs/heads/*|refs/tags/*) ;; *) exit 1 ;; esac
+              specs+=("$oid:$ref")
+            done < "$tmp/expected"
+            authgit -C "$tmp/source.git" push --atomic "$dst" "${specs[@]}"
+          fi
+          authgit ls-remote --refs --heads --tags "$dst" | sort > "$tmp/after"
+          cmp "$tmp/expected" "$tmp/after"
+          # Compare the source again, so a concurrent upstream update cannot be
+          # silently described as an exact current mirror.
+          env -u GH_TOKEN git -c credential.helper= ls-remote --refs --heads --tags "$src" | sort > "$tmp/source-now"
+          cmp "$tmp/expected" "$tmp/source-now"
+          src_head=$(env -u GH_TOKEN git -c credential.helper= ls-remote --symref "$src" HEAD | awk '/^ref:/{print $2}')
+          dst_head=$(authgit ls-remote --symref "$dst" HEAD | awk '/^ref:/{print $2}')
+          printf 'Source default: %s\nDestination default: %s\n' "$src_head" "$dst_head"
+          if [[ "$src_head" != "$dst_head" ]]; then
+            echo "::warning::Default branch differs; change destination default branch in GitHub settings after verification."
+          fi
+          printf 'VERIFIED: %s -> %s | branches=%s | tags=%s\n' "$SOURCE" "$DESTINATION" "$(grep -c $'\trefs/heads/' "$tmp/after" || true)" "$(grep -c $'\trefs/tags/' "$tmp/after" || true)"
+          sha256sum "$tmp/expected" "$tmp/after"

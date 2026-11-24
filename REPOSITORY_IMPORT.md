@@ -1,0 +1,7 @@
+# One-time repository import
+
+Authorized mapping: daloradius → R1, toughradius → R2, phpnuxbill → R3, mikhmonv3 → R4. Source forks remain unchanged. Existing destination repository identities are retained. No production or main modification.
+
+This dedicated workflow is inert until the explicit approval marker is added. It requires a short-lived fine-grained GitHub personal access token restricted to R1–R4 with Contents and Workflows read/write, stored only in the Radius Actions secret RADIUS_IMPORT_TOKEN. Do not print, commit or send the token. Revoke it and remove the secret after completion.
+
+The workflow reads public source Git objects without credentials, preserves original commit history, branch heads and annotated/lightweight tags, checks all destination refs, pushes atomically without force or deletion, and compares exact object IDs before declaring success. A nonempty mismatched destination stops. No source scripts or imported workflows are intentionally executed by the import workflow. GitHub may independently trigger imported destination workflows from PAT push events according to each repository's settings. Check and disable destination Actions temporarily if imported workflows should not execute. Issues, pull requests, release assets, LFS external objects, and repository settings are not copied by Git ref import. Verify any such assets separately. The default branch is reported and may need adjustment. This branch must not be merged into main.
