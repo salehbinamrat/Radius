@@ -48,6 +48,24 @@ class IdentityContracts(unittest.TestCase):
         self.assertIn("AdminIdentityDbContext",db)
         self.assertIn('Microsoft.AspNetCore.Identity.EntityFrameworkCore',(API/"RadiusManager.Api.csproj").read_text())
 
+    def test_password_change_commits_identity_revocation_and_audit_together(self):
+        src=(API/"AdminIdentityEndpoints.cs").read_text()
+        change=src[src.index('app.MapPost("/api/admin/auth/change-password"'):]
+        for marker in ("BeginTransactionAsync", "FOR UPDATE", "AdminSessionSecurity.GetCurrentAsync",
+                       "ChangePasswordAsync", "ExecuteUpdateAsync", 'Audit("password_changed"',
+                       "SaveChangesAsync(ct)", "CommitAsync(ct)", "SignOutAsync", "RollbackAsync",
+                       "ChangeTracker.Clear"):
+            self.assertIn(marker, change)
+        markers=("BeginTransactionAsync", "FOR UPDATE", "AdminSessionSecurity.GetCurrentAsync",
+                 "ChangePasswordAsync", "ExecuteUpdateAsync", 'Audit("password_changed"',
+                 "SaveChangesAsync(ct)", "CommitAsync(ct)", "SignOutAsync")
+        offsets=[change.index(marker) for marker in markers]
+        self.assertEqual(offsets,sorted(offsets))
+        smoke=(ROOT/"scripts/admin-https-smoke.sh").read_text()
+        self.assertIn("ci_reject_password_audit",smoke)
+        self.assertIn('check 503 -b "$jar"',smoke)
+        self.assertIn('[[ "$(password_state)" == "$prior_password_state" ]]',smoke)
+
     def test_baseline_lab_path_and_router_behavior_unchanged(self):
         server=(API/"Program.cs").read_text()
         self.assertIn("AdminBasicAuth.Matches(",server)

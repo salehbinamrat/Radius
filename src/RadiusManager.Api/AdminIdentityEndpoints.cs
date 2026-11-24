@@ -2,6 +2,7 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 
 namespace RadiusManager.Api;
 
@@ -41,7 +42,7 @@ public static class AdminIdentityEndpoints
             if (!ctx.Request.IsHttps || !await csrf.IsRequestValidAsync(ctx))
                 return Results.StatusCode(403);
             if (string.IsNullOrWhiteSpace(input.Username) || input.Username.Length > 80
-                || string.IsNullOrEmpty(input.Password))
+                || string.IsNullOrEmpty(input.Password) || input.Password.Length > 256)
                 return Results.BadRequest(new { error = "بيانات الدخول غير صالحة" });
 
             var user = await users.FindByNameAsync(input.Username);
@@ -119,24 +120,55 @@ public static class AdminIdentityEndpoints
             if (!ctx.Request.IsHttps || !await csrf.IsRequestValidAsync(ctx))
                 return Results.StatusCode(403);
             if (ctx.User.Identity?.IsAuthenticated != true) return Results.Unauthorized();
-            var user = await users.GetUserAsync(ctx.User);
-            if (user is null) return Results.Unauthorized();
-            if (string.IsNullOrEmpty(input.CurrentPassword) || string.IsNullOrEmpty(input.NewPassword))
-                return Results.BadRequest(new { error = "أدخل كلمة المرور الحالية والجديدة" });
-            var changed = await users.ChangePasswordAsync(user, input.CurrentPassword, input.NewPassword);
-            if (!changed.Succeeded)
+            var uid = ctx.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (!OwnershipRules.ValidOwnerId(uid)) return Results.Unauthorized();
+            if (string.IsNullOrEmpty(input.CurrentPassword) || input.CurrentPassword.Length > 256
+                || string.IsNullOrEmpty(input.NewPassword) || input.NewPassword.Length > 256)
+                return Results.BadRequest(new { error = "أدخل كلمة المرور الحالية والجديدة ضمن الحد المسموح" });
+            var ct = ctx.RequestAborted;
+            try
             {
-                db.AdminAuditEvents.Add(Audit("password_change_rejected", user.Id, "denied"));
-                await db.SaveChangesAsync();
+                // Identity, session registry and the audit event share this scoped EF context.
+                // Serialize changes to one account, then recheck the session AFTER the lock.
+                await using (var tx = await db.Database.BeginTransactionAsync(ct))
+                {
+                    await db.Database.ExecuteSqlRawAsync("SET LOCAL lock_timeout = '5s'", ct);
+                    await db.Database.ExecuteSqlInterpolatedAsync(
+                        $"""SELECT "Id" FROM "AspNetUsers" WHERE "Id"={uid} FOR UPDATE""", ct);
+                    if (await AdminSessionSecurity.GetCurrentAsync(db, ctx.User, DateTime.UtcNow, ct) is null)
+                        return Results.Unauthorized();
+                    var user = await users.FindByIdAsync(uid!);
+                    if (user is null) return Results.Unauthorized();
+                    var changed = await users.ChangePasswordAsync(user, input.CurrentPassword, input.NewPassword);
+                    if (!changed.Succeeded)
+                    {
+                        // Identity can modify tracked fields before a failed update.
+                        // Roll back and discard tracked entities before auditing denial.
+                        await tx.RollbackAsync(ct);
+                        db.ChangeTracker.Clear();
+                    }
+                    else
+                    {
+                        var now = DateTime.UtcNow;
+                        await db.AdminSessions.Where(s => s.UserId == user.Id && s.RevokedAt == null)
+                            .ExecuteUpdateAsync(s => s.SetProperty(x => x.RevokedAt, now), ct);
+                        db.AdminAuditEvents.Add(Audit("password_changed", user.Id, "success"));
+                        await db.SaveChangesAsync(ct);
+                        await tx.CommitAsync(ct);
+                        await signIn.SignOutAsync();
+                        return Results.Ok(new { authenticated = false, sessionsRevoked = true });
+                    }
+                }
+                db.AdminAuditEvents.Add(Audit("password_change_rejected", uid, "denied"));
+                await db.SaveChangesAsync(ct);
                 return Results.BadRequest(new { error = "تعذر تغيير كلمة المرور وفقا للسياسة" });
             }
-            // Reject every outstanding cookie by revoking sessions and rotating Identity stamp.
-            await db.AdminSessions.Where(s => s.UserId == user.Id && s.RevokedAt == null)
-                .ExecuteUpdateAsync(s => s.SetProperty(x => x.RevokedAt, DateTime.UtcNow));
-            db.AdminAuditEvents.Add(Audit("password_changed", user.Id, "success"));
-            await db.SaveChangesAsync();
-            await signIn.SignOutAsync();
-            return Results.Ok(new { authenticated = false, sessionsRevoked = true });
+            catch (Exception ex) when (ex is NpgsqlException or DbUpdateException or TimeoutException)
+            {
+                // Do not return provider details, parameters or credential values.
+                return Results.Json(new { error = "تعذر اعتماد تغيير كلمة المرور؛ تحقق من حالة الجلسة قبل المحاولة مجددا" },
+                    statusCode: 503);
+            }
         }).RequireRateLimiting("admin");
 
         return app;
