@@ -36,3 +36,17 @@ class SecurityIntegrityChecks(unittest.TestCase):
         result = subprocess.run(['python3', str(ROOT / 'scripts/check-tracked-secrets.py')],
                                 cwd=ROOT, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_radius_uses_patched_distribution_and_strict_lab_authenticator(self):
+        docker = (ROOT / 'radius/Dockerfile').read_text()
+        self.assertIn('FROM debian:trixie-slim', docker)
+        self.assertIn('3.2.7+dfsg-1+deb13u2', docker)
+        for name in ('freeradius', 'freeradius-postgresql', 'freeradius-utils'):
+            self.assertIn(name + '="${FREERADIUS_VERSION}"', docker)
+        clients = (ROOT / 'radius/clients.template').read_text()
+        self.assertEqual(clients.count('require_message_authenticator = yes'), 2)
+        self.assertEqual(clients.count('limit_proxy_state = yes'), 2)
+        self.assertNotIn('require_message_authenticator = no', clients)
+        self.assertNotIn('limit_proxy_state = no', clients)
+        ci = (ROOT / '.github/workflows/ci.yml').read_text()
+        self.assertIn('scripts/radius-authenticator-smoke.sh', ci)
