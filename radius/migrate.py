@@ -44,6 +44,11 @@ MIGRATIONS = (
         "public.app_lab_owner_transfers", "public.idx_lab_owner_transfers_account",
         "column:public.app_lab_account_owners.ownership_version",
     )),
+    (8, "008_audit_append_only.sql", (
+        "procedure:public.app_reject_audit_mutation()",
+        "trigger:public.app_admin_audit_events.audit_append_only",
+        "trigger:public.app_lab_owner_transfers.ownership_history_append_only",
+    )),
 )
 FREERADIUS_OBJECTS = (
     "radcheck", "radreply", "radgroupcheck", "radgroupreply",
@@ -60,14 +65,30 @@ def migration_files():
         raw = path.read_bytes()
         data = raw.decode("utf-8")
         # Never execute destructive SQL as an automatic migration.
+        # Only the exact trigger event clauses below are not executable TRUNCATE.
+        # Continue scanning the complete remaining SQL for destructive commands.
+        scan = re.sub(
+            r"(?im)^BEFORE UPDATE OR DELETE OR TRUNCATE ON public\.(?:app_admin_audit_events|app_lab_owner_transfers)\s*$",
+            "", data) if name == "008_audit_append_only.sql" else data
         if re.search(r"\b(?:DROP\s+(?:TABLE|SCHEMA|DATABASE)|TRUNCATE\b)\b",
-                     data, re.IGNORECASE):
+                     scan, re.IGNORECASE):
             raise RuntimeError(f"Destructive SQL is prohibited in {name}")
         files.append((version, name, hashlib.sha256(raw).hexdigest(), data, objects))
     return files
 
 
 def exists(cursor, object_name):
+    if object_name.startswith("trigger:"):
+        schema, table, trigger = object_name[8:].split(".")
+        cursor.execute("""
+            SELECT 1 FROM pg_trigger t
+            JOIN pg_class c ON c.oid=t.tgrelid
+            JOIN pg_namespace n ON n.oid=c.relnamespace
+            WHERE n.nspname=%s AND c.relname=%s AND t.tgname=%s
+              AND NOT t.tgisinternal AND t.tgenabled='A' AND t.tgtype=58
+              AND t.tgfoid=to_regprocedure('public.app_reject_audit_mutation()')
+        """, (schema, table, trigger))
+        return cursor.fetchone() is not None
     if object_name.startswith("column:"):
         schema, table, column = object_name[7:].split(".")
         cursor.execute("""
@@ -176,7 +197,7 @@ def run():
         raise RuntimeError("Non-default migration database is restricted to isolated CI")
     fail_version = os.environ.get("MIGRATION_FAIL_AFTER_SQL_VERSION")
     if fail_version and not (
-        lab_mode and dbname != "radius" and fail_version in ("2", "3", "4", "6", "7")
+        lab_mode and dbname != "radius" and fail_version in ("2", "3", "4", "6", "7", "8")
     ):
         raise RuntimeError("Migration failure injection requires an isolated CI database")
     files = migration_files()

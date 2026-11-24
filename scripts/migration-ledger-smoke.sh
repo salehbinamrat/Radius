@@ -88,15 +88,33 @@ fi
 assert_count "$db_one" "SELECT count(*) FROM app_schema_migrations" 6
 assert_count "$db_one" "SELECT count(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='app_lab_account_owners' AND column_name='ownership_version'" 0
 assert_count "$db_one" "SELECT count(*) FROM pg_catalog.pg_tables WHERE schemaname='public' AND tablename='app_lab_owner_transfers'" 0
-run_migration "$db_one" >"$tmp/restart.log" 2>&1
+# 008 rollback must leave no protection function or triggers and preserve prior data.
+if docker compose run --rm --no-deps -e MIGRATION_DB_NAME="$db_one" \
+     -e LAB_MIGRATION_TEST_MODE=isolated-ci -e MIGRATION_FAIL_AFTER_SQL_VERSION=8 \
+     --entrypoint python3 schema-init /opt/radius/migrate.py >"$tmp/fail8.log" 2>&1; then
+  echo "Version 8 failure injection was unexpectedly accepted" >&2; exit 1
+fi
 assert_count "$db_one" "SELECT count(*) FROM app_schema_migrations" 7
+assert_count "$db_one" "SELECT count(*) FROM pg_proc WHERE proname='app_reject_audit_mutation'" 0
+assert_count "$db_one" "SELECT count(*) FROM pg_trigger WHERE tgname IN ('audit_append_only','ownership_history_append_only')" 0
+run_migration "$db_one" >"$tmp/restart.log" 2>&1
+assert_count "$db_one" "SELECT count(*) FROM app_schema_migrations" 8
 assert_count "$db_one" "SELECT count(*) FROM app_plans WHERE id='$plan_id'::uuid" 1
 run_migration "$db_one" >"$tmp/replay.log" 2>&1
-assert_count "$db_one" "SELECT count(*) FROM app_schema_migrations" 7
+assert_count "$db_one" "SELECT count(*) FROM app_schema_migrations" 8
 docker compose run --rm --no-deps -e MIGRATION_DB_NAME="$db_one" \
   -e LAB_MIGRATION_TEST_MODE=isolated-ci --entrypoint python3 \
   schema-init /opt/radius/migrate.py --verify-only >"$tmp/verify.log" 2>&1
 
+# A disabled guard must be treated as applied-schema drift.
+docker compose exec -T db psql -X -v ON_ERROR_STOP=1 -U radius -d "$db_one" \
+  -c 'ALTER TABLE app_admin_audit_events DISABLE TRIGGER audit_append_only' >/dev/null
+if run_migration "$db_one" >"$tmp/disabled-guard.log" 2>&1; then
+  echo "Disabled audit guard was unexpectedly accepted" >&2; exit 1
+fi
+docker compose exec -T db psql -X -v ON_ERROR_STOP=1 -U radius -d "$db_one" \
+  -c 'ALTER TABLE app_admin_audit_events ENABLE ALWAYS TRIGGER audit_append_only' >/dev/null
+run_migration "$db_one" >"$tmp/guard-verified.log" 2>&1
 # 2. A deliberately corrupted SHA-256 checksum must fail closed.
 docker compose exec -T db psql -X -v ON_ERROR_STOP=1 -U radius -d "$db_one" \
   -c "UPDATE app_schema_migrations SET sha256=repeat('0',64) WHERE version=2" >/dev/null
@@ -118,10 +136,10 @@ run_migration "$db_two" >"$tmp/concurrent2.log" 2>&1 &
 second=$!
 wait "$first"
 wait "$second"
-assert_count "$db_two" "SELECT count(*) FROM app_schema_migrations" 7
+assert_count "$db_two" "SELECT count(*) FROM app_schema_migrations" 8
 assert_count "$db_two" "SELECT count(*) FROM pg_catalog.pg_tables WHERE schemaname='public' AND tablename='app_admin_sessions'" 1
 assert_count "$db_two" "SELECT count(*) FROM pg_catalog.pg_tables WHERE schemaname='public' AND tablename='app_admin_audit_events'" 1
-assert_count "$db_two" "SELECT count(*) FROM app_schema_migrations WHERE filename LIKE '00%.sql'" 7
+assert_count "$db_two" "SELECT count(*) FROM app_schema_migrations WHERE filename LIKE '00%.sql'" 8
 
 # 4. Verification-only mode cannot initialize schema or a migration ledger.
 setup_database "$db_partial"

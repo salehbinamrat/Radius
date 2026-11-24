@@ -171,6 +171,12 @@ def main():
     assert all(set(r)=={"id","previousOwnerId","newOwnerId","actorId","occurredAt"} for r in history["transfers"])
     reseller("GET",path+"/history",403)
     admin("GET","/api/ownership/accounts/lab_0000000000d1/history",404)
+    # Verify actual populated history is protected, even against no-op updates.
+    guard_sql=open("tests/audit_append_only_verify.sql",encoding="utf-8").read()
+    subprocess.run(["docker","compose","-p",project,"-f",compose_file,"exec","-T","db",
+                    "psql","-X","-v","ON_ERROR_STOP=1","-U","radius","-d","radius"],
+                   input=guard_sql,text=True,capture_output=True,check=True,timeout=20)
+    assert admin("GET",path+"/history",200)==history
     print("Version-bound transfer race, owner isolation, stale ABA rejection and correlated audit PASS")
     # Leave exactly one active unassigned and one disabled unassigned voucher
     # in this disposable database for the subsequent real Chromium acceptance.
