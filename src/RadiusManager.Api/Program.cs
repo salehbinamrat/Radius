@@ -233,6 +233,8 @@ api.MapGet("/summary", async (NpgsqlDataSource dataSource, CancellationToken ct)
 
 api.MapGet("/service-status/radius", () => Results.Ok(RadiusHealthEvidence.Read()));
 api.MapGet("/service-status/history", (ServiceObservationHistory history) => Results.Ok(history.Snapshot()));
+api.MapGet("/service-status/alerts", (ServiceObservationHistory history) =>
+    Results.Ok(ServiceAlertProjection.Build(history.Snapshot().Samples, DateTimeOffset.UtcNow)));
 
 api.MapPlanEndpoints();
 
