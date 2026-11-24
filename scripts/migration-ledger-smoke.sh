@@ -71,11 +71,19 @@ if docker compose run --rm --no-deps -e MIGRATION_DB_NAME="$db_one" \
 fi
 assert_count "$db_one" "SELECT count(*) FROM app_schema_migrations" 2
 assert_count "$db_one" "SELECT count(*) FROM pg_catalog.pg_proc WHERE proname='app_lab_usage_snapshot'" 0
-run_migration "$db_one" >"$tmp/restart.log" 2>&1
+# Version 006 must roll back both table and index before its ledger entry.
+if docker compose run --rm --no-deps -e MIGRATION_DB_NAME="$db_one" \
+     -e LAB_MIGRATION_TEST_MODE=isolated-ci -e MIGRATION_FAIL_AFTER_SQL_VERSION=6 \
+     --entrypoint python3 schema-init /opt/radius/migrate.py >"$tmp/fail6.log" 2>&1; then
+  echo "Version 6 failure injection was unexpectedly accepted" >&2; exit 1;
+fi
 assert_count "$db_one" "SELECT count(*) FROM app_schema_migrations" 5
+assert_count "$db_one" "SELECT count(*) FROM pg_catalog.pg_tables WHERE schemaname='public' AND tablename='app_lab_account_owners'" 0
+run_migration "$db_one" >"$tmp/restart.log" 2>&1
+assert_count "$db_one" "SELECT count(*) FROM app_schema_migrations" 6
 assert_count "$db_one" "SELECT count(*) FROM app_plans WHERE id='$plan_id'::uuid" 1
 run_migration "$db_one" >"$tmp/replay.log" 2>&1
-assert_count "$db_one" "SELECT count(*) FROM app_schema_migrations" 5
+assert_count "$db_one" "SELECT count(*) FROM app_schema_migrations" 6
 docker compose run --rm --no-deps -e MIGRATION_DB_NAME="$db_one" \
   -e LAB_MIGRATION_TEST_MODE=isolated-ci --entrypoint python3 \
   schema-init /opt/radius/migrate.py --verify-only >"$tmp/verify.log" 2>&1
@@ -101,10 +109,10 @@ run_migration "$db_two" >"$tmp/concurrent2.log" 2>&1 &
 second=$!
 wait "$first"
 wait "$second"
-assert_count "$db_two" "SELECT count(*) FROM app_schema_migrations" 5
+assert_count "$db_two" "SELECT count(*) FROM app_schema_migrations" 6
 assert_count "$db_two" "SELECT count(*) FROM pg_catalog.pg_tables WHERE schemaname='public' AND tablename='app_admin_sessions'" 1
 assert_count "$db_two" "SELECT count(*) FROM pg_catalog.pg_tables WHERE schemaname='public' AND tablename='app_admin_audit_events'" 1
-assert_count "$db_two" "SELECT count(*) FROM app_schema_migrations WHERE filename LIKE '00%.sql'" 5
+assert_count "$db_two" "SELECT count(*) FROM app_schema_migrations WHERE filename LIKE '00%.sql'" 6
 
 # 4. Verification-only mode cannot initialize schema or a migration ledger.
 setup_database "$db_partial"

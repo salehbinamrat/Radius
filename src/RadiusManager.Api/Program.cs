@@ -251,6 +251,7 @@ app.MapLabSessionEndpoints();
 // Phase 7A: metadata-only NAS drafts; no actual RADIUS client registration.
 app.MapNasDraftEndpoints();
 app.MapAdminIdentityEndpoints(sessionMode);
+app.MapResellerEndpoints(sessionMode);
 if (sessionMode)
 {
     app.MapHub<LabStatusHub>("/hubs/lab-status", options =>

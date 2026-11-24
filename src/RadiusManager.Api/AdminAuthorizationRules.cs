@@ -7,6 +7,8 @@ public static class AdminAuthorizationRules
 {
     public static bool IsAllowed(ClaimsPrincipal user, string method, string? path)
     {
+        if (path == "/api/reseller/accounts")
+            return (method is "GET" or "HEAD") && ResellerScope.OwnerId(user) is not null;
         if (!CanAccessSharedLab(user)) return false;
         if (user.IsInRole("super-admin")) return true;
         if (path is null || !path.StartsWith("/api/", StringComparison.Ordinal)) return false;
@@ -31,7 +33,7 @@ public static class AdminAuthorizationRules
         return false;
     }
 
-    // No owner mapping exists yet. A reseller membership must not inherit shared
+    // Reseller ownership is separate. A reseller membership must not inherit shared
     // laboratory resources from another role, including via the monitoring hub.
     public static bool CanAccessSharedLab(ClaimsPrincipal? user) =>
         user?.Identity?.IsAuthenticated == true && !user.IsInRole("reseller");

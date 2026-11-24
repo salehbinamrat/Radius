@@ -45,10 +45,10 @@ count=$(docker compose -p "$restore_project" -f "$compose_file" exec -T restore-
 SELECT count(*) FROM pg_catalog.pg_tables
 WHERE schemaname='public' AND tablename IN
  ('radcheck','radreply','radgroupcheck','radgroupreply','radusergroup','radacct','radpostauth','nas',
-  'app_plans','app_lab_accounts','app_nas_drafts','app_nas_draft_events')
+  'app_plans','app_lab_accounts','app_nas_drafts','app_nas_draft_events','app_lab_account_owners')
 ")
 count="${count//[[:space:]]/}"
-[[ "$count" == "12" ]] || { echo "Restored schema incomplete: $count of 12 expected tables" >&2; exit 1; }
+[[ "$count" == "13" ]] || { echo "Restored schema incomplete: $count of 13 expected tables for schema 006" >&2; exit 1; }
 if [[ $# == 3 ]]; then
   check=$(docker compose -p "$restore_project" -f "$compose_file" exec -T restore-db \
     psql -X -v ON_ERROR_STOP=1 -U radius -d radius -tA -v plan_id="$2" -v name="$3" <<'SQL'
