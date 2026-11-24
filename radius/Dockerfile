@@ -1,4 +1,4 @@
-FROM debian:trixie-slim
+FROM debian:trixie-slim@sha256:8aa5a7bf5a1955bddbe7d74fcdd0b91ab30e74362a8b73af672b0481b35b44a0
 ENV DEBIAN_FRONTEND=noninteractive
 # Debian stable package with BlastRADIUS fixes; intentional updates require CI.
 ARG FREERADIUS_VERSION=3.2.7+dfsg-1+deb13u2

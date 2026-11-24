@@ -50,3 +50,15 @@ class SecurityIntegrityChecks(unittest.TestCase):
         self.assertNotIn('limit_proxy_state = no', clients)
         ci = (ROOT / '.github/workflows/ci.yml').read_text()
         self.assertIn('scripts/radius-authenticator-smoke.sh', ci)
+
+    def test_build_base_images_have_immutable_digests(self):
+        import re
+        for path, expected in (('radius/Dockerfile', 1), ('src/RadiusManager.Api/Dockerfile', 3)):
+            source = (ROOT / path).read_text()
+            images = re.findall(r'(?m)^FROM (\S+)', source)
+            self.assertEqual(len(images), expected, path)
+            for image in images:
+                self.assertRegex(image, r'@sha256:[a-f0-9]{64}$', path)
+        ci = (ROOT / '.github/workflows/ci.yml').read_text()
+        self.assertIn('docker image inspect postgres:16-bookworm', ci)
+        self.assertIn('scripts/emit-lock-candidate.py', ci)

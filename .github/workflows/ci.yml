@@ -17,7 +17,9 @@ jobs:
         run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
       - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # actions/setup-dotnet@v4
         with: { dotnet-version: '10.0.x' }
-      - run: dotnet restore tests/RadiusManager.Tests/RadiusManager.Tests.csproj
+      - run: dotnet restore tests/RadiusManager.Tests/RadiusManager.Tests.csproj --use-lock-file
+      - name: Capture public NuGet lock candidates for review
+        run: python3 scripts/emit-lock-candidate.py src/RadiusManager.Api/packages.lock.json tests/RadiusManager.Tests/packages.lock.json
       - run: dotnet test tests/RadiusManager.Tests/RadiusManager.Tests.csproj --no-restore -c Release
       - name: Publish the tested API on a clean CI host
         run: dotnet publish src/RadiusManager.Api/RadiusManager.Api.csproj --no-restore -c Release --no-self-contained -o /tmp/radius-api-publish
@@ -44,6 +46,8 @@ jobs:
             echo 'Vite library bundle retained Node process.env; browser startup unsafe' >&2
             exit 1
           fi
+      - name: Capture public frontend lock candidate for review
+        run: python3 scripts/emit-lock-candidate.py src/RadiusManager.Api/frontend/package-lock.json
   compose-integration:
     needs: [dotnet-tests, config-tests]
     runs-on: ubuntu-latest
@@ -62,6 +66,8 @@ jobs:
         run: bash scripts/lab-deployment-preflight.sh
       - run: docker compose config --quiet
       - run: docker compose up -d --build
+      - name: Record actual PostgreSQL image provenance
+        run: docker image inspect postgres:16-bookworm --format '{{json .RepoDigests}}'
       - name: API ready
         run: |
           for i in $(seq 1 30); do
@@ -111,6 +117,8 @@ jobs:
           npm install --prefix tests/browser --no-audit --no-fund --ignore-scripts
           tests/browser/node_modules/.bin/playwright install --with-deps chromium
           tests/browser/node_modules/.bin/playwright test --config tests/browser/playwright.config.mjs
+      - name: Capture public browser lock candidate for review
+        run: python3 scripts/emit-lock-candidate.py tests/browser/package-lock.json
       - run: bash scripts/lab-sessions-smoke.sh
       - run: bash scripts/nas-drafts-smoke.sh
       - name: 'Versioned migrations: isolated rollback, mixed legacy and concurrent starts'

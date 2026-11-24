@@ -1,4 +1,4 @@
-FROM node:24-bookworm-slim AS ui-build
+FROM node:24-bookworm-slim@sha256:873f586f3794f52281bd039bf02c048a0be08fde619338f9941bad1eb6b34530 AS ui-build
 WORKDIR /ui/frontend
 COPY frontend/package.json frontend/tsconfig.json frontend/vite.config.ts ./
 RUN npm install --no-audit --no-fund --ignore-scripts
@@ -10,14 +10,14 @@ COPY wwwroot/service-history-model.mjs wwwroot/service-history-model.d.mts /ui/w
 COPY wwwroot/service-alert-model.mjs wwwroot/service-alert-model.d.mts /ui/wwwroot/
 RUN npm run check && npm run build
 
-FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+FROM mcr.microsoft.com/dotnet/sdk:10.0@sha256:8c6edfb26c85153f236d26efebd9ad349aec403583f343f201ee67838b23658d AS build
 WORKDIR /src
 COPY RadiusManager.Api.csproj ./
 RUN dotnet restore
 COPY . ./
 COPY --from=ui-build /ui/wwwroot/modern ./wwwroot/modern
 RUN dotnet publish -c Release --no-restore -o /app/out
-FROM mcr.microsoft.com/dotnet/aspnet:10.0
+FROM mcr.microsoft.com/dotnet/aspnet:10.0@sha256:aac50ceef10391e78a899e3d2ccd00bbafa2dcb56ccf4586cbccf00edb84fc21
 WORKDIR /app
 COPY --from=build /app/out ./
 # Empty Docker volumes copy this directory's secure ownership on first mount.
