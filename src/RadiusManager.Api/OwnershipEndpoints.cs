@@ -27,7 +27,7 @@ public static class OwnershipRules
         var parts = path.Split('/');
         if (parts.Length != 6 || parts[1] != "api" || parts[2] != "ownership"
             || parts[3] != "accounts" || !LabAccountRules.IsLabUsername(parts[4])) return false;
-        return (method is "GET" or "HEAD") && parts[5] == "owner"
+        return (method is "GET" or "HEAD") && (parts[5] is "owner" or "history")
             || method == "POST" && (parts[5] is "assign" or "transfer");
     }
 }
@@ -155,6 +155,45 @@ public static class OwnershipEndpoints
             return Results.Ok(new { username, active = reader.GetBoolean(0),
                 ownerId = reader.IsDBNull(1) ? null : reader.GetString(1),
                 version = reader.IsDBNull(2) ? (Guid?)null : reader.GetGuid(2), labOnly = true });
+        });
+
+        api.MapGet("/accounts/{username}/history", async (string username, HttpContext ctx, NpgsqlDataSource db, CancellationToken ct) =>
+        {
+            if (!sessionMode || !ctx.Request.IsHttps || OwnershipRules.ActorId(ctx.User) is null)
+                return Results.StatusCode(403);
+            if (!LabAccountRules.IsLabUsername(username)) return Results.BadRequest();
+            // Current owner and bounded history are read in the same SQL statement/snapshot.
+            await using var cmd = db.CreateCommand("""
+                SELECT a.active,o.owner_user_id,o.ownership_version,
+                    t.id,t.previous_owner_id,t.new_owner_id,t.actor_user_id,t.occurred_at
+                FROM app_lab_accounts a
+                LEFT JOIN app_lab_account_owners o ON o.username=a.username
+                LEFT JOIN LATERAL (
+                    SELECT id,previous_owner_id,new_owner_id,actor_user_id,occurred_at
+                    FROM app_lab_owner_transfers WHERE username=a.username
+                    ORDER BY occurred_at DESC,id DESC LIMIT 51
+                ) t ON true
+                WHERE a.username=@name
+                ORDER BY t.occurred_at DESC,t.id DESC
+                """);
+            cmd.Parameters.AddWithValue("name", username);
+            await using var reader = await cmd.ExecuteReaderAsync(ct);
+            if (!await reader.ReadAsync(ct)) return Results.NotFound();
+            var active = reader.GetBoolean(0);
+            var ownerId = reader.IsDBNull(1) ? null : reader.GetString(1);
+            var version = reader.IsDBNull(2) ? (Guid?)null : reader.GetGuid(2);
+            var rows = new List<object>();
+            var hasMore = false;
+            do
+            {
+                if (reader.IsDBNull(3)) continue;
+                if (rows.Count == 50) { hasMore = true; break; }
+                rows.Add(new { id = reader.GetGuid(3), previousOwnerId = reader.GetString(4),
+                    newOwnerId = reader.GetString(5), actorId = reader.GetString(6),
+                    occurredAt = reader.GetDateTime(7) });
+            } while (await reader.ReadAsync(ct));
+            return Results.Ok(new { username, active, ownerId, version, transfers = rows,
+                hasMore, limit = 50, labOnly = true });
         });
 
         api.MapPost("/accounts/{username}/transfer", async (string username, TransferOwnershipInput input,
