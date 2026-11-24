@@ -20,6 +20,12 @@ CANDIDATES = (
     "(username,(COALESCE(acctupdatetime,acctstarttime)) DESC,radacctid DESC)",
 )
 
+def remove_migrated_indexes_for_baseline(cur):
+    # Only called after the disposable DB name and acknowledgement are validated.
+    # Production migration 009 is already installed; preserve historical A/B
+    # comparability by removing these exact indexes only in this test database.
+    cur.execute("DROP INDEX public.idx_app_radacct_recent, public.idx_app_radacct_user_recent")
+
 def seed(cur):
     cur.execute("""
         INSERT INTO app_plans(id,name,upload_kbps,download_kbps)
@@ -142,6 +148,7 @@ def compare_concurrent_writes(conn,db,query):
     # Previous read comparison rolled back. Recreate the fixture and commit
     # only in the disposable database so six independent connections see it.
     with conn.cursor() as cur:
+        remove_migrated_indexes_for_baseline(cur)
         seed(cur)
         cur.execute("""
             CREATE TEMP TABLE perf_original AS
@@ -205,6 +212,7 @@ def main():
             cur.execute("SET LOCAL statement_timeout='60s'")
             cur.execute("SELECT count(*) FROM radacct")
             assert cur.fetchone()==(0,)
+            remove_migrated_indexes_for_baseline(cur)
             seed(cur)
             query=actual_session_query()
             cases=[(state,{"user":"","state":state},query) for state in ("all","open","closed","stale")]

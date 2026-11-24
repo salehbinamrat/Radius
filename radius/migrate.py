@@ -17,7 +17,7 @@ from pathlib import Path
 import psycopg2
 from radius_secret_input import load_hex
 
-ENGINE_VERSION = "2.0.0"
+ENGINE_VERSION = "2.1.0"
 SQL_DIR = Path("/opt/radius")
 MIGRATIONS = (
     (1, "001_app.sql", ("public.app_plans",)),
@@ -50,6 +50,10 @@ MIGRATIONS = (
         "trigger:public.app_admin_audit_events.audit_append_only",
         "trigger:public.app_lab_owner_transfers.ownership_history_append_only",
     )),
+    (9, "009_accounting_read_indexes.sql", (
+        "index:public.idx_app_radacct_recent",
+        "index:public.idx_app_radacct_user_recent",
+    )),
 )
 FREERADIUS_OBJECTS = (
     "radcheck", "radreply", "radgroupcheck", "radgroupreply",
@@ -78,7 +82,35 @@ def migration_files():
     return files
 
 
+# Canonical PostgreSQL 16 index definitions. Qualification of the table
+# depends on search_path; normalize only that and whitespace/case.
+ACCOUNTING_INDEX_DEFINITIONS = {
+    "public.idx_app_radacct_recent":
+        "CREATE INDEX idx_app_radacct_recent ON radacct USING btree (COALESCE(acctupdatetime, acctstarttime) DESC, radacctid DESC)",
+    "public.idx_app_radacct_user_recent":
+        "CREATE INDEX idx_app_radacct_user_recent ON radacct USING btree (username, COALESCE(acctupdatetime, acctstarttime) DESC, radacctid DESC)",
+}
+
+def normalized_index(definition):
+    return re.sub(r"\s+", "", definition.lower().replace("on public.radacct ", "on radacct "))
+
 def exists(cursor, object_name):
+    if object_name.startswith("index:"):
+        name = object_name[6:]
+        cursor.execute("""
+            SELECT c.relkind, i.indisvalid, i.indisready, i.indislive,
+                   i.indrelid=to_regclass('public.radacct'), pg_get_indexdef(c.oid)
+            FROM pg_class c LEFT JOIN pg_index i ON i.indexrelid=c.oid
+            WHERE c.oid=to_regclass(%s)
+        """, (name,))
+        row = cursor.fetchone()
+        if row is None:
+            return False
+        if row[:5] != ("i", True, True, True, True) or not row[5] or (
+            normalized_index(row[5]) != normalized_index(ACCOUNTING_INDEX_DEFINITIONS[name])
+        ):
+            raise RuntimeError(f"Accounting index definition or validity mismatch: {name}")
+        return True
     if object_name.startswith("trigger:"):
         schema, table, trigger = object_name[8:].split(".")
         cursor.execute("""
@@ -196,7 +228,7 @@ def run():
         raise RuntimeError("Non-default migration database is restricted to isolated CI")
     fail_version = os.environ.get("MIGRATION_FAIL_AFTER_SQL_VERSION")
     if fail_version and not (
-        lab_mode and dbname != "radius" and fail_version in ("2", "3", "4", "6", "7", "8")
+        lab_mode and dbname != "radius" and fail_version in ("2", "3", "4", "6", "7", "8", "9")
     ):
         raise RuntimeError("Migration failure injection requires an isolated CI database")
     files = migration_files()
@@ -230,6 +262,8 @@ def run():
             with connection:
                 with connection.cursor() as cursor:
                     cursor.execute(sql)
+                    if version == 9 and object_state(cursor, _objects) != "complete":
+                        raise RuntimeError("Accounting indexes failed verification before commit")
                     if fail_version == str(version):
                         raise RuntimeError(
                             f"CI failure injection after version {version} SQL; transaction rolled back"

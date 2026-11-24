@@ -64,12 +64,15 @@ WHERE schemaname='public' AND tablename IN
   'AspNetUsers','AspNetRoles','AspNetUserRoles','AspNetUserClaims','AspNetRoleClaims','AspNetUserLogins','AspNetUserTokens')
 ")
 count="${count//[[:space:]]/}"
-[[ "$count" == "24" ]] || { echo "Restored schema incomplete: $count of 24 expected tables for schema 008" >&2; exit 1; }
+[[ "$count" == "24" ]] || { echo "Restored schema incomplete: $count of 24 expected tables for schema 009" >&2; exit 1; }
 docker compose -p "$restore_project" -f "$compose_file" exec -T restore-db \
   psql -X -v ON_ERROR_STOP=1 -U radius -d radius -tAc "
 SELECT count(*) FROM information_schema.columns
 WHERE table_schema='public' AND table_name='app_lab_account_owners' AND column_name='ownership_version'
 " | grep -qx 1
+# Verify restored 009 index definitions and validity, not just table count.
+docker compose -p "$restore_project" -f "$compose_file" exec -T restore-db \
+  psql -X -v ON_ERROR_STOP=1 -U radius -d radius < tests/accounting_indexes_verify.sql >/dev/null
 # Verify both restored statement-level guards are enabled ALWAYS, including
 # replication-role mode. The restore is isolated and contains no production database.
 docker compose -p "$restore_project" -f "$compose_file" exec -T restore-db \

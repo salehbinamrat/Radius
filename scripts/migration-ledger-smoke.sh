@@ -97,11 +97,26 @@ fi
 assert_count "$db_one" "SELECT count(*) FROM app_schema_migrations" 7
 assert_count "$db_one" "SELECT count(*) FROM pg_proc WHERE proname='app_reject_audit_mutation'" 0
 assert_count "$db_one" "SELECT count(*) FROM pg_trigger WHERE tgname IN ('audit_append_only','ownership_history_append_only')" 0
-run_migration "$db_one" >"$tmp/restart.log" 2>&1
+# Preserve an actual accounting row across 009 failure and retry.
+docker compose exec -T db psql -X -v ON_ERROR_STOP=1 -U radius -d "$db_one" <<'SQL' >/dev/null
+INSERT INTO radacct(acctsessionid,acctuniqueid,username,nasipaddress,acctstarttime,acctinputoctets,acctoutputoctets)
+VALUES ('migration9','migration9-fixture','lab_000000000009','10.255.70.21',now(),100,200);
+SQL
+if docker compose run --rm --no-deps -e MIGRATION_DB_NAME="$db_one" \
+     -e LAB_MIGRATION_TEST_MODE=isolated-ci -e MIGRATION_FAIL_AFTER_SQL_VERSION=9 \
+     --entrypoint python3 schema-init /opt/radius/migrate.py >"$tmp/fail9.log" 2>&1; then
+  echo "Version 9 failure injection was unexpectedly accepted" >&2; exit 1;
+fi
 assert_count "$db_one" "SELECT count(*) FROM app_schema_migrations" 8
+assert_count "$db_one" "SELECT count(*) FROM pg_class WHERE relname IN ('idx_app_radacct_recent','idx_app_radacct_user_recent')" 0
+assert_count "$db_one" "SELECT count(*) FROM radacct WHERE acctuniqueid='migration9-fixture' AND acctinputoctets=100 AND acctoutputoctets=200" 1
+run_migration "$db_one" >"$tmp/restart.log" 2>&1
+assert_count "$db_one" "SELECT count(*) FROM radacct WHERE acctuniqueid='migration9-fixture' AND acctinputoctets=100 AND acctoutputoctets=200" 1
+docker compose exec -T db psql -X -v ON_ERROR_STOP=1 -U radius -d "$db_one" < tests/accounting_indexes_verify.sql >/dev/null
+assert_count "$db_one" "SELECT count(*) FROM app_schema_migrations" 9
 assert_count "$db_one" "SELECT count(*) FROM app_plans WHERE id='$plan_id'::uuid" 1
 run_migration "$db_one" >"$tmp/replay.log" 2>&1
-assert_count "$db_one" "SELECT count(*) FROM app_schema_migrations" 8
+assert_count "$db_one" "SELECT count(*) FROM app_schema_migrations" 9
 docker compose run --rm --no-deps -e MIGRATION_DB_NAME="$db_one" \
   -e LAB_MIGRATION_TEST_MODE=isolated-ci --entrypoint python3 \
   schema-init /opt/radius/migrate.py --verify-only >"$tmp/verify.log" 2>&1
@@ -115,6 +130,16 @@ fi
 docker compose exec -T db psql -X -v ON_ERROR_STOP=1 -U radius -d "$db_one" \
   -c 'ALTER TABLE app_admin_audit_events ENABLE ALWAYS TRIGGER audit_append_only' >/dev/null
 run_migration "$db_one" >"$tmp/guard-verified.log" 2>&1
+# Same-name wrong-definition index is schema drift, not a valid migration.
+docker compose exec -T db psql -X -v ON_ERROR_STOP=1 -U radius -d "$db_one" \
+  -c 'DROP INDEX public.idx_app_radacct_recent; CREATE INDEX idx_app_radacct_recent ON public.radacct(username)' >/dev/null
+if run_migration "$db_one" >"$tmp/index-drift.log" 2>&1; then
+  echo "Incorrect accounting index definition was accepted" >&2; exit 1;
+fi
+grep -q 'Accounting index definition or validity mismatch' "$tmp/index-drift.log"
+docker compose exec -T db psql -X -v ON_ERROR_STOP=1 -U radius -d "$db_one" \
+  -c 'DROP INDEX public.idx_app_radacct_recent; CREATE INDEX idx_app_radacct_recent ON public.radacct ((COALESCE(acctupdatetime,acctstarttime)) DESC,radacctid DESC)' >/dev/null
+run_migration "$db_one" >"$tmp/index-verified.log" 2>&1
 # 2. A deliberately corrupted SHA-256 checksum must fail closed.
 docker compose exec -T db psql -X -v ON_ERROR_STOP=1 -U radius -d "$db_one" \
   -c "UPDATE app_schema_migrations SET sha256=repeat('0',64) WHERE version=2" >/dev/null
@@ -136,10 +161,10 @@ run_migration "$db_two" >"$tmp/concurrent2.log" 2>&1 &
 second=$!
 wait "$first"
 wait "$second"
-assert_count "$db_two" "SELECT count(*) FROM app_schema_migrations" 8
+assert_count "$db_two" "SELECT count(*) FROM app_schema_migrations" 9
 assert_count "$db_two" "SELECT count(*) FROM pg_catalog.pg_tables WHERE schemaname='public' AND tablename='app_admin_sessions'" 1
 assert_count "$db_two" "SELECT count(*) FROM pg_catalog.pg_tables WHERE schemaname='public' AND tablename='app_admin_audit_events'" 1
-assert_count "$db_two" "SELECT count(*) FROM app_schema_migrations WHERE filename LIKE '00%.sql'" 8
+assert_count "$db_two" "SELECT count(*) FROM app_schema_migrations WHERE filename LIKE '00%.sql'" 9
 
 # 4. Verification-only mode cannot initialize schema or a migration ledger.
 setup_database "$db_partial"
