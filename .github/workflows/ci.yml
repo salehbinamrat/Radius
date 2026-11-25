@@ -158,6 +158,10 @@ jobs:
         env:
           LAB_HTTPS_TEST_ACK: isolated-ci
         run: bash scripts/admin-https-smoke.sh
+      - name: HTTPS Identity acceptance after C# initializer
+        env:
+          LAB_HTTPS_TEST_ACK: isolated-ci
+        run: bash scripts/admin-https-smoke.sh csharp
       - name: Mandatory image vulnerability scan and SBOM
         id: security_scan
         env:

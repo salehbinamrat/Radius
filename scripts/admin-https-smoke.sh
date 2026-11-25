@@ -5,6 +5,10 @@ cd "$(dirname "$0")/.."
 [[ "$(printenv CI || true)" == "true" && "$(printenv LAB_HTTPS_TEST_ACK || true)" == "isolated-ci" ]] || {
   echo "HTTPS acceptance requires isolated GitHub CI acknowledgement" >&2; exit 1;
 }
+initializer="${1:-legacy}"
+[[ $# -le 1 && ( "$initializer" == legacy || "$initializer" == csharp ) ]] || {
+  echo 'Expected legacy or csharp initializer' >&2; exit 1;
+}
 [[ -f .env ]] || { echo "Isolated lab .env missing" >&2; exit 1; }
 # The secondary Compose file lives under tests/. Export the existing isolated
 # lab credentials explicitly so Compose does not search the wrong project dir.
@@ -21,6 +25,12 @@ mkdir -p "$tmp/tls"
 chmod 755 "$tmp" "$tmp/tls"
 project="radiushttps$(python3 -c 'import secrets;print(secrets.token_hex(4))')"
 compose_file=tests/admin-https.compose.yaml
+# Prevent cleanup or setup from taking ownership of a pre-existing project.
+[[ "$project" =~ ^radiushttps[a-f0-9]{8}$ ]]
+[[ -z "$(docker ps -aq --filter "label=com.docker.compose.project=$project")" ]]
+[[ -z "$(docker volume ls -q --filter "label=com.docker.compose.project=$project")" ]]
+[[ -z "$(docker network ls -q --filter "label=com.docker.compose.project=$project")" ]]
+export RADIUS_HTTPS_CSHARP_STACK_ID="$project"
 cleanup() {
   if [[ "$project" =~ ^radiushttps[a-f0-9]{8}$ ]]; then
     docker compose -p "$project" -f "$compose_file" down -v --remove-orphans >/dev/null 2>&1 || true
@@ -37,6 +47,12 @@ api_image=$(docker compose images -q api)
 docker tag "$schema_image" radius-stage3-ci-schema:latest
 docker tag "$api_image" radius-stage3-ci-api:latest
 export RADIUS_HTTPS_FIXTURE_DIR="$tmp/tls"
+if [[ "$initializer" == csharp ]]; then
+  # Use the official SQL from the already-built daemon, not a copied schema.
+  docker compose exec -T radius cat /etc/freeradius/3.0/mods-config/sql/main/postgresql/schema.sql >"$RADIUS_HTTPS_FIXTURE_DIR/official.sql"
+  test -s "$RADIUS_HTTPS_FIXTURE_DIR/official.sql"
+  chmod 644 "$RADIUS_HTTPS_FIXTURE_DIR/official.sql"
+fi
 RADIUS_HTTPS_PFX_PASSWORD=$(python3 -c 'import secrets;print(secrets.token_urlsafe(36))')
 openssl req -x509 -newkey rsa:3072 -sha256 -nodes -days 1 \
   -keyout "$tmp/server.key" -out "$tmp/tls/server.crt" \
@@ -106,8 +122,35 @@ assert env["RADIUS_DP_CERTIFICATE_PATH"]=="/run/radius-tls/data-protection.pfx"
 
 docker compose -p "$project" -f "$compose_file" config --quiet
 # Complete schema initialization before creating the distinct login roles.
-docker compose -p "$project" -f "$compose_file" up -d db schema-init
-docker compose -p "$project" -f "$compose_file" wait schema-init
+if [[ "$initializer" == legacy ]]; then
+  docker compose -p "$project" -f "$compose_file" up -d db schema-init
+  docker compose -p "$project" -f "$compose_file" wait schema-init
+else
+  docker compose -p "$project" -f "$compose_file" up -d --wait db
+  # The owner file is mounted only in this one-shot service. Before marking the
+  # new DB, prove the C# engine refuses the normal name without isolation proof.
+  if docker compose -p "$project" -f "$compose_file" run --rm --no-deps csharp-schema-init >"$tmp/unmarked.log" 2>&1; then
+    echo 'Unmarked HTTPS database accepted by C# initializer' >&2; exit 1
+  fi
+  grep -Fxq 'C# migration execution refused: Isolated stack database marker mismatch' "$tmp/unmarked.log"
+  docker compose -p "$project" -f "$compose_file" exec -T db psql -X -qAt -v ON_ERROR_STOP=1 -U radius -d radius \
+    -c "SELECT to_regclass('public.app_schema_migrations') IS NULL AND to_regclass('public.radcheck') IS NULL" | grep -qx t
+  docker compose -p "$project" -f "$compose_file" exec -T db psql -X -qAt -v ON_ERROR_STOP=1 -U radius -d radius \
+    -v marker="radius-csharp-ci:$project" <<'SQL'
+COMMENT ON DATABASE radius IS :'marker';
+SQL
+  docker compose -p "$project" -f "$compose_file" up -d csharp-schema-init
+  docker compose -p "$project" -f "$compose_file" wait csharp-schema-init
+  init_id=$(docker compose -p "$project" -f "$compose_file" ps -aq csharp-schema-init)
+  [[ "$(docker inspect --format '{{.State.ExitCode}}' "$init_id")" == 0 ]]
+  [[ "$(docker inspect --format '{{.Image}}' "$init_id")" == "$(docker inspect --format '{{.Image}}' "$(docker compose ps -q api)")" ]]
+  docker compose -p "$project" -f "$compose_file" logs --no-color csharp-schema-init |
+    grep -F 'C# migration execution PASS: 10 immutable versions'
+  docker compose -p "$project" -f "$compose_file" exec -T db psql -X -qAt -v ON_ERROR_STOP=1 -U radius -d radius \
+    -c "SELECT count(*) FROM app_schema_migrations WHERE engine_version='3.0.0-csharp-lab'" | grep -qx 10
+  [[ -z "$(docker compose -p "$project" -f "$compose_file" ps -aq schema-init)" ]]
+  echo 'C# HTTPS initializer used exact API image and owner file before restricted role enrollment PASS'
+fi
 # HTTPS fixtures must use the same exact tested database image as the main lab.
 primary_db_image=$(docker inspect --format '{{.Image}}' "$(docker compose ps -q db)")
 https_db_image=$(docker inspect --format '{{.Image}}' "$(docker compose -p "$project" -f "$compose_file" ps -q db)")
@@ -420,3 +463,6 @@ restart_fixture_api
 node tests/browser/https-live-status-smoke.mjs
 # Restore the actual populated, disposable HTTPS database, not the Basic lab.
 bash scripts/audit-recovery-smoke.sh "$project" "$compose_file"
+if [[ "$initializer" == csharp ]]; then
+  echo 'C# HTTPS full acceptance: restricted roles, session security, certificate rotation and populated audit recovery PASS'
+fi
