@@ -6,8 +6,8 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
   echo 'C# stack acceptance requires isolated CI' >&2; exit 1;
 }
 mode="${1:-fresh}"
-[[ $# -le 1 && ( "$mode" == fresh || "$mode" == legacy-upgrade ) ]] || {
-  echo 'Expected fresh or legacy-upgrade' >&2; exit 1;
+[[ $# -le 1 && ( "$mode" == fresh || "$mode" == legacy-upgrade || "$mode" == local-fresh ) ]] || {
+  echo 'Expected fresh, legacy-upgrade or local-fresh' >&2; exit 1;
 }
 umask 077
 tmp=$(mktemp -d)
@@ -25,9 +25,13 @@ printf '%s\n' "$CSHARP_DB_PASSWORD" >"$CSHARP_DB_PASSWORD_FILE"
 # for the non-root API initializer, as in the existing HTTPS fixture.
 chmod 444 "$CSHARP_DB_PASSWORD_FILE"
 compose_file=tests/csharp-stack-candidate.compose.yaml
+compose_args=(-f "$compose_file")
+if [[ "$mode" == local-fresh ]]; then
+  compose_args+=(-f tests/csharp-stack-local.compose.yaml)
+fi
 tags=()
 stack_started=0
-stack() { docker compose -p "$CSHARP_STACK_ID" -f "$compose_file" "$@"; }
+stack() { docker compose -p "$CSHARP_STACK_ID" "${compose_args[@]}" "$@"; }
 cleanup() {
   local status=$?
   if [[ "$stack_started" == 1 ]]; then
@@ -69,6 +73,7 @@ if (cd "$tmp/tampered" && sha256sum --check --strict --status SHA256SUMS); then
   echo 'Tampered migration bundle unexpectedly accepted' >&2; exit 1
 fi
 (cd "$tmp/bundle" && sha256sum --check --strict --status SHA256SUMS)
+export CSHARP_MANIFEST_SHA256="$(sha256sum "$tmp/bundle/SHA256SUMS" | cut -d ' ' -f1)"
 echo 'Packaged migration input identity and tamper detection PASS'
 stack config --quiet
 # Explicitly reject collisions before creating project-owned resources.
@@ -84,9 +89,34 @@ if stack run --rm --no-deps schema-init >"$tmp/unmarked.log" 2>&1; then
 fi
 grep -Fxq 'C# migration execution refused: Isolated stack database marker mismatch' "$tmp/unmarked.log"
 [[ "$(sql -c "SELECT to_regclass('public.app_schema_migrations') IS NULL AND to_regclass('public.radcheck') IS NULL")" == t ]]
-sql -v marker="radius-csharp-ci:$CSHARP_STACK_ID" <<'SQL'
+marker="radius-csharp-ci:$CSHARP_STACK_ID"
+if [[ "$mode" == local-fresh ]]; then
+  marker="radius-csharp-local:$CSHARP_STACK_ID"
+fi
+sql -v marker="$marker" <<'SQL'
 COMMENT ON DATABASE radius IS :'marker';
 SQL
+if [[ "$mode" == local-fresh ]]; then
+  reject_local() {
+    local reason="$1"; shift
+    if stack run --rm --no-deps "$@" schema-init >"$tmp/local-refusal.log" 2>&1; then
+      echo 'Local initializer accepted invalid authorization or input' >&2; exit 1
+    fi
+    grep -Fxq "$reason" "$tmp/local-refusal.log"
+    [[ "$(sql -c "SELECT to_regclass('public.app_schema_migrations') IS NULL AND to_regclass('public.radcheck') IS NULL")" == t ]]
+  }
+  reject_local 'C# local migration requires explicit isolated laboratory acknowledgement' -e RADIUS_LOCAL_MIGRATION_ACK=
+  reject_local 'C# local migration requires explicit isolated laboratory acknowledgement' -e CI=true
+  reject_local 'C# migration execution refused: Local migration requires a trusted manifest SHA-256' -e RADIUS_MIGRATION_MANIFEST_SHA256=
+  reject_local 'C# migration execution refused: Invalid isolated failure injection' -e MIGRATION_FAIL_AFTER_SQL_VERSION=2
+  # Even internally consistent tampered SQL plus a rewritten manifest must fail
+  # against the separate trusted digest supplied at package preparation.
+  cp -a "$tmp/tampered" "$tmp/rewritten"
+  (cd "$tmp/rewritten" && sha256sum official.sql migrations/*.sql image-id.txt source-revision.txt > SHA256SUMS)
+  (cd "$tmp/rewritten" && sha256sum --check --strict --status SHA256SUMS)
+  CSHARP_BUNDLE_DIR="$tmp/rewritten" reject_local 'C# migration execution refused: Migration bundle integrity verification failed'
+  echo 'Local C# initializer authorization and independent manifest digest refusal PASS'
+fi
 # The engine itself must reject altered input, not just the host checksum.
 if CSHARP_BUNDLE_DIR="$tmp/tampered" stack run --rm --no-deps schema-init >"$tmp/bundle-refusal.log" 2>&1; then
   echo 'C# initializer accepted a tampered migration bundle' >&2; exit 1
@@ -129,12 +159,12 @@ init=$(stack ps -aq schema-init)
 stack logs --no-color schema-init | grep -F 'C# migration bundle integrity PASS: 13 expected inputs'
 stack logs --no-color schema-init | grep -F 'C# migration execution PASS: 10 immutable versions'
 }
-if [[ "$mode" == fresh ]]; then verify_initializer; fi
+if [[ "$mode" != legacy-upgrade ]]; then verify_initializer; fi
 for svc in db api radius; do
   case "$svc" in db) expected="$db_id";; api) expected="$api_id";; radius) expected="$radius_id";; esac
   [[ "$(docker inspect --format '{{.Image}}' "$(stack ps -q "$svc")")" == "$expected" ]]
 done
-if [[ "$mode" == fresh ]]; then
+if [[ "$mode" != legacy-upgrade ]]; then
   [[ "$(sql -c "SELECT count(*) FROM app_schema_migrations WHERE engine_version='3.0.0-csharp-lab'")" == 10 ]]
 fi
 wait_ready() {
@@ -233,3 +263,7 @@ if stack exec -T radius radtest "$username" "$password" 127.0.0.1 0 "$CSHARP_RAD
 grep -q 'Access-Reject' "$tmp/auth.log"
 unset password auth
 echo 'C# isolated full-stack startup, UI, API, PAP, accounting, replay and disable PASS'
+if [[ "$mode" == local-fresh ]]; then
+  stack logs --no-color schema-init | grep -F 'C# migration execution PASS: 10 immutable versions (isolated local lab)'
+  echo 'Local C# initialization without CI authorization and full-stack acceptance PASS'
+fi

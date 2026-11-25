@@ -1,0 +1,10 @@
+# Explicit local-laboratory candidate only. Use with csharp-stack-candidate.compose.yaml.
+# Never combine with the primary deployment. No CI flag is needed by the initializer.
+services:
+  schema-init:
+    environment:
+      CI: "false"
+      LAB_MIGRATION_TEST_MODE: ""
+      RADIUS_LOCAL_MIGRATION_ACK: local-lab-only
+      RADIUS_MIGRATION_MANIFEST_SHA256: ${CSHARP_MANIFEST_SHA256:?Trusted manifest SHA-256 required}
+    entrypoint: ["dotnet", "/app/RadiusManager.Api.dll", "--migration-install-local", "/opt/migration-bundle"]

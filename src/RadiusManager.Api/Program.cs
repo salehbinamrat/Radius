@@ -36,6 +36,12 @@ if (args.Length == 2 && args[0] == "--migration-install-bundle-candidate")
         Console.Out, Console.Error, Path.Combine(args[1], "official.sql"), args[1]);
     return;
 }
+if (args.Length == 2 && args[0] == "--migration-install-local")
+{
+    Environment.ExitCode = await MigrationExecutor.RunAsync(Path.Combine(args[1], "migrations"),
+        Console.Out, Console.Error, Path.Combine(args[1], "official.sql"), args[1], localInstall: true);
+    return;
+}
 var builder = WebApplication.CreateBuilder(args);
 var adminAuthMode = Environment.GetEnvironmentVariable("RADIUS_ADMIN_AUTH_MODE") ?? "basic";
 if (adminAuthMode is not ("basic" or "session"))
