@@ -126,3 +126,24 @@ bash "$state/manage.sh" start
 ```
 
 إذا فقدت حاوية أو تغير ملف من ملفات التثبيت، توقف وراجع سبب المشكلة واستخدم مسار الاستعادة المعزول بدلا من إعادة التثبيت على البيانات القائمة. المثبتات الأقدم لا تحتوي manage.sh تلقائيا ولا تعدلها هذه المرحلة. ما زال هذا مختبرا محليا لا يمثل اعتماد الإنتاج.
+
+### حزمة نقل مختبر محلي (مرشح اختباري)
+
+على جهاز التحضير الذي يحتوي صور الإصدار الثلاث الموثوقة (DB/API/FreeRADIUS المخففة):
+
+```bash
+RADIUS_LOCAL_INSTALL_ACK=local-lab-only bash scripts/offline-csharp-local-lab.sh export \
+  "$HOME/radius-transfer" "$DB_IMAGE_ID" "$API_IMAGE_ID" "$RADIUS_IMAGE_ID"
+```
+
+انقل المجلد الناتج إلى الجهاز الجديد، واحتفظ ببصمة SHA256SUMS التي يطبعها المصدر عبر قناة مستقلة موثوقة. قبل تشغيل أي سكربت من الحزمة تحقق من البصمة ومن الملفات (داخل المجلد المنقول، وباستخدام البصمة الموثوقة لا قيمة مقدمة من الحزمة وحدها):
+
+```bash
+cd /absolute/path/radius-transfer
+printf '%s  SHA256SUMS\n' "$TRUSTED_MANIFEST_SHA256" | sha256sum -c - &&
+sha256sum --check --strict SHA256SUMS &&
+RADIUS_LOCAL_INSTALL_ACK=local-lab-only bash scripts/offline-csharp-local-lab.sh install \
+  "$HOME/radius-local-lab" "$TRUSTED_MANIFEST_SHA256"
+```
+
+الحزمة لا تضم بيانات مستخدمين أو ملفات إعدادات خاصة من التثبيت؛ تضم صورا موثوقة جاهزة، والترحيلات العشرة وملفات التشغيل المحددة فقط. لا تستخدم صورا مجهولة المصدر أو Docker خاصا بالإنتاج. Docker وCompose وأدوات المضيف مطلوبة مسبقا. التحقق من البصمات ليس توقيعا رقميا؛ استيراد الصور الموثوقة إلى المحرك المحلي إجراء صريح. لا ترقية تلقائية ولا اعتماد لجهاز معزول فعليا أو ARM64.

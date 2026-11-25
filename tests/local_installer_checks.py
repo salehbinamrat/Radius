@@ -90,3 +90,16 @@ class LocalInstallerChecks(unittest.TestCase):
         self.assertIn("Installer accepted duplicate role images", smoke)
         self.assertIn('service.get("pull_policy") == "never"', smoke)
         self.assertIn('"build" not in service', smoke)
+
+    def test_offline_transfer_reuses_the_installer(self):
+        source = (ROOT / "scripts/offline-csharp-local-lab.sh").read_text()
+        smoke = (ROOT / "scripts/csharp-local-installer-smoke.sh").read_text()
+        for marker in ("local_docker image save", "local_docker image load",
+                       "Offline bundle integrity check failed", "Offline bundle platform mismatch",
+                       "scripts/install-csharp-local-lab.sh", "LICENSES.md"):
+            self.assertIn(marker, source)
+        self.assertLess(source.index("manifest | cmp"), source.index("local_docker image load"))
+        self.assertNotIn("docker pull", source)
+        self.assertNotIn("docker build", source)
+        self.assertIn("Offline installer accepted modified bundle", smoke)
+        self.assertIn("Offline bundle export, integrity refusal and local image import PASS", smoke)
