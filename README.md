@@ -1,27 +1,29 @@
-# Radius — local private-network RADIUS lab (Phase 2)
+# Radius — private-network RADIUS and ISP management laboratory
 
-> **Laboratory only — not production ready.** No real customer vouchers or MikroTik production routers should be connected yet.
+> **Laboratory only — not production ready.** Do not connect real subscriber accounts or production MikroTik routers.
 
-This is the first phase of a self-hosted RADIUS management project for MikroTik RouterOS 6 Hotspot networks.
+Current architecture: ASP.NET Core / C# .NET 10, FreeRADIUS source build, PostgreSQL 16, React/TypeScript and existing JavaScript RTL interface, SignalR, Docker Compose on Linux.
 
-**Components:** FreeRADIUS 3.x, PostgreSQL 16, ASP.NET Core 10 API, Arabic RTL web interface, Docker Compose, automated tests.
+## Verified laboratory capabilities
 
-**Implemented:** experimental plans, stable RADIUS rate-limit groups, API-generated lab-only vouchers with strong random credentials, administrative listing/disable, and authenticated PAP smoke tests.
+Plans with stable rate-limit groups; individual synthetic vouchers with one-time credential display; administrative sessions and role-scoped access in the HTTPS test profile; reseller ownership and audited transfers; read-only NAS drafts; service monitoring, alert history and incidents; observational accounting including 64-bit cumulative counters and distinct synthetic NAS session identity; versioned migrations and encrypted logical recovery. See the pinned evidence and limits in [Phase 01 audit](PHASE01_AUDIT_AR.md).
 
-**Not implemented:** production vouchers, quota/validity enforcement, cross-site shared credit, simultaneous-use enforcement, failover, or verification on actual RouterOS hardware. Do not market or sell cards with this phase.
+## Not approved for production
 
-See [README_AR.md](README_AR.md) for the Arabic setup guide and [PROJECT_STATUS_AR.md](PROJECT_STATUS_AR.md) for verification limitations.
+Quota, validity and simultaneous-session enforcement, live NAS enrollment, device-specific RouterOS v6/v7 compatibility, production vouchers and billing, high availability and production deployment remain open. The default Compose profile is a loopback laboratory profile, not the separate restricted HTTPS acceptance configuration. The source-built FreeRADIUS scan is not a complete source-level security attestation.
+
+See [README_AR.md](README_AR.md) for setup. Historical status documents describe earlier snapshots, not the current release.
 
 ## Safe local tests
 
 ```bash
-python3 tests/config_checks.py
-node --test tests/js/*.test.mjs
-bash -n scripts/*.sh radius/*.sh
+bash scripts/ci-config-checks.sh
+dotnet restore tests/RadiusManager.Tests/RadiusManager.Tests.csproj --locked-mode
+dotnet test tests/RadiusManager.Tests/RadiusManager.Tests.csproj --no-restore -c Release
 ```
 
-Integration tests require a Linux Docker host and .NET SDK, or the included GitHub Actions CI. All network service ports bind to localhost by default.
+Node 24, Python 3, Bash and .NET 10 are required for these checks. Docker integration and security checks run in CI after the parallel gates. Never use a production database for laboratory fixtures.
 
 ## Repository workflow
 
-Develop on a feature branch, run tests and Docker integration, then open a pull request. Do not merge while any check is failing.
+Use a separate branch and pull request, preserve all compatibility contracts, require all mandatory checks on the exact proposed revision, and do not merge a failing or incomplete change.
