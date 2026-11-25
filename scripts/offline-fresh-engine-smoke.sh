@@ -31,6 +31,13 @@ sudo env -i PATH="$PATH" HOME=/root CI=true \
 set -euo pipefail
 set +x
 work="$1"; package="$2"; digest="$3"; host_id="$4"; host_mount="$5"; host_net="$6"; ui="$7"
+# The caller protects installer secrets with umask 077. A fresh containerd
+# snapshotter must not inherit that file-creation mask: directories created
+# while unpacking/creating snapshots need normal non-root traversal.
+# Keep the enclosing work directory private; only daemon creation uses 022.
+[[ "$(stat -c %a "$work")" == 700 ]]
+echo "Inherited isolated launcher umask: $(umask)"
+umask 022
 [[ "$(readlink /proc/self/ns/mnt)" != "$host_mount" && "$(readlink /proc/self/ns/net)" != "$host_net" ]]
 [[ "$(ip -o link show | wc -l)" == 1 ]]
 ip link set lo up
@@ -102,6 +109,7 @@ for attempt in $(seq 1 30); do
   sleep 1
 done
 [[ "$runtime_ready" == 1 ]]
+[[ "$(awk '/^Umask:/ {print $2}' "/proc/$runtime/status")" == 0022 ]]
 [[ -z "$(ctr --address "$work/containerd.sock" namespaces list -q)" ]]
 dockerd --config-file "$work/daemon.json" --host "unix://$work/docker.sock" \
   --containerd "$work/containerd.sock" --data-root "$work/data" --exec-root "$work/exec" \
@@ -115,6 +123,8 @@ for attempt in $(seq 1 60); do
   sleep 1
 done
 [[ "$ready" == 1 ]]
+[[ "$(awk '/^Umask:/ {print $2}' "/proc/$daemon/status")" == 0022 ]]
+echo 'Independent Docker and containerd use normal creation masks; work directory remains private'
 # Verify that the bridge created by the private daemon is visible through
 # both netlink and the matching sysfs mount before starting any application.
 ip link show docker0 >/dev/null
@@ -139,6 +149,9 @@ echo "Independent containerd and matching image store: $store"
 no_external_route
 echo 'Fresh isolated Docker engine: no images, containers, volumes or external default route'
 state="$work/install"
+# The real installer and its generated secrets remain private, including
+# any files created before the installer explicitly sets its own mask.
+umask 077
 echo 'Starting verified offline package installation on isolated engine'
 RADIUS_LOCAL_INSTALL_ACK=local-lab-only bash "$package/scripts/offline-csharp-local-lab.sh" install "$state" "$digest"
 # Exactly the three transported images; the installer creates only its own tags.

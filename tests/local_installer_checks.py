@@ -147,3 +147,16 @@ class LocalInstallerChecks(unittest.TestCase):
         self.assertLess(source.index('diagnostic_docker logs'), source.index('kill "$daemon"'))
         self.assertLess(source.index('/sys/class/net/docker0/bridge'),
                         source.index('offline-csharp-local-lab.sh" install'))
+
+    def test_offline_daemon_masks_and_postgres_execution_preflight(self):
+        source = (ROOT / "scripts/offline-fresh-engine-smoke.sh").read_text()
+        installer = INSTALLER.read_text()
+        self.assertLess(source.index("umask 022"), source.index("containerd --config"))
+        self.assertLess(source.index('"/proc/$runtime/status"'), source.index("dockerd --config-file"))
+        self.assertIn('"/proc/$daemon/status"', source)
+        self.assertIn('stat -c %a "$work"', source)
+        self.assertLess(source.index("umask 077"), source.index('offline-csharp-local-lab.sh" install'))
+        self.assertIn('gosu postgres /usr/local/bin/docker-entrypoint.sh postgres --version', installer)
+        self.assertLess(installer.index("Local PostgreSQL non-root entrypoint preflight PASS"),
+                        installer.index('mkdir -- "$state"'))
+        self.assertIn('Local PostgreSQL non-root execution preflight failed', installer)

@@ -67,6 +67,19 @@ if [[ "$runtime" == slim ]]; then
     exit 2
   fi
 fi
+# A successful image lookup does not prove a non-root executable can run
+# after image import. Use the exact DB image, no network or persistent data.
+# --version makes the upstream entrypoint skip initialization.
+if ! local_docker run --rm --pull never --network none --read-only \
+    --entrypoint /bin/sh "$db_id" -ec '
+      stat -c "%a %u:%g %n" / /usr /usr/local /usr/local/bin /usr/local/bin/docker-entrypoint.sh
+      test "$(id -u postgres)" != 0
+      gosu postgres /usr/local/bin/docker-entrypoint.sh postgres --version
+    '; then
+  echo 'Local PostgreSQL non-root execution preflight failed; inspect runtime permissions' >&2
+  exit 2
+fi
+echo 'Local PostgreSQL non-root entrypoint preflight PASS'
 project="radiuscsharp$(openssl rand -hex 4)"
 [[ "$project" =~ ^radiuscsharp[a-f0-9]{8}$ ]]
 [[ -z "$(local_docker ps -aq --filter "label=com.docker.compose.project=$project")" ]]
