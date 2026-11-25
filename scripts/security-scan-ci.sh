@@ -146,4 +146,19 @@ if ! python3 scripts/verify-security-evidence.py "$reports"; then
   echo 'Runtime security evidence gate failed' >&2
   failed=1
 fi
+# Independently scan the exact reduced candidate. The original three gates
+# and legacy baseline remain mandatory; the candidate cannot clear their failures.
+slim=$(cat "$reports/radius-slim-image-id.txt")
+[[ "$slim" =~ ^sha256:[a-f0-9]{64}$ ]]
+[[ "$(docker image inspect radius-slim-candidate:ci --format '{{.Id}}')" == "$slim" ]]
+"$scanner" image --image-src docker --format cyclonedx --output "$reports/radius-slim.cdx.json" "$slim"
+if "$scanner" image --image-src docker --scanners vuln --severity HIGH,CRITICAL \
+    --exit-code 1 --exit-on-eol 1 --format json --output "$reports/radius-slim.vulnerabilities.json" "$slim"; then
+  echo 'Reduced RADIUS image vulnerability gate passed'
+else
+  failed=1
+fi
+if ! python3 scripts/verify-radius-slim-evidence.py "$reports"; then
+  failed=1
+fi
 exit "$failed"

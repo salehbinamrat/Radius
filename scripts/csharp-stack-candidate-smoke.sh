@@ -44,6 +44,11 @@ cleanup() {
 trap cleanup EXIT
 for svc in db api radius; do
   id=$(docker inspect --format '{{.Image}}' "$(docker compose ps -q "$svc")")
+  if [[ "$svc" == radius && -n "${RADIUS_SLIM_IMAGE_ID:-}" ]]; then
+    [[ "$mode" == local-fresh && "${RADIUS_SLIM_IMAGE_ID}" =~ ^sha256:[a-f0-9]{64}$ ]]
+    id="$RADIUS_SLIM_IMAGE_ID"
+    [[ "$(docker image inspect --format '{{.Id}}' "$id")" == "$id" ]]
+  fi
   [[ "$id" =~ ^sha256:[a-f0-9]{64}$ ]]
   tag="radius-ci-$svc:$CSHARP_STACK_ID"
   docker tag "$id" "$tag"
