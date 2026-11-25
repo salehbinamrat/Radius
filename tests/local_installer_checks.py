@@ -56,7 +56,8 @@ class LocalInstallerChecks(unittest.TestCase):
         smoke = (ROOT / "scripts/csharp-local-installer-smoke.sh").read_text()
         for marker in ("installation.sha256", "sha256sum --check --strict --status",
                        "Local service identity mismatch", "Original local service container missing",
-                       "stack start db", "stack start radius api", "stack stop db",
+                       'local_docker start "${original[db]}"', 'local_docker start "${original[radius]}" "${original[api]}"',
+                       'local_docker stop "${original[db]}"', "flock -n 9",
                        "radius-csharp-local:", "SELECT count(*) FROM app_schema_migrations"):
             self.assertIn(marker, manager)
         for forbidden in ("stack up", "stack down", "docker pull", "rm -rf", "--build"):
@@ -71,3 +72,8 @@ class LocalInstallerChecks(unittest.TestCase):
             self.assertIn(marker, manager)
         self.assertIn("Manager accepted substituted container identity", smoke)
         self.assertIn("Manager accepted mismatched migration ledger", smoke)
+        self.assertIn("Manager accepted concurrent lifecycle invocation", smoke)
+        self.assertIn("command -v flock", installer)
+        self.assertLess(manager.index("flock -n 9"), manager.index("stack ps -aq"))
+        self.assertNotIn("stack start", manager)
+        self.assertNotIn("stack stop", manager)
