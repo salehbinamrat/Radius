@@ -81,6 +81,7 @@ if [[ "$runtime" == slim ]]; then
   # Execute the installer from the exported tree, without a checkout or SDK.
   RADIUS_LOCAL_INSTALL_ACK=local-lab-only bash "$package/scripts/offline-csharp-local-lab.sh" install "$state" "$digest"
   echo 'Offline bundle export, integrity refusal and local image import PASS'
+  CSHARP_OFFLINE_TEST_ACK=isolated-ci bash scripts/offline-fresh-engine-smoke.sh "$package" "$digest"
 else
   RADIUS_LOCAL_INSTALL_ACK=local-lab-only bash scripts/install-csharp-local-lab.sh "$state" "${ids[@]}"
 fi

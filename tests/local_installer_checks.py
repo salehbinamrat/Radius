@@ -103,3 +103,17 @@ class LocalInstallerChecks(unittest.TestCase):
         self.assertNotIn("docker build", source)
         self.assertIn("Offline installer accepted modified bundle", smoke)
         self.assertIn("Offline bundle export, integrity refusal and local image import PASS", smoke)
+
+    def test_offline_acceptance_is_mandatory_and_isolated(self):
+        smoke = (ROOT / "scripts/csharp-local-installer-smoke.sh").read_text()
+        isolated = (ROOT / "scripts/offline-fresh-engine-smoke.sh").read_text()
+        self.assertIn("CSHARP_OFFLINE_TEST_ACK=isolated-ci bash scripts/offline-fresh-engine-smoke.sh", smoke)
+        for marker in ("GITHUB_ACTIONS", "unshare --mount --net --pid",
+                       "--data-root", "--exec-root", "--storage-driver vfs",
+                       'mount --bind "$work/docker.sock" /var/run/docker.sock',
+                       'docker_local image ls -aq', 'docker_local volume ls -q',
+                       "no_external_route", "Offline fresh-engine installation and persistent restart PASS"):
+            self.assertIn(marker, isolated)
+        self.assertLess(isolated.index("docker_local volume ls -q"), isolated.index('offline-csharp-local-lab.sh" install'))
+        self.assertIn('bash "$state/manage.sh" stop', isolated)
+        self.assertIn('bash "$state/manage.sh" start', isolated)
