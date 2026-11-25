@@ -19,6 +19,28 @@ public sealed class LabSessionRulesTests
     public void UnsupportedStateAndNonLabUsernamesRejected(string state, string username) =>
         Assert.NotNull(LabSessionRules.Validate(state, username));
 
+    [Fact]
+    public void ObservationTimestampUsesPostgreSqlMicrosecondPrecision()
+    {
+        var input = new DateTime(2026, 11, 25, 0, 0, 0, DateTimeKind.Utc).AddTicks(17);
+        var observed = LabSessionRules.NormalizeObservationTime(input);
+        Assert.Equal(DateTimeKind.Utc, observed.Kind);
+        Assert.Equal(input.AddTicks(-7), observed);
+    }
+
+    [Fact]
+    public void StaleBoundaryUsesStrictlyOlderThanTenMinutes()
+    {
+        var observed = new DateTime(2026, 11, 25, 0, 0, 0, DateTimeKind.Utc);
+        var cutoff = LabSessionRules.StaleCutoff(observed);
+        Assert.Equal(observed.AddMinutes(-10), cutoff);
+        Assert.Equal("stale", LabSessionRules.Classify(null, cutoff.AddTicks(-10), false, observed));
+        Assert.Equal("open-unconfirmed", LabSessionRules.Classify(null, cutoff, false, observed));
+        Assert.Equal("open-unconfirmed", LabSessionRules.Classify(null, cutoff.AddTicks(10), false, observed));
+        Assert.Equal("anomaly", LabSessionRules.Classify(null, cutoff, true, observed));
+        Assert.Equal("closed", LabSessionRules.Classify(observed, cutoff, false, observed));
+    }
+
     [Theory]
     [InlineData(false, 1, false, "closed")]
     [InlineData(true, 2, false, "open-unconfirmed")]

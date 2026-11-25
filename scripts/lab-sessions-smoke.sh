@@ -69,4 +69,19 @@ curl -fsS -u "$ADMIN_USER:$ADMIN_PASSWORD" "$API/lab-sessions?state=closed&usern
  python3 -c 'import sys,json; j=json.load(sys.stdin); assert len(j["sessions"])==1,j; s=j["sessions"][0]; assert s["classification"]=="closed" and s["uploadBytes"]==2048 and s["downloadBytes"]==8192,s'
 curl -fsS -u "$ADMIN_USER:$ADMIN_PASSWORD" "$API/lab-sessions?state=open&username=$username" | \
  python3 -c 'import sys,json; j=json.load(sys.stdin); assert len(j["sessions"])==0,j'
+# A synthetic old and recent open session must be classified against the
+# exact observation timestamp returned by the API, not a second clock.
+docker compose exec -T db psql -X -v ON_ERROR_STOP=1 -U radius -d radius -v name="$username" <<'SQL' >/dev/null
+INSERT INTO radacct(acctsessionid,acctuniqueid,username,nasipaddress,
+    acctstarttime,acctupdatetime,acctinputoctets,acctoutputoctets)
+VALUES ('stale-proof',md5(:'name'||'-stale'),:'name','10.255.70.21',
+        now()-interval '20 minutes',now()-interval '11 minutes',1,2),
+       ('fresh-proof',md5(:'name'||'-fresh'),:'name','10.255.70.21',
+        now()-interval '20 minutes',now()-interval '9 minutes',3,4);
+SQL
+curl -fsS -u "$ADMIN_USER:$ADMIN_PASSWORD" "$API/lab-sessions?state=stale&username=$username" | \
+ python3 -c 'import sys,json,datetime as d; j=json.load(sys.stdin); rows=j["sessions"]; assert len(rows)==1; s=rows[0]; assert s["sessionId"]=="stale-proof" and s["classification"]=="stale"; parse=lambda v:d.datetime.fromisoformat(v.replace("Z","+00:00")); assert parse(s["updatedAt"]) < parse(j["observedAt"])-d.timedelta(minutes=10)'
+curl -fsS -u "$ADMIN_USER:$ADMIN_PASSWORD" "$API/lab-sessions?state=open&username=$username" | \
+ python3 -c 'import sys,json; j=json.load(sys.stdin); assert {s["sessionId"]:s["classification"] for s in j["sessions"]}=={"stale-proof":"stale","fresh-proof":"open-unconfirmed"}'
 echo 'Read-only laboratory session API: authorization, bounds, isolation, Start/Interim/Stop PASS'
+echo 'Session filter and classification observation-time consistency PASS'
