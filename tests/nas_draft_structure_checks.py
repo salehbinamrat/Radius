@@ -33,6 +33,11 @@ class TestNasDraft(unittest.TestCase):
         self.assertIn('scripts/nas-drafts-smoke.sh',ci)
         runner=(R/'scripts/ci-config-checks.sh').read_text()
         self.assertIn("python3 -m unittest discover -s tests -p '*checks.py'",runner)
-        self.assertIn('node --check',runner)
+        # The runner delegates syntax validation to a shared, fail-closed gate.
+        self.assertIn('bash scripts/check-source-syntax.sh',runner)
+        syntax=(R/'scripts/check-source-syntax.sh').read_text()
+        self.assertIn('wwwroot/**/*.mjs',syntax)
+        self.assertIn('node --check "$file"',syntax)
+        self.assertIn('for file in "${modules[@]}"; do',syntax)
         self.assertTrue((R/'src/RadiusManager.Api/wwwroot/nas-drafts.mjs').is_file())
 if __name__=='__main__':unittest.main(verbosity=2)
