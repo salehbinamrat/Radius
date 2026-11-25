@@ -1,0 +1,5 @@
+# PostgreSQL build context is tests/; never ship the test suite.
+**
+!postgres-alpine-remediation.Dockerfile
+!postgres-icu-entrypoint.sh
+!postgres-icu-marker.sh

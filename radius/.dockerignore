@@ -1,0 +1,14 @@
+# The daemon and initialization recipe uses these exact inputs.
+**
+!Dockerfile
+!source-command.sh
+!prepare-native.sh
+!sql.template
+!clients.template
+!default.site
+!start.sh
+!schema-init.sh
+!migrate.py
+!radius_secret_input.py
+!health-probe.sh
+!health-publish.sh
