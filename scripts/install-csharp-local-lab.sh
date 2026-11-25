@@ -11,16 +11,35 @@ state="$1"; shift
 [[ "$state" =~ ^/[a-zA-Z0-9_./-]+$ && "$state" == "$(realpath -m -- "$state")" && ! -e "$state" && ! -L "$state" && -d "$(dirname "$state")" ]] || {
   echo 'Use a new canonical absolute directory with an existing parent; refusing overwrite' >&2; exit 2;
 }
-command -v flock >/dev/null || { echo 'Local lifecycle requires flock (util-linux)' >&2; exit 2; }
+for command in docker flock openssl sha256sum curl; do
+  command -v "$command" >/dev/null || { echo "Missing local installation prerequisite: $command" >&2; exit 2; }
+done
+# flock is provided by util-linux on Ubuntu/Debian.
 # Fixed local socket; no remote Docker context or inherited Compose overrides.
 local_docker() { env -i PATH="$PATH" HOME="$HOME" docker --host unix:///var/run/docker.sock "$@"; }
 for id in "$@"; do
   [[ "$id" =~ ^sha256:[a-f0-9]{64}$ ]] || { echo 'Exact local image IDs required' >&2; exit 2; }
 done
-for id in "$@"; do
-  [[ "$(local_docker image inspect --format '{{.Id}}' "$id")" == "$id" ]] || exit 1
-done
 db_id="$1"; api_id="$2"; radius_id="$3"
+[[ "$db_id" != "$api_id" && "$db_id" != "$radius_id" && "$api_id" != "$radius_id" ]] || {
+  echo 'Distinct DB, API and RADIUS image IDs required' >&2; exit 2;
+}
+# No emulation or cross-platform fallback. Check the actual local Docker daemon.
+platform="$(local_docker info --format '{{.OSType}}/{{.Architecture}}')"
+case "$platform" in
+  linux/x86_64|linux/amd64) platform=linux/amd64 ;;
+  linux/aarch64|linux/arm64) platform=linux/arm64 ;;
+  *) echo 'Unsupported local Docker platform' >&2; exit 2 ;;
+esac
+for id in "$@"; do
+  actual="$(local_docker image inspect --format '{{.Id}} {{.Os}}/{{.Architecture}}' "$id" 2>/dev/null)" || {
+    echo 'Required image is not available locally; no download attempted' >&2; exit 2;
+  }
+  [[ "$actual" == "$id $platform" ]] || {
+    echo 'Local image identity or platform mismatch' >&2; exit 2;
+  }
+done
+local_docker compose version >/dev/null
 runtime="${RADIUS_LOCAL_RUNTIME:-slim}"
 [[ "$runtime" == compatible || "$runtime" == slim ]] || {
   echo 'Expected compatible or slim local runtime' >&2; exit 2;
@@ -94,13 +113,13 @@ stack() {
 }
 stack config --quiet
 # Start only the newly created database. Mark only an empty application baseline.
-stack up -d --wait db
+stack up -d --pull never --no-build --wait db
 sql() { stack exec -T db psql -X -qAt -v ON_ERROR_STOP=1 -U radius -d radius "$@"; }
 [[ "$(sql -c "SELECT to_regclass('public.app_plans') IS NOT NULL AND to_regclass('public.radcheck') IS NULL AND to_regclass('public.app_schema_migrations') IS NULL AND (SELECT shobj_description(oid,'pg_database') IS NULL FROM pg_database WHERE datname=current_database())")" == t ]]
 sql -v marker="radius-csharp-local:$project" <<'SQL'
 COMMENT ON DATABASE radius IS :'marker';
 SQL
-stack up -d api radius
+stack up -d --pull never --no-build api radius
 init="$(stack ps -aq schema-init)"
 [[ -n "$init" && "$(local_docker inspect --format '{{.State.ExitCode}}' "$init")" == 0 ]]
 [[ "$(local_docker inspect --format '{{.Image}}' "$init")" == "$api_id" ]]

@@ -52,6 +52,18 @@ if RADIUS_LOCAL_INSTALL_ACK= bash scripts/install-csharp-local-lab.sh "$state" "
   echo 'Installer accepted missing authorization' >&2; exit 1
 fi
 [[ ! -e "$state" ]]
+# Missing or duplicated images must be rejected before creating the installation.
+missing="sha256:$(printf '%064d' 0)"
+if RADIUS_LOCAL_INSTALL_ACK=local-lab-only bash scripts/install-csharp-local-lab.sh "$state" "${ids[0]}" "${ids[1]}" "$missing" >"$tmp/refusal.log" 2>&1; then
+  echo 'Installer accepted missing local image' >&2; exit 1
+fi
+grep -Fxq 'Required image is not available locally; no download attempted' "$tmp/refusal.log"
+[[ ! -e "$state" ]]
+if RADIUS_LOCAL_INSTALL_ACK=local-lab-only bash scripts/install-csharp-local-lab.sh "$state" "${ids[0]}" "${ids[0]}" "${ids[2]}" >"$tmp/refusal.log" 2>&1; then
+  echo 'Installer accepted duplicate role images' >&2; exit 1
+fi
+grep -Fxq 'Distinct DB, API and RADIUS image IDs required' "$tmp/refusal.log"
+[[ ! -e "$state" ]]
 RADIUS_LOCAL_INSTALL_ACK=local-lab-only bash scripts/install-csharp-local-lab.sh "$state" "${ids[@]}"
 project="$(cat "$state/project-id")"
 [[ "$(stat -c %a "$state")" == 700 && "$(stat -c %a "$state/stack.env")" == 600 ]]
@@ -72,6 +84,8 @@ import json,sys
 from pathlib import Path
 state=Path(sys.argv[1])
 for service in json.load(sys.stdin)["services"].values():
+    assert service.get("pull_policy") == "never"
+    assert "build" not in service
     for mount in service.get("volumes", []):
         if mount["type"]=="bind":
             assert Path(mount["source"]).is_relative_to(state)
