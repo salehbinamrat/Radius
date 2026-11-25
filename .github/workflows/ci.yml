@@ -170,6 +170,10 @@ jobs:
         env:
           LAB_HTTPS_TEST_ACK: isolated-ci
         run: bash scripts/admin-https-smoke.sh csharp
+      - name: Reduced RADIUS runtime candidate and size comparison
+        env:
+          RADIUS_SLIM_TEST_ACK: isolated-ci
+        run: bash scripts/radius-slim-candidate-smoke.sh
       - name: Mandatory image vulnerability scan and SBOM
         id: security_scan
         env:
