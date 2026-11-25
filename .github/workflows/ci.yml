@@ -156,6 +156,10 @@ jobs:
         env:
           CSHARP_STACK_TEST_ACK: isolated-ci
         run: bash scripts/csharp-stack-candidate-smoke.sh local-fresh
+      - name: Actual local C# installation entry point acceptance
+        env:
+          CSHARP_LOCAL_INSTALL_TEST_ACK: isolated-ci
+        run: bash scripts/csharp-local-installer-smoke.sh
       - name: Encrypted backup, isolated restore and migration replay
         run: bash scripts/lab-recovery-smoke.sh
       - name: 'HTTPS Identity acceptance in a dedicated disposable Docker project'
