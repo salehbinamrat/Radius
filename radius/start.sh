@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 # Resolve both inputs and render directly, without secrets in sed arguments.
-python3 /opt/radius/radius_secret_input.py render
+bash /opt/radius/radius_secret_input.sh render
 cp /opt/radius/default.site /etc/freeradius/3.0/sites-available/default
 ln -sfn ../mods-available/sql /etc/freeradius/3.0/mods-enabled/sql
 # This deployment serves PAP/CHAP/MS-CHAP, not EAP. Disable unused listeners

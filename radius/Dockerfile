@@ -46,6 +46,7 @@ COPY start.sh /usr/local/bin/start.sh
 COPY schema-init.sh /usr/local/bin/schema-init.sh
 COPY migrate.py /opt/radius/migrate.py
 COPY radius_secret_input.py /opt/radius/radius_secret_input.py
+COPY radius_secret_input.sh /opt/radius/radius_secret_input.sh
 COPY health-probe.sh /usr/local/bin/radius-health-probe.sh
 COPY health-publish.sh /usr/local/bin/radius-health-publish.sh
 RUN chmod +x /usr/local/bin/start.sh /usr/local/bin/schema-init.sh /usr/local/bin/radius-health-probe.sh /usr/local/bin/radius-health-publish.sh \
