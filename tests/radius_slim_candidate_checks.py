@@ -22,6 +22,7 @@ class RadiusSlimCandidateChecks(unittest.TestCase):
                         ci.index("bash scripts/security-scan-ci.sh"))
         for marker in ("--network none", "RADIUS_SLIM_IMAGE_ID", "local-fresh", "radius-slim-image-id.txt"):
             self.assertIn(marker, smoke)
+        self.assertIn("bash scripts/csharp-local-installer-smoke.sh", smoke)
         self.assertIn('for service in api radius db;', scan)
         self.assertIn('radius-slim.vulnerabilities.json', scan)
         self.assertIn('python3 scripts/verify-radius-slim-evidence.py "$reports"', scan)

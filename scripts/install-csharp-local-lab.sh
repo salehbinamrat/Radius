@@ -20,6 +20,25 @@ for id in "$@"; do
   [[ "$(local_docker image inspect --format '{{.Id}}' "$id")" == "$id" ]] || exit 1
 done
 db_id="$1"; api_id="$2"; radius_id="$3"
+runtime="${RADIUS_LOCAL_RUNTIME:-compatible}"
+[[ "$runtime" == compatible || "$runtime" == slim ]] || {
+  echo 'Expected compatible or slim local runtime' >&2; exit 2;
+}
+if [[ "$runtime" == slim ]]; then
+  # Inspect the actual clean image before creating any project resources.
+  if ! local_docker run --rm --pull never --network none --read-only --cap-drop ALL \
+      --security-opt no-new-privileges:true --entrypoint sh "$radius_id" -ec '
+        if command -v python3 || command -v python; then exit 1; fi
+        test ! -e /opt/radius/migrate.py
+        test ! -e /opt/radius/radius_secret_input.py
+        test ! -e /usr/local/bin/schema-init.sh
+        test -x /usr/local/bin/start.sh
+        test -x /usr/local/bin/radius-health-probe.sh
+        test -s /opt/radius/radius_secret_input.sh
+      ' >/dev/null 2>&1; then
+    echo 'Slim runtime requires the Python-free RADIUS image' >&2; exit 2
+  fi
+fi
 project="radiuscsharp$(openssl rand -hex 4)"
 [[ "$project" =~ ^radiuscsharp[a-f0-9]{8}$ ]]
 [[ -z "$(local_docker ps -aq --filter "label=com.docker.compose.project=$project")" ]]
@@ -33,6 +52,7 @@ mkdir -- "$state"
 # On failure preserve diagnostics and data. No automatic deletion or fallback.
 trap 'echo "Local installation failed; retained state at $state for inspection" >&2' ERR
 printf '%s\n' "$project" >"$state/project-id"
+printf '%s\n' "$runtime" >"$state/runtime-profile"
 for svc in db api radius; do
   case "$svc" in db) id="$db_id";; api) id="$api_id";; radius) id="$radius_id";; esac
   local_docker tag "$id" "radius-local-$svc:$project"
@@ -41,6 +61,12 @@ env -i PATH="$PATH" HOME="$HOME" DOCKER_HOST=unix:///var/run/docker.sock \
   bash scripts/export-csharp-init-bundle.sh "$radius_id" "$state/bundle"
 (cd "$state/bundle" && sha256sum --check --strict --status SHA256SUMS)
 manifest="$(sha256sum "$state/bundle/SHA256SUMS" | cut -d ' ' -f1)"
+# Freeze the two tested Compose files with the installed instance. All mounts
+# now refer to its private state or named volumes, not the source checkout.
+mkdir -- "$state/compose"
+cp -- "$root/tests/csharp-stack-candidate.compose.yaml" "$state/compose/"
+cp -- "$root/tests/csharp-stack-local.compose.yaml" "$state/compose/"
+(cd "$state/compose" && sha256sum csharp-stack-candidate.compose.yaml csharp-stack-local.compose.yaml > SHA256SUMS)
 db_password="$(openssl rand -hex 24)"
 admin_password="$(openssl rand -hex 24)"
 radius_secret="$(openssl rand -hex 24)"
@@ -60,8 +86,8 @@ unset db_password admin_password radius_secret
 # Save exact expected image IDs separately for future verification.
 printf 'db %s\napi %s\nradius %s\n' "$db_id" "$api_id" "$radius_id" >"$state/image-identities.txt"
 stack() {
-  local_docker compose --env-file "$state/stack.env" -p "$project" \
-    -f "$root/tests/csharp-stack-candidate.compose.yaml" -f "$root/tests/csharp-stack-local.compose.yaml" "$@"
+  local_docker compose --project-directory "$state" --env-file "$state/stack.env" -p "$project" \
+    -f "$state/compose/csharp-stack-candidate.compose.yaml" -f "$state/compose/csharp-stack-local.compose.yaml" "$@"
 }
 stack config --quiet
 # Start only the newly created database. Mark only an empty application baseline.

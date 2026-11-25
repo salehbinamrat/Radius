@@ -27,8 +27,24 @@ class LocalInstallerChecks(unittest.TestCase):
                        "stack up -d --wait db", "stack up -d api radius", "retained state",
                        "C# local laboratory installation PASS"):
             self.assertIn(marker, source)
-        for forbidden in ("down -v", "rm -rf", "python3", "--build", "docker pull"):
+        for forbidden in ("down -v", "rm -rf", "python3 /", "--build", "docker pull"):
             self.assertNotIn(forbidden, source)
         ci = (ROOT / ".github/workflows/ci.yml").read_text()
         self.assertIn("run: bash scripts/csharp-local-installer-smoke.sh", ci)
         self.assertNotIn("--migration-install-local", (ROOT / "compose.yaml").read_text())
+
+    def test_slim_profile_and_self_contained_compose_are_explicit(self):
+        source = INSTALLER.read_text()
+        smoke = (ROOT / "scripts/csharp-local-installer-smoke.sh").read_text()
+        compose = (ROOT / "tests/csharp-stack-candidate.compose.yaml").read_text()
+        self.assertIn('RADIUS_LOCAL_RUNTIME:-compatible', source)
+        self.assertIn("Slim runtime requires the Python-free RADIUS image", source)
+        self.assertLess(source.index("Slim runtime requires"), source.index('mkdir -- "$state"'))
+        for marker in ('"$state/compose/csharp-stack-candidate.compose.yaml"',
+                       '"$state/compose/csharp-stack-local.compose.yaml"',
+                       '--project-directory "$state"', 'runtime-profile'):
+            self.assertIn(marker, source)
+        self.assertIn('CSHARP_BUNDLE_DIR:?Required verified migration bundle}/migrations/001_app.sql', compose)
+        self.assertIn('Path(mount["source"]).is_relative_to(state)', smoke)
+        self.assertIn('(cd "$state" && stack stop api radius && stack up -d api radius)', smoke)
+        self.assertIn("Python-free image accepted by actual local installer", smoke)
