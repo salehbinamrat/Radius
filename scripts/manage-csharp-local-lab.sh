@@ -33,13 +33,21 @@ while read -r svc id extra; do
   expected[$svc]="$id"
 done < image-identities.txt
 [[ "${#expected[@]}" == 3 ]]
+declare -A original
+while read -r svc id extra; do
+  [[ "$svc" == db || "$svc" == api || "$svc" == radius || "$svc" == schema-init ]]
+  [[ "$id" =~ ^[a-f0-9]{64}$ && -z "$extra" && ! -v original[$svc] ]]
+  original[$svc]="$id"
+done < container-identities.txt
+[[ "${#original[@]}" == 4 ]]
 for svc in db api radius schema-init; do
   key="$svc"; [[ "$svc" != schema-init ]] || key=api
   container="$(stack ps -aq "$svc")"
   [[ -n "$container" && "$container" != *$'\n'* ]] || {
     echo 'Original local service container missing; recovery required' >&2; exit 1;
   }
-  [[ "$(local_docker inspect --format '{{.Image}}' "$container")" == "${expected[$key]}" &&
+  [[ "$(local_docker inspect --format '{{.Id}}' "$container")" == "${original[$svc]}" &&
+     "$(local_docker inspect --format '{{.Image}}' "$container")" == "${expected[$key]}" &&
      "$(local_docker inspect --format '{{index .Config.Labels "com.docker.compose.project"}}' "$container")" == "$project" ]] || {
     echo 'Local service identity mismatch' >&2; exit 1;
   }
@@ -67,6 +75,11 @@ case "$action" in
       -c "SELECT shobj_description(oid,'pg_database') FROM pg_database WHERE datname=current_database()")" == "radius-csharp-local:$project" ]]
     [[ "$(stack exec -T db psql -X -qAt -v ON_ERROR_STOP=1 -U radius -d radius \
       -c 'SELECT count(*) FROM app_schema_migrations')" == 10 ]]
+    ledger="$(stack exec -T db psql -X -qAt -v ON_ERROR_STOP=1 -U radius -d radius \
+      -c "SELECT row_to_json(m)::text FROM app_schema_migrations m ORDER BY version" | sha256sum | cut -d ' ' -f1)"
+    [[ "$ledger" == "$(cat ledger.sha256)" ]] || {
+      echo 'Local migration ledger identity mismatch; recovery required' >&2; exit 1;
+    }
     stack start radius api
     addr="$(stack port api 8080)"
     [[ "$addr" =~ ^127\.0\.0\.1:[0-9]+$ ]]

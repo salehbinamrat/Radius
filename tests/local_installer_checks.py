@@ -66,3 +66,8 @@ class LocalInstallerChecks(unittest.TestCase):
         self.assertIn('export RADIUS_LOCAL_RUNTIME=compatible', smoke)
         self.assertIn('Manager accepted modified installed Compose file', smoke)
         self.assertIn("Installed manager rejects changed configuration", smoke)
+        for marker in ("container-identities.txt", "ledger.sha256", "ORDER BY version"):
+            self.assertIn(marker, installer)
+            self.assertIn(marker, manager)
+        self.assertIn("Manager accepted substituted container identity", smoke)
+        self.assertIn("Manager accepted mismatched migration ledger", smoke)
