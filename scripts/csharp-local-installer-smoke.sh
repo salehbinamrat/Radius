@@ -34,7 +34,7 @@ runtime=compatible
 if [[ -n "${RADIUS_SLIM_IMAGE_ID:-}" ]]; then
   [[ "$RADIUS_SLIM_IMAGE_ID" =~ ^sha256:[a-f0-9]{64}$ ]]
   # The original image must be refused by the explicitly slim-only installer.
-  if RADIUS_LOCAL_RUNTIME=slim RADIUS_LOCAL_INSTALL_ACK=local-lab-only bash scripts/install-csharp-local-lab.sh "$state" "${ids[@]}" >"$tmp/refusal.log" 2>&1; then
+  if env -u RADIUS_LOCAL_RUNTIME RADIUS_LOCAL_INSTALL_ACK=local-lab-only bash scripts/install-csharp-local-lab.sh "$state" "${ids[@]}" >"$tmp/refusal.log" 2>&1; then
     echo 'Slim installer accepted legacy runtime' >&2; exit 1
   fi
   grep -Fxq 'Slim runtime requires the Python-free RADIUS image' "$tmp/refusal.log"
@@ -42,7 +42,12 @@ if [[ -n "${RADIUS_SLIM_IMAGE_ID:-}" ]]; then
   ids[2]="$RADIUS_SLIM_IMAGE_ID"
   runtime=slim
 fi
-export RADIUS_LOCAL_RUNTIME="$runtime"
+# Compatible is now an explicit fallback; the slim test exercises the default.
+if [[ "$runtime" == slim ]]; then
+  unset RADIUS_LOCAL_RUNTIME
+else
+  export RADIUS_LOCAL_RUNTIME=compatible
+fi
 if RADIUS_LOCAL_INSTALL_ACK= bash scripts/install-csharp-local-lab.sh "$state" "${ids[@]}" >"$tmp/refusal.log" 2>&1; then
   echo 'Installer accepted missing authorization' >&2; exit 1
 fi
@@ -51,6 +56,9 @@ RADIUS_LOCAL_INSTALL_ACK=local-lab-only bash scripts/install-csharp-local-lab.sh
 project="$(cat "$state/project-id")"
 [[ "$(stat -c %a "$state")" == 700 && "$(stat -c %a "$state/stack.env")" == 600 ]]
 [[ "$(cat "$state/runtime-profile")" == "$runtime" ]]
+[[ "$(stat -c %a "$state/manage.sh")" == 700 ]]
+(cd "$state" && sha256sum --check --strict --status installation.sha256)
+(cd "$state" && bash manage.sh status) >/dev/null
 (cd "$state/compose" && sha256sum --check --strict --status SHA256SUMS)
 cmp tests/csharp-stack-candidate.compose.yaml "$state/compose/csharp-stack-candidate.compose.yaml"
 cmp tests/csharp-stack-local.compose.yaml "$state/compose/csharp-stack-local.compose.yaml"
@@ -79,9 +87,50 @@ RADIUS_UI_URL="$url" bash scripts/ui-smoke.sh
 # Verify a stop/start with the same persistent volume and existing ledger.
 db_before="$(stack ps -q db)"
 ledger_before="$(stack exec -T db psql -X -qAt -v ON_ERROR_STOP=1 -U radius -d radius -c "SELECT md5(string_agg(row_to_json(m)::text, ',' ORDER BY version)) FROM app_schema_migrations m")"
-# Restart from the installed directory, not from the source checkout.
-(cd "$state" && stack stop api radius && stack up -d api radius)
+# Reject accidental configuration changes before Docker operations.
+cp "$state/compose/csharp-stack-local.compose.yaml" "$tmp/original-compose"
+printf '\n# synthetic integrity test\n' >>"$state/compose/csharp-stack-local.compose.yaml"
+if (cd "$state" && bash manage.sh stop) >"$tmp/manager-refusal.log" 2>&1; then
+  echo 'Manager accepted modified installed Compose file' >&2; exit 1
+fi
+grep -Fxq 'Local installation integrity check failed' "$tmp/manager-refusal.log"
+cp "$tmp/original-compose" "$state/compose/csharp-stack-local.compose.yaml"
+[[ "$(stack ps -q db)" == "$db_before" && -n "$(stack ps -q api)" && -n "$(stack ps -q radius)" ]]
+# Exercise identity refusal independently of the manifest check, in disposable CI only.
+cp "$state/container-identities.txt" "$tmp/original-identities"
+cp "$state/installation.sha256" "$tmp/original-manifest"
+sed -i "s/^api .*/api $(printf '%064d' 0)/" "$state/container-identities.txt"
+(cd "$state" && sha256sum container-identities.txt > "$tmp/new-hash")
+sed -i '/  container-identities.txt$/d' "$state/installation.sha256"
+cat "$tmp/new-hash" >> "$state/installation.sha256"
+if (cd "$state" && bash manage.sh stop) >"$tmp/manager-refusal.log" 2>&1; then
+  echo 'Manager accepted substituted container identity' >&2; exit 1
+fi
+grep -Fxq 'Local service identity mismatch' "$tmp/manager-refusal.log"
+cp "$tmp/original-identities" "$state/container-identities.txt"
+cp "$tmp/original-manifest" "$state/installation.sha256"
+# Stop and start all original services using the standalone installed manager.
+(cd "$state" && bash manage.sh stop)
+[[ -z "$(stack ps -q db)" && -z "$(stack ps -q api)" && -z "$(stack ps -q radius)" ]]
+# A different expected ledger digest must refuse API/RADIUS startup even at the same row count.
+cp "$state/ledger.sha256" "$tmp/original-ledger"
+printf '%064d\n' 0 >"$state/ledger.sha256"
+(cd "$state" && sha256sum ledger.sha256 > "$tmp/new-hash")
+sed -i '/  ledger.sha256$/d' "$state/installation.sha256"
+cat "$tmp/new-hash" >> "$state/installation.sha256"
+if (cd "$state" && bash manage.sh start) >"$tmp/manager-refusal.log" 2>&1; then
+  echo 'Manager accepted mismatched migration ledger' >&2; exit 1
+fi
+grep -Fxq 'Local migration ledger identity mismatch; recovery required' "$tmp/manager-refusal.log"
+[[ -z "$(stack ps -q api)" && -z "$(stack ps -q radius)" ]]
+cp "$tmp/original-ledger" "$state/ledger.sha256"
+cp "$tmp/original-manifest" "$state/installation.sha256"
+(cd "$state" && bash manage.sh start)
 [[ "$(stack ps -q db)" == "$db_before" ]]
+# All four exact container identities must survive the lifecycle.
+while read -r svc original; do
+  [[ "$(docker inspect --format '{{.Id}}' "$(stack ps -aq "$svc")")" == "$original" ]]
+done <"$state/container-identities.txt"
 [[ "$(stack exec -T db psql -X -qAt -v ON_ERROR_STOP=1 -U radius -d radius -c "SELECT md5(string_agg(row_to_json(m)::text, ',' ORDER BY version)) FROM app_schema_migrations m")" == "$ledger_before" ]]
 url="http://$(stack port api 8080)"
 ready=0
@@ -95,6 +144,7 @@ done
 [[ "$ready" == 1 ]]
 RADIUS_UI_URL="$url" bash scripts/ui-smoke.sh
 echo 'Actual local C# installer, overwrite refusal and persistent restart PASS'
+echo 'Installed manager rejects changed configuration and restarts original containers PASS'
 if [[ "$runtime" == slim ]]; then
   [[ "$(docker inspect --format '{{.Image}}' "$(stack ps -q radius)")" == "$RADIUS_SLIM_IMAGE_ID" ]]
   echo 'Python-free image accepted by actual local installer and independent persisted Compose restart PASS'

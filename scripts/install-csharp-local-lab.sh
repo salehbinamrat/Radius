@@ -20,7 +20,7 @@ for id in "$@"; do
   [[ "$(local_docker image inspect --format '{{.Id}}' "$id")" == "$id" ]] || exit 1
 done
 db_id="$1"; api_id="$2"; radius_id="$3"
-runtime="${RADIUS_LOCAL_RUNTIME:-compatible}"
+runtime="${RADIUS_LOCAL_RUNTIME:-slim}"
 [[ "$runtime" == compatible || "$runtime" == slim ]] || {
   echo 'Expected compatible or slim local runtime' >&2; exit 2;
 }
@@ -85,6 +85,8 @@ chmod 444 "$state/db-password"
 unset db_password admin_password radius_secret
 # Save exact expected image IDs separately for future verification.
 printf 'db %s\napi %s\nradius %s\n' "$db_id" "$api_id" "$radius_id" >"$state/image-identities.txt"
+cp -- "$root/scripts/manage-csharp-local-lab.sh" "$state/manage.sh"
+chmod 700 "$state/manage.sh"
 stack() {
   local_docker compose --project-directory "$state" --env-file "$state/stack.env" -p "$project" \
     -f "$state/compose/csharp-stack-candidate.compose.yaml" -f "$state/compose/csharp-stack-local.compose.yaml" "$@"
@@ -118,6 +120,17 @@ for attempt in $(seq 1 30); do
   sleep 2
 done
 [[ "$ready" == 1 ]]
+# Pin the exact installed container identities and the immutable migration ledger.
+for svc in db api radius schema-init; do
+  container="$(stack ps -aq "$svc")"
+  [[ -n "$container" && "$container" != *$'\n'* ]]
+  container_id="$(local_docker inspect --format '{{.Id}}' "$container")"
+  [[ "$container_id" =~ ^[a-f0-9]{64}$ ]]
+  printf '%s %s\n' "$svc" "$container_id"
+done >"$state/container-identities.txt"
+sql -c "SELECT row_to_json(m)::text FROM app_schema_migrations m ORDER BY version" | sha256sum | cut -d ' ' -f1 >"$state/ledger.sha256"
+(cd "$state" && sha256sum project-id runtime-profile image-identities.txt stack.env db-password \
+  bundle/SHA256SUMS compose/SHA256SUMS manage.sh container-identities.txt ledger.sha256 > installation.sha256)
 printf '%s\n' "http://$addr" >"$state/api-url"
 printf '%s\n' 'C# local laboratory installation PASS'
 printf 'Management URL: http://%s\nPrivate configuration: %s/stack.env\n' "$addr" "$state"
