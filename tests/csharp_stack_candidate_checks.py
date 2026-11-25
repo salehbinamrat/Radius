@@ -16,7 +16,7 @@ class CSharpStackChecks(unittest.TestCase):
     def test_candidate_compose_is_separate(self):
         source = (ROOT / "tests/csharp-stack-candidate.compose.yaml").read_text()
         self.assertIn('condition: service_completed_successfully', source)
-        self.assertIn('--migration-install-candidate', source)
+        self.assertIn('--migration-install-bundle-candidate', source)
         self.assertEqual(source.count("pull_policy: never"), 4)
         self.assertIn('"127.0.0.1::8080/tcp"', source)
         self.assertNotIn("external: true", source)
@@ -42,7 +42,7 @@ class CSharpStackChecks(unittest.TestCase):
         self.assertNotIn("Password=", init)
         script = (ROOT / "scripts/csharp-stack-candidate-smoke.sh").read_text()
         self.assertIn("reject_secret -e RADIUS_DB_PASSWORD_FILE=/run/radius-secrets/missing", script)
-        self.assertIn("reject_secret -e RADIUS_DB_PASSWORD_FILE=/opt/official.sql", script)
+        self.assertIn("reject_secret -e RADIUS_DB_PASSWORD_FILE=/opt/migration-bundle/official.sql", script)
         self.assertIn("Password=invalid-fixture", script)
         self.assertIn("Invalid or conflicting migration database secret source", script)
 

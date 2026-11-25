@@ -28,11 +28,10 @@ services:
       MIGRATION_STACK_ID: ${CSHARP_STACK_ID:?Required isolated project ID}
       ConnectionStrings__RadiusDb: "Host=db;Port=5432;Database=radius;Username=radius"
       RADIUS_DB_PASSWORD_FILE: /run/radius-secrets/db-password
-    entrypoint: ["dotnet", "/app/RadiusManager.Api.dll", "--migration-install-candidate", "/opt/radius", "/opt/official.sql"]
+    entrypoint: ["dotnet", "/app/RadiusManager.Api.dll", "--migration-install-bundle-candidate", "/opt/migration-bundle"]
     volumes:
-      - ${CSHARP_MIGRATIONS_DIR:?Required verified migration bundle}:/opt/radius:ro
+      - ${CSHARP_BUNDLE_DIR:?Required verified migration bundle}:/opt/migration-bundle:ro
       - ${CSHARP_DB_PASSWORD_FILE:?Required private test secret file}:/run/radius-secrets/db-password:ro
-      - ${CSHARP_OFFICIAL_SQL:?Required upstream SQL file}:/opt/official.sql:ro
     depends_on:
       db: {condition: service_healthy}
     networks: [private]

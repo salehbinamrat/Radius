@@ -16,7 +16,8 @@ export CSHARP_STACK_ID="radiuscsharp$(openssl rand -hex 4)"
 export CSHARP_DB_PASSWORD="$(openssl rand -hex 24)"
 export CSHARP_ADMIN_PASSWORD="$(openssl rand -hex 24)"
 export CSHARP_RADIUS_SECRET="$(openssl rand -hex 24)"
-export CSHARP_OFFICIAL_SQL="$tmp/bundle/official.sql"
+export CSHARP_BUNDLE_DIR="$tmp/bundle"
+export CSHARP_OFFICIAL_SQL="$CSHARP_BUNDLE_DIR/official.sql"
 export CSHARP_MIGRATIONS_DIR="$tmp/bundle/migrations"
 export CSHARP_DB_PASSWORD_FILE="$tmp/migration-db-password"
 printf '%s\n' "$CSHARP_DB_PASSWORD" >"$CSHARP_DB_PASSWORD_FILE"
@@ -86,6 +87,13 @@ grep -Fxq 'C# migration execution refused: Isolated stack database marker mismat
 sql -v marker="radius-csharp-ci:$CSHARP_STACK_ID" <<'SQL'
 COMMENT ON DATABASE radius IS :'marker';
 SQL
+# The engine itself must reject altered input, not just the host checksum.
+if CSHARP_BUNDLE_DIR="$tmp/tampered" stack run --rm --no-deps schema-init >"$tmp/bundle-refusal.log" 2>&1; then
+  echo 'C# initializer accepted a tampered migration bundle' >&2; exit 1
+fi
+grep -Fxq 'C# migration execution refused: Migration bundle integrity verification failed' "$tmp/bundle-refusal.log"
+[[ "$(sql -c "SELECT to_regclass('public.app_schema_migrations') IS NULL AND to_regclass('public.radcheck') IS NULL")" == t ]]
+echo 'C# initializer rejected tampered bundle before database writes PASS'
 # Invalid, missing and competing secret sources must fail before any writes.
 # A valid file source is then exercised for fresh and legacy-upgrade paths.
 reject_secret() {
@@ -96,7 +104,7 @@ reject_secret() {
   [[ "$(sql -c "SELECT to_regclass('public.app_schema_migrations') IS NULL AND to_regclass('public.radcheck') IS NULL")" == t ]]
 }
 reject_secret -e RADIUS_DB_PASSWORD_FILE=/run/radius-secrets/missing
-reject_secret -e RADIUS_DB_PASSWORD_FILE=/opt/official.sql
+reject_secret -e RADIUS_DB_PASSWORD_FILE=/opt/migration-bundle/official.sql
 reject_secret -e 'ConnectionStrings__RadiusDb=Host=db;Port=5432;Database=radius;Username=radius;Password=invalid-fixture'
 echo 'C# initializer file secret and fail-closed source checks PASS'
 # The upgrade variant begins with the original Python installer and normal
@@ -118,6 +126,7 @@ verify_initializer() {
 init=$(stack ps -aq schema-init)
 [[ "$(docker inspect --format '{{.State.ExitCode}}' "$init")" == 0 ]]
 [[ "$(docker inspect --format '{{.Image}}' "$init")" == "$api_id" ]]
+stack logs --no-color schema-init | grep -F 'C# migration bundle integrity PASS: 13 expected inputs'
 stack logs --no-color schema-init | grep -F 'C# migration execution PASS: 10 immutable versions'
 }
 if [[ "$mode" == fresh ]]; then verify_initializer; fi
