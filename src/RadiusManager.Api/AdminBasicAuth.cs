@@ -6,23 +6,38 @@ namespace RadiusManager.Api;
 
 public static class AdminBasicAuth
 {
+    private static readonly UTF8Encoding StrictUtf8 = new(false, true);
+
     public static bool Matches(string? value, string expectedUser, string expectedPassword)
     {
         if (string.IsNullOrEmpty(value) || !AuthenticationHeaderValue.TryParse(value, out var header)
             || !string.Equals(header.Scheme, "Basic", StringComparison.OrdinalIgnoreCase)
             || string.IsNullOrEmpty(header.Parameter)) return false;
-        string decoded;
-        try { decoded = Encoding.UTF8.GetString(Convert.FromBase64String(header.Parameter)); }
+
+        byte[]? supplied = null;
+        byte[]? user = null;
+        byte[]? password = null;
+        try
+        {
+            supplied = Convert.FromBase64String(header.Parameter);
+            var separator = Array.IndexOf(supplied, (byte)':');
+            if (separator < 1) return false;
+
+            // Compare the wire bytes without replacement decoding. Invalid UTF-8
+            // cannot equal the strict UTF-8 encoding of a configured credential.
+            user = StrictUtf8.GetBytes(expectedUser);
+            password = StrictUtf8.GetBytes(expectedPassword);
+            // Evaluate both comparisons even when the user name does not match.
+            return CryptographicOperations.FixedTimeEquals(supplied.AsSpan(0, separator), user)
+                & CryptographicOperations.FixedTimeEquals(supplied.AsSpan(separator + 1), password);
+        }
         catch (FormatException) { return false; }
-        var separator = decoded.IndexOf(':');
-        if (separator < 1) return false;
-        var user = decoded[..separator];
-        var password = decoded[(separator + 1)..];
-        var first = Encoding.UTF8.GetBytes(user);
-        var second = Encoding.UTF8.GetBytes(expectedUser);
-        var third = Encoding.UTF8.GetBytes(password);
-        var fourth = Encoding.UTF8.GetBytes(expectedPassword);
-        return CryptographicOperations.FixedTimeEquals(first, second)
-            && CryptographicOperations.FixedTimeEquals(third, fourth);
+        catch (EncoderFallbackException) { return false; }
+        finally
+        {
+            if (supplied is not null) CryptographicOperations.ZeroMemory(supplied);
+            if (user is not null) CryptographicOperations.ZeroMemory(user);
+            if (password is not null) CryptographicOperations.ZeroMemory(password);
+        }
     }
 }
