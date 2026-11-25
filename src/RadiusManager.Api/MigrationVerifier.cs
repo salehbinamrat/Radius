@@ -6,9 +6,9 @@ namespace RadiusManager.Api;
 /// <summary>Isolated read-only candidate; never executes or adopts migrations.</summary>
 public static class MigrationVerifier
 {
-    private const int LockNamespace = 725134019;
-    private const int LockId = 20261124;
-    private static readonly string[] OfficialTables =
+    internal const int LockNamespace = 725134019;
+    internal const int LockId = 20261124;
+    internal static readonly string[] OfficialTables =
         ["radcheck", "radreply", "radgroupcheck", "radgroupreply", "radusergroup", "radacct", "radpostauth", "nas"];
 
     public sealed record LedgerRow(int Version, string Filename, string Sha256);
@@ -17,6 +17,13 @@ public static class MigrationVerifier
         name is not null && Regex.IsMatch(name, @"\Aradius_mig_[a-f0-9]{8}\z", RegexOptions.CultureInvariant);
 
     public static void VerifyLedger(IReadOnlyList<MigrationCatalog.Entry> catalog, IReadOnlyList<LedgerRow> rows)
+    {
+        VerifyPrefix(catalog, rows);
+        if (rows.Count != catalog.Count)
+            throw new InvalidDataException("Migrations still pending; verification incomplete");
+    }
+
+    internal static void VerifyPrefix(IReadOnlyList<MigrationCatalog.Entry> catalog, IReadOnlyList<LedgerRow> rows)
     {
         if (rows.Count > catalog.Count)
             throw new InvalidDataException("Migration ledger has unrecognized future versions");
@@ -29,14 +36,12 @@ public static class MigrationVerifier
             if (row.Filename != entry.Filename || row.Sha256 != entry.Sha256)
                 throw new InvalidDataException("Migration checksum/filename mismatch");
         }
-        if (rows.Count != catalog.Count)
-            throw new InvalidDataException("Migrations still pending; verification incomplete");
     }
 
     public static string NormalizeIndex(string definition) =>
         Regex.Replace(definition.ToLowerInvariant().Replace("on public.radacct ", "on radacct ", StringComparison.Ordinal), @"\s+", "");
 
-    private static NpgsqlCommand Command(NpgsqlConnection conn, NpgsqlTransaction tx, string sql, params string[] values)
+    internal static NpgsqlCommand Command(NpgsqlConnection conn, NpgsqlTransaction tx, string sql, params string[] values)
     {
         var cmd = new NpgsqlCommand(sql, conn, tx) { CommandTimeout = 75 };
         for (var i = 0; i < values.Length; i++)
@@ -44,7 +49,7 @@ public static class MigrationVerifier
         return cmd;
     }
 
-    private static async Task<bool> Exists(NpgsqlConnection conn, NpgsqlTransaction tx, string name, CancellationToken ct)
+    internal static async Task<bool> Exists(NpgsqlConnection conn, NpgsqlTransaction tx, string name, CancellationToken ct)
     {
         if (name.StartsWith("index:", StringComparison.Ordinal))
         {
@@ -94,6 +99,24 @@ public static class MigrationVerifier
         return (bool)(await relation.ExecuteScalarAsync(ct) ?? false);
     }
 
+    internal static NpgsqlConnectionStringBuilder IsolatedConnection(string name, string applicationName)
+    {
+        if (Environment.GetEnvironmentVariable("CI") != "true"
+            || Environment.GetEnvironmentVariable("LAB_MIGRATION_TEST_MODE") != "isolated-ci"
+            || !IsIsolatedDatabase(name))
+            throw new InvalidDataException("C# migration verification requires isolated CI database");
+        var builder = new NpgsqlConnectionStringBuilder(
+            Environment.GetEnvironmentVariable("ConnectionStrings__RadiusDb") ?? "");
+        if (builder.Host != "db" || builder.Port != 5432 || builder.Username != "radius"
+            || builder.Database != "radius" || string.IsNullOrEmpty(builder.Password))
+            throw new InvalidDataException("Unexpected isolated database connection configuration");
+        builder.Database = name!;
+        builder.Pooling = false;
+        builder.Timeout = 10;
+        builder.ApplicationName = applicationName;
+        return builder;
+    }
+
     public static async Task<int> RunAsync(string directory, TextWriter output, TextWriter errors)
     {
         var name = Environment.GetEnvironmentVariable("MIGRATION_DB_NAME");
@@ -107,15 +130,7 @@ public static class MigrationVerifier
         try
         {
             var catalog = MigrationCatalog.Read(directory);
-            var builder = new NpgsqlConnectionStringBuilder(
-                Environment.GetEnvironmentVariable("ConnectionStrings__RadiusDb") ?? "");
-            if (builder.Host != "db" || builder.Port != 5432 || builder.Username != "radius"
-                || builder.Database != "radius" || string.IsNullOrEmpty(builder.Password))
-                throw new InvalidDataException("Unexpected isolated database connection configuration");
-            builder.Database = name!;
-            builder.Pooling = false;
-            builder.Timeout = 10;
-            builder.ApplicationName = "radius-csharp-migration-verifier";
+            var builder = IsolatedConnection(name!, "radius-csharp-migration-verifier");
             using var deadline = new CancellationTokenSource(TimeSpan.FromMinutes(2));
             var ct = deadline.Token;
             await using var conn = new NpgsqlConnection(builder.ConnectionString);

@@ -37,7 +37,11 @@ public static class MigrationCatalog
         (10, "010_accounting_quality.sql", ["procedure:public.app_accounting_row_anomalous(public.radacct)"])
     ];
 
-    public sealed record Entry(int Version, string Filename, string Sha256, IReadOnlyList<string> Objects);
+    public sealed record Entry(int Version, string Filename, string Sha256, IReadOnlyList<string> Objects)
+    {
+        // SQL and hash come from the same read, never reopen a validated file.
+        internal string Sql { get; init; } = "";
+    }
 
     public static IReadOnlyList<Entry> Read(string directory)
     {
@@ -49,7 +53,7 @@ public static class MigrationCatalog
             ValidateSql(definition.Filename, sql);
             entries.Add(new Entry(definition.Version, definition.Filename,
                 Convert.ToHexString(SHA256.HashData(raw)).ToLowerInvariant(),
-                Array.AsReadOnly(definition.Objects)));
+                Array.AsReadOnly(definition.Objects)) { Sql = sql });
         }
         return entries.AsReadOnly();
     }
