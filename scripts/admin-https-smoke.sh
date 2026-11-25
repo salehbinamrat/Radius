@@ -32,10 +32,17 @@ compose_file=tests/admin-https.compose.yaml
 [[ -z "$(docker network ls -q --filter "label=com.docker.compose.project=$project")" ]]
 export RADIUS_HTTPS_CSHARP_STACK_ID="$project"
 cleanup() {
+  local status=$?
   if [[ "$project" =~ ^radiushttps[a-f0-9]{8}$ ]]; then
-    docker compose -p "$project" -f "$compose_file" down -v --remove-orphans >/dev/null 2>&1 || true
+    docker compose -p "$project" -f "$compose_file" --profile '*' down -v --remove-orphans >/dev/null 2>&1 || {
+      echo 'Isolated HTTPS stack cleanup failed' >&2
+      status=1
+    }
+  else
+    status=1
   fi
   rm -rf -- "$tmp"
+  exit "$status"
 }
 trap cleanup EXIT
 
@@ -101,9 +108,26 @@ chmod 400 "$RADIUS_HTTPS_SECRET_DIR/radius-secret" "$RADIUS_HTTPS_SECRET_DIR/run
 chmod 444 "$RADIUS_HTTPS_SECRET_DIR/api-db-password" "$RADIUS_HTTPS_SECRET_DIR/bootstrap-db-password"
 unset RADIUS_HTTPS_PFX_PASSWORD
 # No database, Basic or PFX password should appear in the API container env.
-docker compose -p "$project" -f "$compose_file" config --format json | python3 -c '
+docker compose -p "$project" -f "$compose_file" --profile '*' config --format json | python3 -c '
 import json,sys
-services=json.load(sys.stdin)["services"]
+config=json.load(sys.stdin)
+services=config["services"]
+assert set(services)=={"db","schema-init","csharp-schema-init","radius-runtime","api","admin-bootstrap"}
+# The parsed config covers every profile, not just currently enabled services.
+assert not any(s.get("network_mode") for s in services.values())
+assert not any(v.get("external") for v in config.get("volumes",{}).values())
+assert not any(n.get("external") for n in config.get("networks",{}).values())
+ports=[(name,p) for name,s in services.items() for p in s.get("ports",[])]
+assert len(ports)==1
+name,port=ports[0]
+assert name=="api" and port["host_ip"]=="127.0.0.1" and str(port["published"])=="18443"
+assert int(port["target"])==8443 and port.get("protocol","tcp")=="tcp"
+candidate=services["csharp-schema-init"]
+assert candidate["environment"]["RADIUS_DB_PASSWORD_FILE"]=="/run/radius-secrets/db-password"
+assert "Password=" not in candidate["environment"]["ConnectionStrings__RadiusDb"]
+assert "DB_PASSWORD" not in candidate["environment"]
+assert "RADIUS_DB_PASSWORD" not in candidate["environment"]
+assert any(v["target"]=="/run/radius-secrets/db-password" and v.get("read_only") for v in candidate["volumes"])
 env=services["api"]["environment"]
 assert "POSTGRES_PASSWORD" not in services["db"]["environment"]
 assert services["db"]["environment"]["POSTGRES_PASSWORD_FILE"]=="/run/radius-secrets/db-password"
@@ -129,7 +153,7 @@ else
   docker compose -p "$project" -f "$compose_file" up -d --wait db
   # The owner file is mounted only in this one-shot service. Before marking the
   # new DB, prove the C# engine refuses the normal name without isolation proof.
-  if docker compose -p "$project" -f "$compose_file" run --rm --no-deps csharp-schema-init >"$tmp/unmarked.log" 2>&1; then
+  if docker compose -p "$project" -f "$compose_file" --profile csharp-init-test run --rm --no-deps csharp-schema-init >"$tmp/unmarked.log" 2>&1; then
     echo 'Unmarked HTTPS database accepted by C# initializer' >&2; exit 1
   fi
   grep -Fxq 'C# migration execution refused: Isolated stack database marker mismatch' "$tmp/unmarked.log"
@@ -139,12 +163,12 @@ else
     -v marker="radius-csharp-ci:$project" <<'SQL'
 COMMENT ON DATABASE radius IS :'marker';
 SQL
-  docker compose -p "$project" -f "$compose_file" up -d csharp-schema-init
-  docker compose -p "$project" -f "$compose_file" wait csharp-schema-init
-  init_id=$(docker compose -p "$project" -f "$compose_file" ps -aq csharp-schema-init)
+  docker compose -p "$project" -f "$compose_file" --profile csharp-init-test up -d csharp-schema-init
+  docker compose -p "$project" -f "$compose_file" --profile csharp-init-test wait csharp-schema-init
+  init_id=$(docker compose -p "$project" -f "$compose_file" --profile csharp-init-test ps -aq csharp-schema-init)
   [[ "$(docker inspect --format '{{.State.ExitCode}}' "$init_id")" == 0 ]]
   [[ "$(docker inspect --format '{{.Image}}' "$init_id")" == "$(docker inspect --format '{{.Image}}' "$(docker compose ps -q api)")" ]]
-  docker compose -p "$project" -f "$compose_file" logs --no-color csharp-schema-init |
+  docker compose -p "$project" -f "$compose_file" --profile csharp-init-test logs --no-color csharp-schema-init |
     grep -F 'C# migration execution PASS: 10 immutable versions'
   docker compose -p "$project" -f "$compose_file" exec -T db psql -X -qAt -v ON_ERROR_STOP=1 -U radius -d radius \
     -c "SELECT count(*) FROM app_schema_migrations WHERE engine_version='3.0.0-csharp-lab'" | grep -qx 10

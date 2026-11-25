@@ -33,6 +33,17 @@ class CSharpHttpsInitializerChecks(unittest.TestCase):
         self.assertIn("radius(?:csharp|https)", executor)
         self.assertIn('actual != "radius-csharp-ci:" + stack', executor)
 
+    def test_resolved_compose_checks_all_profiles_and_cleanup_is_mandatory(self):
+        script = (ROOT / "scripts/admin-https-smoke.sh").read_text()
+        self.assertIn("--profile '*' config --format json", script)
+        self.assertIn('assert len(ports)==1', script)
+        self.assertIn('port["host_ip"]=="127.0.0.1"', script)
+        self.assertIn('assert set(services)==', script)
+        self.assertIn('assert not any(s.get("network_mode")', script)
+        self.assertIn("--profile '*' down -v --remove-orphans", script)
+        self.assertIn("Isolated HTTPS stack cleanup failed", script)
+        self.assertIn("--profile csharp-init-test wait csharp-schema-init", script)
+
     def test_both_https_paths_remain_mandatory(self):
         ci = (ROOT / ".github/workflows/ci.yml").read_text()
         self.assertIn("run: bash scripts/admin-https-smoke.sh\n", ci)

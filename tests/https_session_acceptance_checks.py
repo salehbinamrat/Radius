@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
 """Stage 03B: secure, isolated HTTPS session acceptance contracts."""
 from pathlib import Path
+import re
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 API = ROOT / "src/RadiusManager.Api"
+# This source-level guard checks service declarations, not colon-containing
+# paths or image tags. Resolved Compose JSON is also checked in the smoke test.
+RADIUS_SERVICE = re.compile(r"(?m)^ {2}radius[ \t]*:")
 
 class HttpsSessionContracts(unittest.TestCase):
     def test_data_protection_keys_are_persisted_and_encrypted_under_tls(self):
@@ -27,7 +31,12 @@ class HttpsSessionContracts(unittest.TestCase):
         self.assertNotIn("0.0.0.0:18443", source)
         self.assertNotIn("postgres_data:", source)
         self.assertNotIn("private-radius-lab", source)
-        self.assertNotIn("radius:", source)
+        self.assertNotRegex(source, RADIUS_SERVICE)
+
+    def test_service_guard_distinguishes_mount_paths_from_radius_service(self):
+        self.assertIsNone(RADIUS_SERVICE.search("services:\n  schema-init:\n    volumes:\n      - ../database:/opt/radius:ro\n"))
+        self.assertIsNotNone(RADIUS_SERVICE.search("services:\n  radius:\n    image: radius-image\n"))
+        self.assertIsNotNone(RADIUS_SERVICE.search("services:\n  radius :\n    image: radius-image\n"))
 
     def test_https_api_uses_mounted_password_files_not_inline_secrets(self):
         compose=(ROOT/"tests/admin-https.compose.yaml").read_text()
