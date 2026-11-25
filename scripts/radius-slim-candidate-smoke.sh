@@ -28,8 +28,10 @@ read_image "$candidate" 'sha256sum /opt/sbin/radiusd /opt/etc/raddb/mods-config/
 cmp "$reports/radius-slim-legacy-source.txt" "$reports/radius-slim-source.txt"
 read_image "$candidate" 'test ! -e /opt/radius/migrate.py; test ! -e /opt/radius/radius_secret_input.py; test ! -e /usr/local/bin/schema-init.sh; if command -v python3 || command -v python; then exit 1; fi'
 python3 scripts/verify-radius-slim-evidence.py "$reports" --preflight
-# Same actual C# installer plus protocol smoke on the reduced image, not the legacy image.
+# Full protocol smoke plus the actual user-facing installer on the reduced image.
 RADIUS_SLIM_IMAGE_ID="$candidate" CSHARP_STACK_TEST_ACK=isolated-ci \
   bash scripts/csharp-stack-candidate-smoke.sh local-fresh
+RADIUS_SLIM_IMAGE_ID="$candidate" CSHARP_LOCAL_INSTALL_TEST_ACK=isolated-ci \
+  bash scripts/csharp-local-installer-smoke.sh
 printf '%s\n' "$candidate" >"$reports/radius-slim-image-id.txt"
 echo 'Python-free RADIUS image full-stack candidate acceptance PASS'

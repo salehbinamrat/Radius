@@ -22,14 +22,27 @@ cleanup() {
   exit "$status"
 }
 stack() {
-  env -i PATH="$PATH" HOME="$HOME" docker --host unix:///var/run/docker.sock compose --env-file "$state/stack.env" -p "$project" \
-    -f tests/csharp-stack-candidate.compose.yaml -f tests/csharp-stack-local.compose.yaml "$@"
+  env -i PATH="$PATH" HOME="$HOME" docker --host unix:///var/run/docker.sock compose --project-directory "$state" --env-file "$state/stack.env" -p "$project" \
+    -f "$state/compose/csharp-stack-candidate.compose.yaml" -f "$state/compose/csharp-stack-local.compose.yaml" "$@"
 }
 trap cleanup EXIT
 ids=()
 for svc in db api radius; do
   ids+=("$(docker inspect --format '{{.Image}}' "$(docker compose ps -q "$svc")")")
 done
+runtime=compatible
+if [[ -n "${RADIUS_SLIM_IMAGE_ID:-}" ]]; then
+  [[ "$RADIUS_SLIM_IMAGE_ID" =~ ^sha256:[a-f0-9]{64}$ ]]
+  # The original image must be refused by the explicitly slim-only installer.
+  if RADIUS_LOCAL_RUNTIME=slim RADIUS_LOCAL_INSTALL_ACK=local-lab-only bash scripts/install-csharp-local-lab.sh "$state" "${ids[@]}" >"$tmp/refusal.log" 2>&1; then
+    echo 'Slim installer accepted legacy runtime' >&2; exit 1
+  fi
+  grep -Fxq 'Slim runtime requires the Python-free RADIUS image' "$tmp/refusal.log"
+  [[ ! -e "$state" ]]
+  ids[2]="$RADIUS_SLIM_IMAGE_ID"
+  runtime=slim
+fi
+export RADIUS_LOCAL_RUNTIME="$runtime"
 if RADIUS_LOCAL_INSTALL_ACK= bash scripts/install-csharp-local-lab.sh "$state" "${ids[@]}" >"$tmp/refusal.log" 2>&1; then
   echo 'Installer accepted missing authorization' >&2; exit 1
 fi
@@ -37,6 +50,24 @@ fi
 RADIUS_LOCAL_INSTALL_ACK=local-lab-only bash scripts/install-csharp-local-lab.sh "$state" "${ids[@]}"
 project="$(cat "$state/project-id")"
 [[ "$(stat -c %a "$state")" == 700 && "$(stat -c %a "$state/stack.env")" == 600 ]]
+[[ "$(cat "$state/runtime-profile")" == "$runtime" ]]
+(cd "$state/compose" && sha256sum --check --strict --status SHA256SUMS)
+cmp tests/csharp-stack-candidate.compose.yaml "$state/compose/csharp-stack-candidate.compose.yaml"
+cmp tests/csharp-stack-local.compose.yaml "$state/compose/csharp-stack-local.compose.yaml"
+[[ "$(docker inspect --format '{{.Image}}' "$(stack ps -q radius)")" == "${ids[2]}" ]]
+if [[ "$runtime" == slim ]]; then
+  stack exec -T radius sh -ec 'if command -v python3 || command -v python; then exit 1; fi; test ! -e /opt/radius/migrate.py'
+fi
+# Resolved mounts must not reference the source checkout, including DB baseline.
+stack config --format json | python3 -c '
+import json,sys
+from pathlib import Path
+state=Path(sys.argv[1])
+for service in json.load(sys.stdin)["services"].values():
+    for mount in service.get("volumes", []):
+        if mount["type"]=="bind":
+            assert Path(mount["source"]).is_relative_to(state)
+' "$state"
 before="$(sha256sum "$state/stack.env")"
 if RADIUS_LOCAL_INSTALL_ACK=local-lab-only bash scripts/install-csharp-local-lab.sh "$state" "${ids[@]}" >"$tmp/refusal.log" 2>&1; then
   echo 'Installer accepted existing destination' >&2; exit 1
@@ -48,8 +79,23 @@ RADIUS_UI_URL="$url" bash scripts/ui-smoke.sh
 # Verify a stop/start with the same persistent volume and existing ledger.
 db_before="$(stack ps -q db)"
 ledger_before="$(stack exec -T db psql -X -qAt -v ON_ERROR_STOP=1 -U radius -d radius -c "SELECT md5(string_agg(row_to_json(m)::text, ',' ORDER BY version)) FROM app_schema_migrations m")"
-stack stop api radius
-stack up -d api radius
+# Restart from the installed directory, not from the source checkout.
+(cd "$state" && stack stop api radius && stack up -d api radius)
 [[ "$(stack ps -q db)" == "$db_before" ]]
 [[ "$(stack exec -T db psql -X -qAt -v ON_ERROR_STOP=1 -U radius -d radius -c "SELECT md5(string_agg(row_to_json(m)::text, ',' ORDER BY version)) FROM app_schema_migrations m")" == "$ledger_before" ]]
+url="http://$(stack port api 8080)"
+ready=0
+for attempt in $(seq 1 30); do
+  if curl --silent --fail "$url/api/health/ready" >/dev/null &&
+     [[ "$(docker inspect --format '{{.State.Health.Status}}' "$(stack ps -q radius)")" == healthy ]]; then
+    ready=1; break
+  fi
+  sleep 2
+done
+[[ "$ready" == 1 ]]
+RADIUS_UI_URL="$url" bash scripts/ui-smoke.sh
 echo 'Actual local C# installer, overwrite refusal and persistent restart PASS'
+if [[ "$runtime" == slim ]]; then
+  [[ "$(docker inspect --format '{{.Image}}' "$(stack ps -q radius)")" == "$RADIUS_SLIM_IMAGE_ID" ]]
+  echo 'Python-free image accepted by actual local installer and independent persisted Compose restart PASS'
+fi

@@ -10,7 +10,7 @@ services:
       POSTGRES_PASSWORD: ${CSHARP_DB_PASSWORD:?Required disposable password}
     volumes:
       - db_data:/var/lib/postgresql/data
-      - ../database/001_app.sql:/docker-entrypoint-initdb.d/001_app.sql:ro
+      - ${CSHARP_BUNDLE_DIR:?Required verified migration bundle}/migrations/001_app.sql:/docker-entrypoint-initdb.d/001_app.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U radius -d radius"]
       interval: 2s
