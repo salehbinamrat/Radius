@@ -23,6 +23,10 @@ jobs:
       - run: dotnet test tests/RadiusManager.Tests/RadiusManager.Tests.csproj --no-restore -c Release
       - name: Publish the tested API on a clean CI host
         run: dotnet publish src/RadiusManager.Api/RadiusManager.Api.csproj --no-restore -c Release --no-self-contained -o /tmp/radius-api-publish
+      - name: Verify compiled C# migration catalog against the legacy catalog
+        run: |
+          dotnet /tmp/radius-api-publish/RadiusManager.Api.dll --migration-preflight database > /tmp/radius-migration-catalog.tsv
+          python3 tests/migration_catalog_parity.py /tmp/radius-migration-catalog.tsv
   config-tests:
     runs-on: ubuntu-latest
     steps:
