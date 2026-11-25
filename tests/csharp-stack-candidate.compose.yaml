@@ -30,7 +30,7 @@ services:
       RADIUS_DB_PASSWORD_FILE: /run/radius-secrets/db-password
     entrypoint: ["dotnet", "/app/RadiusManager.Api.dll", "--migration-install-candidate", "/opt/radius", "/opt/official.sql"]
     volumes:
-      - ../database:/opt/radius:ro
+      - ${CSHARP_MIGRATIONS_DIR:?Required verified migration bundle}:/opt/radius:ro
       - ${CSHARP_DB_PASSWORD_FILE:?Required private test secret file}:/run/radius-secrets/db-password:ro
       - ${CSHARP_OFFICIAL_SQL:?Required upstream SQL file}:/opt/official.sql:ro
     depends_on:

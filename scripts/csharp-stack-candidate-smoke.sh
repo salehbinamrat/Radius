@@ -16,7 +16,8 @@ export CSHARP_STACK_ID="radiuscsharp$(openssl rand -hex 4)"
 export CSHARP_DB_PASSWORD="$(openssl rand -hex 24)"
 export CSHARP_ADMIN_PASSWORD="$(openssl rand -hex 24)"
 export CSHARP_RADIUS_SECRET="$(openssl rand -hex 24)"
-export CSHARP_OFFICIAL_SQL="$tmp/official.sql"
+export CSHARP_OFFICIAL_SQL="$tmp/bundle/official.sql"
+export CSHARP_MIGRATIONS_DIR="$tmp/bundle/migrations"
 export CSHARP_DB_PASSWORD_FILE="$tmp/migration-db-password"
 printf '%s\n' "$CSHARP_DB_PASSWORD" >"$CSHARP_DB_PASSWORD_FILE"
 # Host directory is private (0700); mount only the individual read-only file
@@ -48,9 +49,26 @@ for svc in db api radius; do
     radius) export CSHARP_RADIUS_IMAGE="$tag"; radius_id="$id";;
   esac
 done
-docker compose exec -T radius cat /etc/freeradius/3.0/mods-config/sql/main/postgresql/schema.sql >"$CSHARP_OFFICIAL_SQL"
-test -s "$CSHARP_OFFICIAL_SQL"
-chmod 644 "$CSHARP_OFFICIAL_SQL"
+bash scripts/export-csharp-init-bundle.sh "$radius_id" "$tmp/bundle"
+(cd "$tmp/bundle" && sha256sum --check --strict --status SHA256SUMS)
+[[ "$(cat "$tmp/bundle/image-id.txt")" == "$radius_id" ]]
+docker compose exec -T radius cat /etc/freeradius/3.0/mods-config/sql/main/postgresql/schema.sql |
+  cmp -s - "$CSHARP_OFFICIAL_SQL"
+for file in "$PWD"/database/[0-9][0-9][0-9]_*.sql; do
+  cmp -s "$file" "$CSHARP_MIGRATIONS_DIR/${file##*/}"
+done
+# Refuse an existing output path, and prove the checksum detects a changed file.
+if bash scripts/export-csharp-init-bundle.sh "$radius_id" "$tmp/bundle" >"$tmp/export-refusal.log" 2>&1; then
+  echo 'Migration bundle overwrite unexpectedly accepted' >&2; exit 1
+fi
+grep -Fxq 'Migration bundle destination already exists; refusing overwrite' "$tmp/export-refusal.log"
+cp -a "$tmp/bundle" "$tmp/tampered"
+printf '\n-- synthetic integrity failure\n' >>"$tmp/tampered/official.sql"
+if (cd "$tmp/tampered" && sha256sum --check --strict --status SHA256SUMS); then
+  echo 'Tampered migration bundle unexpectedly accepted' >&2; exit 1
+fi
+(cd "$tmp/bundle" && sha256sum --check --strict --status SHA256SUMS)
+echo 'Packaged migration input identity and tamper detection PASS'
 stack config --quiet
 # Explicitly reject collisions before creating project-owned resources.
 [[ -z "$(docker ps -aq --filter "label=com.docker.compose.project=$CSHARP_STACK_ID")" ]]
