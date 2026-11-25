@@ -132,7 +132,7 @@ public static class MigrationExecutor
     }
 
     public static async Task<int> RunAsync(string directory, TextWriter output, TextWriter errors,
-        string? officialSchemaFile = null)
+        string? officialSchemaFile = null, string? bundleDirectory = null)
     {
         var name = Environment.GetEnvironmentVariable("MIGRATION_DB_NAME");
         var mode = Environment.GetEnvironmentVariable("LAB_MIGRATION_TEST_MODE");
@@ -151,8 +151,17 @@ public static class MigrationExecutor
             if (!string.IsNullOrEmpty(inject) && (stackMode || inject is not ("2" or "3" or "4" or "6" or "7" or "8" or "9" or "10")))
                 throw new InvalidDataException("Invalid isolated failure injection");
             var catalog = MigrationCatalog.Read(directory);
-            var officialSql = officialSchemaFile is null ? null :
-                new System.Text.UTF8Encoding(false, true).GetString(File.ReadAllBytes(officialSchemaFile));
+            var officialBytes = officialSchemaFile is null ? null : File.ReadAllBytes(officialSchemaFile);
+            if (bundleDirectory is not null)
+            {
+                if (officialBytes is null)
+                    throw new InvalidDataException("Migration bundle integrity verification failed");
+                MigrationBundle.Verify(bundleDirectory, catalog, officialBytes);
+                output.WriteLine("C# migration bundle integrity PASS: 13 expected inputs");
+            }
+            // The very same validated bytes are decoded and executed.
+            var officialSql = officialBytes is null ? null :
+                new System.Text.UTF8Encoding(false, true).GetString(officialBytes);
             if (officialSql is not null && string.IsNullOrWhiteSpace(officialSql))
                 throw new InvalidDataException("Official schema input is empty");
             var builder = stackMode

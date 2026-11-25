@@ -37,6 +37,13 @@ class MigrationBundleChecks(unittest.TestCase):
         self.assertIn('Tampered migration bundle unexpectedly accepted', source)
         self.assertIn('Migration bundle overwrite unexpectedly accepted', source)
         self.assertIn('Packaged migration input identity and tamper detection PASS', source)
-        self.assertIn('CSHARP_MIGRATIONS_DIR:?Required verified migration bundle', compose)
+        self.assertIn('CSHARP_BUNDLE_DIR:?Required verified migration bundle', compose)
         self.assertLess(source.index("Packaged migration input identity and tamper detection PASS"),
                         source.index("stack up -d --wait db"))
+
+    def test_bundle_is_verified_by_engine_before_database_connection(self):
+        source = (ROOT / "src/RadiusManager.Api/MigrationExecutor.cs").read_text()
+        self.assertLess(source.index("MigrationBundle.Verify("), source.index("await conn.OpenAsync"))
+        script = (ROOT / "scripts/csharp-stack-candidate-smoke.sh").read_text()
+        self.assertIn('CSHARP_BUNDLE_DIR="$tmp/tampered" stack run', script)
+        self.assertIn("C# initializer rejected tampered bundle before database writes PASS", script)
