@@ -1,6 +1,9 @@
 """Offline secret validation; no real credentials or Docker required."""
 from pathlib import Path
 import importlib.util
+import ipaddress
+import subprocess
+import os
 import tempfile
 import unittest
 
@@ -27,6 +30,66 @@ class RadiusSecretInputChecks(unittest.TestCase):
             file.unlink()
             with self.assertRaises(RuntimeError): module.load_hex("DB_PASSWORD",env)
         with self.assertRaises(RuntimeError): module.load_hex("DB_PASSWORD",{"DB_PASSWORD_FILE":"relative"})
+
+    def test_shell_reader_matches_legacy_for_inline_and_file_sources(self):
+        script = ROOT / "radius/radius_secret_input.sh"
+        with tempfile.TemporaryDirectory() as tmp:
+            file = Path(tmp) / "secret"
+            for name in ("DB_PASSWORD", "RADIUS_SECRET"):
+                for raw in (b"a"*48, b"b"*48+b"\n", b"0"*48+b"\r\n", b"",
+                            b"a"*47, b"a"*49, b"a"*48+b"\x00", b"a"*48+b"\n\n",
+                            b"\xff"*48, b"A"*48, b"a"*10000, b"a"*24+b"\x00"+b"a"*24):
+                    file.write_bytes(raw)
+                    self.assert_shell_parity(script, name, {name+"_FILE": str(file)})
+                self.assert_shell_parity(script, name, {name:"a"*48})
+                self.assert_shell_parity(script, name, {name:"a"*48, name+"_FILE":str(file)})
+                self.assert_shell_parity(script, name, {name+"_FILE":"relative"})
+                self.assert_shell_parity(script, name, {name+"_FILE":str(file)+"-missing"})
+                self.assert_shell_parity(script, name, {name+"_FILE":""})
+                self.assert_shell_parity(script, name, {})
+
+    def assert_shell_parity(self, script, name, env):
+        result = subprocess.run(["bash", str(script), name],
+                                env={"PATH": os.environ["PATH"], **env},
+                                capture_output=True, timeout=5)
+        try:
+            expected = module.load_hex(name, env)
+        except RuntimeError:
+            self.assertEqual(result.returncode, 1)
+            self.assertEqual(result.stdout, b"")
+            self.assertEqual(result.stderr, b"RADIUS secret or configuration input rejected\n")
+        else:
+            self.assertEqual(result.returncode, 0)
+            self.assertEqual(result.stdout, (expected+"\n").encode())
+            self.assertEqual(result.stderr, b"")
+
+    def test_shell_ipv4_network_matches_legacy(self):
+        script = ROOT / "radius/radius_secret_input.sh"
+        cases = ["10.255.70.0/24","0.0.0.0/0","1.2.3.4","255.255.255.255/32",
+                 "1.2.3.4/255.255.255.0","1.2.3.4/0.0.0.255",
+                 "1.2.3.4/0.0.0.0","1.2.3.4/255.255.255.255",
+                 "01.2.3.4/24","1.2.3.4/033","1.2.3.4/00032",
+                 "1.2.3.4/255.0.255.0","1.2.3.4/","256.2.3.4/24",
+                 "1.2.3.4/24/1","1.2.3.4;exit","::1/64",""]
+        for cidr in cases:
+            try:
+                ipaddress.IPv4Network(cidr, strict=False)
+                expected = True
+            except ValueError:
+                expected = False
+            result = subprocess.run(["bash", "-c", 'source "$1"; valid_cidr "$2"',
+                                     "bash", str(script), cidr], capture_output=True, timeout=5)
+            self.assertEqual(result.returncode == 0, expected, cidr)
+
+    def test_daemon_and_health_probe_do_not_invoke_python(self):
+        for path in ("start.sh", "health-probe.sh"):
+            source = (ROOT / "radius" / path).read_text()
+            self.assertIn("bash /opt/radius/radius_secret_input.sh", source)
+            self.assertNotIn("python3", source)
+        docker = (ROOT / "radius/Dockerfile").read_text()
+        self.assertIn("COPY radius_secret_input.sh /opt/radius/radius_secret_input.sh", docker)
+        # Legacy migration remains available until the actual cutover.
+        self.assertIn("python3 /opt/radius/migrate.py", (ROOT / "radius/schema-init.sh").read_text())
 
     def test_wiring_and_real_fixture(self):
         for path in ("start.sh","schema-init.sh","health-probe.sh","migrate.py","Dockerfile"):

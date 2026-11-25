@@ -5,7 +5,7 @@ set -euo pipefail
 umask 077
 secret_file=$(mktemp)
 trap 'rm -f -- "$secret_file"' EXIT
-python3 /opt/radius/radius_secret_input.py RADIUS_SECRET > "$secret_file"
+bash /opt/radius/radius_secret_input.sh RADIUS_SECRET > "$secret_file"
 # radclient verifies the response against the request and shared secret.
 # A valid Access-Accept is required; timeout, reject and malformed packets fail.
 if ! reply=$(printf 'Message-Authenticator = 0x00\n' |

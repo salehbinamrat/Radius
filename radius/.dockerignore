@@ -10,5 +10,6 @@
 !schema-init.sh
 !migrate.py
 !radius_secret_input.py
+!radius_secret_input.sh
 !health-probe.sh
 !health-publish.sh
