@@ -64,7 +64,26 @@ if RADIUS_LOCAL_INSTALL_ACK=local-lab-only bash scripts/install-csharp-local-lab
 fi
 grep -Fxq 'Distinct DB, API and RADIUS image IDs required' "$tmp/refusal.log"
 [[ ! -e "$state" ]]
-RADIUS_LOCAL_INSTALL_ACK=local-lab-only bash scripts/install-csharp-local-lab.sh "$state" "${ids[@]}"
+if [[ "$runtime" == slim ]]; then
+  package="$tmp/package"
+  RADIUS_LOCAL_INSTALL_ACK=local-lab-only bash scripts/offline-csharp-local-lab.sh export "$package" "${ids[@]}"
+  digest="$(sha256sum "$package/SHA256SUMS" | cut -d ' ' -f1)"
+  [[ ! -e "$package/.env" && ! -e "$package/.git" && ! -e "$package/stack.env" ]]
+  # Tamper a small file and require refusal without creating any state.
+  cp "$package/platform.txt" "$tmp/original-platform"
+  printf 'tamper\n' >>"$package/platform.txt"
+  if RADIUS_LOCAL_INSTALL_ACK=local-lab-only bash "$package/scripts/offline-csharp-local-lab.sh" install "$state" "$digest" >"$tmp/refusal.log" 2>&1; then
+    echo 'Offline installer accepted modified bundle' >&2; exit 1
+  fi
+  grep -Fxq 'Offline bundle integrity check failed' "$tmp/refusal.log"
+  [[ ! -e "$state" ]]
+  cp "$tmp/original-platform" "$package/platform.txt"
+  # Execute the installer from the exported tree, without a checkout or SDK.
+  RADIUS_LOCAL_INSTALL_ACK=local-lab-only bash "$package/scripts/offline-csharp-local-lab.sh" install "$state" "$digest"
+  echo 'Offline bundle export, integrity refusal and local image import PASS'
+else
+  RADIUS_LOCAL_INSTALL_ACK=local-lab-only bash scripts/install-csharp-local-lab.sh "$state" "${ids[@]}"
+fi
 project="$(cat "$state/project-id")"
 [[ "$(stat -c %a "$state")" == 700 && "$(stat -c %a "$state/stack.env")" == 600 ]]
 [[ "$(cat "$state/runtime-profile")" == "$runtime" ]]
