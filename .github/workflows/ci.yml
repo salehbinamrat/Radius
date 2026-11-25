@@ -140,6 +140,10 @@ jobs:
         env:
           MIGRATION_TEST_ACK: isolated-lab
         run: bash scripts/migration-ledger-smoke.sh
+      - name: C# candidate fresh installation and encrypted recovery
+        env:
+          CSHARP_INSTALL_TEST_ACK: isolated-ci
+        run: bash scripts/csharp-install-candidate-smoke.sh
       - name: Encrypted backup, isolated restore and migration replay
         run: bash scripts/lab-recovery-smoke.sh
       - name: 'HTTPS Identity acceptance in a dedicated disposable Docker project'

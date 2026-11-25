@@ -109,7 +109,30 @@ public static class MigrationExecutor
         return rows.Count;
     }
 
-    public static async Task<int> RunAsync(string directory, TextWriter output, TextWriter errors)
+    // The official schema comes from the exact tested FreeRADIUS image.
+    // This optional path is restricted to the same disposable CI databases.
+    private static async Task BootstrapOfficial(NpgsqlConnection conn, string sql, CancellationToken ct)
+    {
+        await using var tx = await conn.BeginTransactionAsync(ct);
+        if (!await MigrationVerifier.Exists(conn, tx, "public.app_plans", ct))
+            throw new InvalidDataException("Missing app_plans baseline; refusing automatic repair");
+        await using var count = MigrationVerifier.Command(conn, tx, """
+            SELECT count(*) FROM pg_catalog.pg_tables
+            WHERE schemaname='public' AND tablename IN
+                ('radcheck','radreply','radgroupcheck','radgroupreply',
+                 'radusergroup','radacct','radpostauth','nas')
+            """);
+        var existing = (long)(await count.ExecuteScalarAsync(ct) ?? throw new InvalidDataException("Official schema count unavailable"));
+        if (existing == 0)
+            await Execute(conn, tx, sql, ct);
+        else if (existing != MigrationVerifier.OfficialTables.Length)
+            throw new InvalidDataException("Official FreeRADIUS schema is partial; refusing automatic repair");
+        await CheckOfficial(conn, tx, ct);
+        await tx.CommitAsync(ct);
+    }
+
+    public static async Task<int> RunAsync(string directory, TextWriter output, TextWriter errors,
+        string? officialSchemaFile = null)
     {
         var name = Environment.GetEnvironmentVariable("MIGRATION_DB_NAME");
         if (Environment.GetEnvironmentVariable("CI") != "true"
@@ -125,6 +148,10 @@ public static class MigrationExecutor
             if (!string.IsNullOrEmpty(inject) && inject is not ("2" or "3" or "4" or "6" or "7" or "8" or "9" or "10"))
                 throw new InvalidDataException("Invalid isolated failure injection");
             var catalog = MigrationCatalog.Read(directory);
+            var officialSql = officialSchemaFile is null ? null :
+                new System.Text.UTF8Encoding(false, true).GetString(File.ReadAllBytes(officialSchemaFile));
+            if (officialSql is not null && string.IsNullOrWhiteSpace(officialSql))
+                throw new InvalidDataException("Official schema input is empty");
             var builder = MigrationVerifier.IsolatedConnection(name!, "radius-csharp-migration-executor");
             using var deadline = new CancellationTokenSource(TimeSpan.FromMinutes(5));
             var ct = deadline.Token;
@@ -137,6 +164,8 @@ public static class MigrationExecutor
                 await tx.CommitAsync(ct);
             }
             // The same physical session holds the shared lock across all version transactions.
+            if (officialSql is not null)
+                await BootstrapOfficial(conn, officialSql, ct);
             await AdoptIfMissing(conn, catalog, ct);
             var applied = await VerifiedPrefix(conn, catalog, ct);
             foreach (var entry in catalog.Skip(applied))
