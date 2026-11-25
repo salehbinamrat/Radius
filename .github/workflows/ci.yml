@@ -69,6 +69,10 @@ jobs:
         run: bash scripts/lab-deployment-preflight.sh
       - run: docker compose config --quiet
       - run: docker compose up -d --build
+      - name: Verify API runtime-only package contents
+        env:
+          RADIUS_PACKAGE_TEST_ACK: isolated-ci
+        run: bash scripts/runtime-package-smoke.sh
       - name: Record actual PostgreSQL image provenance
         run: |
           image=$(docker inspect --format '{{.Image}}' "$(docker compose ps -q db)")

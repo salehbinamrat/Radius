@@ -1,0 +1,20 @@
+# Deny by default. Build only the tracked source needed by Dockerfile.
+**
+!Dockerfile
+!*.cs
+!RadiusManager.Api.csproj
+!packages.lock.json
+!frontend/
+!frontend/package.json
+!frontend/package-lock.json
+!frontend/tsconfig.json
+!frontend/vite.config.ts
+!frontend/src/
+!frontend/src/**/*.ts
+!frontend/src/**/*.tsx
+!frontend/src/**/
+!wwwroot/
+!wwwroot/*.html
+!wwwroot/*.css
+!wwwroot/*.mjs
+!wwwroot/*.d.mts
