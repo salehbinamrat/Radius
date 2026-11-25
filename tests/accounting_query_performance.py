@@ -1,5 +1,6 @@
 """Measure the real session query, without a hardware-dependent CI SLA."""
 import json
+from datetime import datetime, timedelta, timezone
 import os
 import re
 import statistics
@@ -57,7 +58,7 @@ def actual_session_query():
     match=re.search(r'const string sql\s*=\s*"""(.*?)"""\s*;',source,re.S)
     if not match:
         raise RuntimeError("Session query source missing")
-    return match.group(1).replace("@user","%(user)s").replace("@state","%(state)s")
+    return match.group(1).replace("@user","%(user)s").replace("@state","%(state)s").replace("@stale_before","%(stale_before)s")
 
 def indexes(plan):
     result=[]
@@ -119,7 +120,7 @@ def concurrent_workload(db, query, ids, phase):
                 else:
                     for _ in range(100):
                         start=time.perf_counter()
-                        cur.execute(query,{"user":"","state":"open"})
+                        cur.execute(query,{"user":"","state":"open", "stale_before":datetime.now(timezone.utc)-timedelta(minutes=10)})
                         rows=cur.fetchall()
                         assert len(rows)==101,"Session result limit changed"
                         assert all(int(row[0][4:],16)<1000 for row in rows),"Foreign session escaped"
@@ -215,9 +216,11 @@ def main():
             remove_migrated_indexes_for_baseline(cur)
             seed(cur)
             query=actual_session_query()
-            cases=[(state,{"user":"","state":state},query) for state in ("all","open","closed","stale")]
-            cases += [("single-heavy",{"user":"lab_000000000000","state":"all"},query),
-                      ("foreign-denied",{"user":"lab_0000000004e1","state":"all"},query),
+            # Freeze the cutoff across baseline and candidate measurements.
+            cutoff=datetime.now(timezone.utc)-timedelta(minutes=10)
+            cases=[(state,{"user":"","state":state,"stale_before":cutoff},query) for state in ("all","open","closed","stale")]
+            cases += [("single-heavy",{"user":"lab_000000000000","state":"all","stale_before":cutoff},query),
+                      ("foreign-denied",{"user":"lab_0000000004e1","state":"all","stale_before":cutoff},query),
                       ("usage-heavy",{"user":"lab_000000000000"},"SELECT * FROM app_lab_usage_snapshot(%(user)s)")]
             before={label:sample(cur,q,p,label,"baseline") for label,p,q in cases}
             for label in ("all","open","closed","stale","single-heavy"):

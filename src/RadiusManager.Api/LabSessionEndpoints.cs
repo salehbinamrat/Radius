@@ -9,6 +9,13 @@ namespace RadiusManager.Api;
 public static class LabSessionRules
 {
     public const int PageLimit = 100;
+
+    // PostgreSQL timestamps have microsecond precision; share an exact boundary.
+    public static DateTime NormalizeObservationTime(DateTime utc) =>
+        utc.AddTicks(-(utc.Ticks % 10));
+
+    public static DateTime StaleCutoff(DateTime observedAt) => observedAt.AddMinutes(-10);
+
     public static string? Validate(string? state, string? username)
     {
         if (state is not ("all" or "open" or "closed" or "stale"))
@@ -22,7 +29,7 @@ public static class LabSessionRules
     {
         if (anomalous) return "anomaly";
         if (stoppedAt.HasValue) return "closed";
-        if (!updatedAt.HasValue || updatedAt.Value < now.AddMinutes(-10)) return "stale";
+        if (!updatedAt.HasValue || updatedAt.Value < StaleCutoff(now)) return "stale";
         return "open-unconfirmed";
     }
 }
@@ -57,7 +64,7 @@ public static class LabSessionEndpoints
                     OR (@state = 'open' AND a.acctstoptime IS NULL)
                     OR (@state = 'closed' AND a.acctstoptime IS NOT NULL)
                     OR (@state = 'stale' AND a.acctstoptime IS NULL
-                        AND COALESCE(a.acctupdatetime,a.acctstarttime) < now()-interval '10 minutes')
+                        AND COALESCE(a.acctupdatetime,a.acctstarttime) < @stale_before)
                   )
                 ORDER BY COALESCE(a.acctupdatetime,a.acctstarttime) DESC, a.radacctid DESC
                 LIMIT 101
@@ -66,9 +73,10 @@ public static class LabSessionEndpoints
             await using var command = db.CreateCommand(sql);
             command.Parameters.AddWithValue("user", username);
             command.Parameters.AddWithValue("state", state);
+            var observedAt = LabSessionRules.NormalizeObservationTime(DateTime.UtcNow);
+            command.Parameters.AddWithValue("stale_before", LabSessionRules.StaleCutoff(observedAt));
             await using var reader = await command.ExecuteReaderAsync(ct);
             var fetched = 0;
-            var observedAt = DateTime.UtcNow;
             while (await reader.ReadAsync(ct))
             {
                 fetched++;
