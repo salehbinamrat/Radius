@@ -11,6 +11,10 @@ cd "$state"
 [[ "$(stat -c %a .)" == 700 && "$(stat -c %a stack.env)" == 600 ]] || {
   echo 'Private local installation permissions changed' >&2; exit 1;
 }
+# Serialize operations on this private directory inode without creating a stale lock file.
+command -v flock >/dev/null || { echo 'Local lifecycle requires flock (util-linux)' >&2; exit 1; }
+exec 9<"$state"
+flock -n 9 || { echo 'Local lifecycle operation already in progress' >&2; exit 1; }
 # Integrity against accidental changes; the local state owner is trusted.
 if ! sha256sum --check --strict --status installation.sha256 ||
    ! (cd compose && sha256sum --check --strict --status SHA256SUMS) ||
@@ -59,34 +63,37 @@ for svc in db api radius schema-init; do
 done
 case "$action" in
   status) stack ps -a ;;
-  stop) stack stop api radius; stack stop db ;;
+  stop)
+    local_docker stop "${original[api]}" "${original[radius]}"
+    local_docker stop "${original[db]}"
+    ;;
   start)
-    stack start db
+    local_docker start "${original[db]}"
     ready=0
     for attempt in $(seq 1 30); do
-      if stack exec -T db pg_isready -h 127.0.0.1 -U radius -d radius >/dev/null 2>&1; then
+      if local_docker exec -i "${original[db]}" pg_isready -h 127.0.0.1 -U radius -d radius >/dev/null 2>&1; then
         ready=1; break
       fi
       sleep 2
     done
     [[ "$ready" == 1 ]]
     # Existing database marker and migration ledger must still match.
-    [[ "$(stack exec -T db psql -X -qAt -v ON_ERROR_STOP=1 -U radius -d radius \
+    [[ "$(local_docker exec -i "${original[db]}" psql -X -qAt -v ON_ERROR_STOP=1 -U radius -d radius \
       -c "SELECT shobj_description(oid,'pg_database') FROM pg_database WHERE datname=current_database()")" == "radius-csharp-local:$project" ]]
-    [[ "$(stack exec -T db psql -X -qAt -v ON_ERROR_STOP=1 -U radius -d radius \
+    [[ "$(local_docker exec -i "${original[db]}" psql -X -qAt -v ON_ERROR_STOP=1 -U radius -d radius \
       -c 'SELECT count(*) FROM app_schema_migrations')" == 10 ]]
-    ledger="$(stack exec -T db psql -X -qAt -v ON_ERROR_STOP=1 -U radius -d radius \
+    ledger="$(local_docker exec -i "${original[db]}" psql -X -qAt -v ON_ERROR_STOP=1 -U radius -d radius \
       -c "SELECT row_to_json(m)::text FROM app_schema_migrations m ORDER BY version" | sha256sum | cut -d ' ' -f1)"
     [[ "$ledger" == "$(cat ledger.sha256)" ]] || {
       echo 'Local migration ledger identity mismatch; recovery required' >&2; exit 1;
     }
-    stack start radius api
-    addr="$(stack port api 8080)"
+    local_docker start "${original[radius]}" "${original[api]}"
+    addr="$(local_docker port "${original[api]}" 8080/tcp)"
     [[ "$addr" =~ ^127\.0\.0\.1:[0-9]+$ ]]
     ready=0
     for attempt in $(seq 1 30); do
       if curl --silent --fail "http://$addr/api/health/ready" >/dev/null &&
-         [[ "$(local_docker inspect --format '{{.State.Health.Status}}' "$(stack ps -q radius)")" == healthy ]]; then
+         [[ "$(local_docker inspect --format '{{.State.Health.Status}}' "${original[radius]}")" == healthy ]]; then
         ready=1; break
       fi
       sleep 2

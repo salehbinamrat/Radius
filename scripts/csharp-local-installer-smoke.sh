@@ -109,6 +109,18 @@ fi
 grep -Fxq 'Local service identity mismatch' "$tmp/manager-refusal.log"
 cp "$tmp/original-identities" "$state/container-identities.txt"
 cp "$tmp/original-manifest" "$state/installation.sha256"
+# A competing invocation must fail before changing any running service.
+(
+  exec 9<"$state"
+  flock -n 9
+  for action in status start stop; do
+    if (cd "$state" && bash manage.sh "$action") >"$tmp/manager-refusal.log" 2>&1; then
+      echo 'Manager accepted concurrent lifecycle invocation' >&2; exit 1
+    fi
+    grep -Fxq 'Local lifecycle operation already in progress' "$tmp/manager-refusal.log"
+  done
+)
+[[ "$(stack ps -q db)" == "$db_before" && -n "$(stack ps -q api)" && -n "$(stack ps -q radius)" ]]
 # Stop and start all original services using the standalone installed manager.
 (cd "$state" && bash manage.sh stop)
 [[ -z "$(stack ps -q db)" && -z "$(stack ps -q api)" && -z "$(stack ps -q radius)" ]]

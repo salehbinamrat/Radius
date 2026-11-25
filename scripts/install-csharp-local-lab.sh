@@ -11,6 +11,7 @@ state="$1"; shift
 [[ "$state" =~ ^/[a-zA-Z0-9_./-]+$ && "$state" == "$(realpath -m -- "$state")" && ! -e "$state" && ! -L "$state" && -d "$(dirname "$state")" ]] || {
   echo 'Use a new canonical absolute directory with an existing parent; refusing overwrite' >&2; exit 2;
 }
+command -v flock >/dev/null || { echo 'Local lifecycle requires flock (util-linux)' >&2; exit 2; }
 # Fixed local socket; no remote Docker context or inherited Compose overrides.
 local_docker() { env -i PATH="$PATH" HOME="$HOME" docker --host unix:///var/run/docker.sock "$@"; }
 for id in "$@"; do
