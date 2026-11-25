@@ -18,11 +18,35 @@
   "inventories": {
     "build": {
       "count": 210,
-      "sha256": "687b2a82a15875e3c48f54e5ef6c2c074684106e6603e0127f337f81b7a75bcc"
+      "sha256": "687b2a82a15875e3c48f54e5ef6c2c074684106e6603e0127f337f81b7a75bcc",
+      "reviewed_transition": {
+        "from_version": "2.10.0-r0",
+        "to_version": "2.11.0-r0",
+        "packages": [
+          "expat",
+          "expat-dev",
+          "libexpat"
+        ],
+        "evidence_runs": [
+          45597356221,
+          45678859051
+        ]
+      }
     },
     "runtime": {
       "count": 62,
-      "sha256": "91e71ba239eabd0f9481a630e10bd55b64bf387b15e2e7c0cd5a5f2e78c255d0"
+      "sha256": "91e71ba239eabd0f9481a630e10bd55b64bf387b15e2e7c0cd5a5f2e78c255d0",
+      "reviewed_transition": {
+        "from_version": "2.10.0-r0",
+        "to_version": "2.11.0-r0",
+        "packages": [
+          "libexpat"
+        ],
+        "evidence_runs": [
+          45597356221,
+          45678859051
+        ]
+      }
     }
   }
 }

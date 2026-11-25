@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Independent candidate evidence; never changes the accepted legacy baseline."""
-import hashlib
 import json
 import re
+import runpy
 import sys
 from pathlib import Path
 
@@ -24,8 +24,9 @@ def verify(root, preflight=False):
     old_raw = (root / "radius-slim-legacy-packages.txt").read_bytes()
     new_raw = (root / "radius-slim-packages.txt").read_bytes()
     baseline = json.loads((Path(__file__).resolve().parents[1] / "radius/source-build-baseline.json").read_text())
-    require(hashlib.sha256(old_raw).hexdigest() == baseline["inventories"]["runtime"]["sha256"],
-            "Legacy package baseline mismatch")
+    # Same exact inventory gate as the full runtime security evidence.
+    inventory = runpy.run_path(str(Path(__file__).with_name("verify-security-evidence.py")))["inventory"]
+    inventory(old_raw, baseline["inventories"]["runtime"], "Legacy runtime")
     old, new = set(old_raw.decode().splitlines()), set(new_raw.decode().splitlines())
     require(new and new < old, "Candidate added or changed packages")
     require(not any(re.match(r"(python3|py3-psycopg2|libpython3)(?:-|$)", p) for p in new),

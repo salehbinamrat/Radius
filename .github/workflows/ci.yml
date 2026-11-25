@@ -171,6 +171,7 @@ jobs:
           LAB_HTTPS_TEST_ACK: isolated-ci
         run: bash scripts/admin-https-smoke.sh csharp
       - name: Reduced RADIUS runtime candidate and size comparison
+        id: slim_candidate
         env:
           RADIUS_SLIM_TEST_ACK: isolated-ci
         run: bash scripts/radius-slim-candidate-smoke.sh
@@ -180,7 +181,7 @@ jobs:
           LAB_SECURITY_SCAN_ACK: isolated-ci
         run: bash scripts/security-scan-ci.sh
       - name: Retain security reports
-        if: always() && (steps.security_scan.outcome == 'success' || steps.security_scan.outcome == 'failure')
+        if: always() && (steps.slim_candidate.outcome == 'failure' || steps.security_scan.outcome == 'success' || steps.security_scan.outcome == 'failure')
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: radius-security-reports
