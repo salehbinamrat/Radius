@@ -37,7 +37,7 @@ class LocalInstallerChecks(unittest.TestCase):
         source = INSTALLER.read_text()
         smoke = (ROOT / "scripts/csharp-local-installer-smoke.sh").read_text()
         compose = (ROOT / "tests/csharp-stack-candidate.compose.yaml").read_text()
-        self.assertIn('RADIUS_LOCAL_RUNTIME:-compatible', source)
+        self.assertIn('RADIUS_LOCAL_RUNTIME:-slim', source)
         self.assertIn("Slim runtime requires the Python-free RADIUS image", source)
         self.assertLess(source.index("Slim runtime requires"), source.index('mkdir -- "$state"'))
         for marker in ('"$state/compose/csharp-stack-candidate.compose.yaml"',
@@ -46,5 +46,23 @@ class LocalInstallerChecks(unittest.TestCase):
             self.assertIn(marker, source)
         self.assertIn('CSHARP_BUNDLE_DIR:?Required verified migration bundle}/migrations/001_app.sql', compose)
         self.assertIn('Path(mount["source"]).is_relative_to(state)', smoke)
-        self.assertIn('(cd "$state" && stack stop api radius && stack up -d api radius)', smoke)
+        self.assertIn('(cd "$state" && bash manage.sh stop)', smoke)
+        self.assertIn('(cd "$state" && bash manage.sh start)', smoke)
         self.assertIn("Python-free image accepted by actual local installer", smoke)
+
+    def test_installed_manager_is_non_destructive_and_checks_identity(self):
+        manager = (ROOT / "scripts/manage-csharp-local-lab.sh").read_text()
+        installer = INSTALLER.read_text()
+        smoke = (ROOT / "scripts/csharp-local-installer-smoke.sh").read_text()
+        for marker in ("installation.sha256", "sha256sum --check --strict --status",
+                       "Local service identity mismatch", "Original local service container missing",
+                       "stack start db", "stack start radius api", "stack stop db",
+                       "radius-csharp-local:", "SELECT count(*) FROM app_schema_migrations"):
+            self.assertIn(marker, manager)
+        for forbidden in ("stack up", "stack down", "docker pull", "rm -rf", "--build"):
+            self.assertNotIn(forbidden, manager)
+        self.assertIn('cp -- "$root/scripts/manage-csharp-local-lab.sh" "$state/manage.sh"', installer)
+        self.assertIn('unset RADIUS_LOCAL_RUNTIME', smoke)
+        self.assertIn('export RADIUS_LOCAL_RUNTIME=compatible', smoke)
+        self.assertIn('Manager accepted modified installed Compose file', smoke)
+        self.assertIn("Installed manager rejects changed configuration", smoke)

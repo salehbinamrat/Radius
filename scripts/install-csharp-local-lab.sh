@@ -20,7 +20,7 @@ for id in "$@"; do
   [[ "$(local_docker image inspect --format '{{.Id}}' "$id")" == "$id" ]] || exit 1
 done
 db_id="$1"; api_id="$2"; radius_id="$3"
-runtime="${RADIUS_LOCAL_RUNTIME:-compatible}"
+runtime="${RADIUS_LOCAL_RUNTIME:-slim}"
 [[ "$runtime" == compatible || "$runtime" == slim ]] || {
   echo 'Expected compatible or slim local runtime' >&2; exit 2;
 }
@@ -85,6 +85,10 @@ chmod 444 "$state/db-password"
 unset db_password admin_password radius_secret
 # Save exact expected image IDs separately for future verification.
 printf 'db %s\napi %s\nradius %s\n' "$db_id" "$api_id" "$radius_id" >"$state/image-identities.txt"
+cp -- "$root/scripts/manage-csharp-local-lab.sh" "$state/manage.sh"
+chmod 700 "$state/manage.sh"
+(cd "$state" && sha256sum project-id runtime-profile image-identities.txt stack.env db-password \
+  bundle/SHA256SUMS compose/SHA256SUMS manage.sh > installation.sha256)
 stack() {
   local_docker compose --project-directory "$state" --env-file "$state/stack.env" -p "$project" \
     -f "$state/compose/csharp-stack-candidate.compose.yaml" -f "$state/compose/csharp-stack-local.compose.yaml" "$@"
