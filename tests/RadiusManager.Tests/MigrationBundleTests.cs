@@ -76,6 +76,26 @@ public sealed class MigrationBundleTests : IDisposable
     }
 
     [Fact]
+    public void TrustedManifestDigestIsChecked()
+    {
+        var digest = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(manifest))).ToLowerInvariant();
+        MigrationBundle.Verify(directory, catalog, official, digest);
+        Assert.Throws<InvalidDataException>(() => MigrationBundle.Verify(directory, catalog, official, new string('0', 64)));
+    }
+
+    [Fact]
+    public void RewrittenConsistentManifestDoesNotMatchTrustedDigest()
+    {
+        var trusted = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(manifest))).ToLowerInvariant();
+        var changed = Encoding.UTF8.GetBytes("SELECT 2;\\n");
+        var oldHash = Convert.ToHexString(SHA256.HashData(official)).ToLowerInvariant();
+        var newHash = Convert.ToHexString(SHA256.HashData(changed)).ToLowerInvariant();
+        WriteManifest(manifest.Replace(oldHash + "  official.sql", newHash + "  official.sql", StringComparison.Ordinal));
+        MigrationBundle.Verify(directory, catalog, changed);
+        Assert.Throws<InvalidDataException>(() => MigrationBundle.Verify(directory, catalog, changed, trusted));
+    }
+
+    [Fact]
     public void MissingManifestIsRejected()
     {
         File.Delete(Path.Combine(directory, "SHA256SUMS"));

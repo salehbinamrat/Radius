@@ -18,7 +18,7 @@ public static class MigrationBundle
     private static string Hash(byte[] bytes) =>
         Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
 
-    public static void Verify(string directory, IReadOnlyList<MigrationCatalog.Entry> catalog, byte[] officialSql)
+    public static void Verify(string directory, IReadOnlyList<MigrationCatalog.Entry> catalog, byte[] officialSql, string? expectedManifestSha256 = null)
     {
         // Never use manifest-provided paths to open files. The set of expected
         // filenames is derived solely from the compiled catalog and fixed metadata.
@@ -41,6 +41,10 @@ public static class MigrationBundle
 
             var manifest = File.ReadAllBytes(Path.Combine(directory, "SHA256SUMS"));
             if (manifest.Length is < 1 or > 4096)
+                throw new InvalidDataException();
+            // A separately supplied digest protects against a rewritten manifest
+            // together with its payload. It is not a digital signature.
+            if (expectedManifestSha256 is not null && Hash(manifest) != expectedManifestSha256)
                 throw new InvalidDataException();
             var lines = Utf8.GetString(manifest).Split('\n');
             if (lines.Length != expected.Count + 1 || lines[^1] != "")
