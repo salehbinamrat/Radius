@@ -74,7 +74,8 @@ done
 [[ -z "$(ctr --address "$work/containerd.sock" namespaces list -q)" ]]
 dockerd --config-file "$work/daemon.json" --host "unix://$work/docker.sock" \
   --containerd "$work/containerd.sock" --data-root "$work/data" --exec-root "$work/exec" \
-  --pidfile "$work/docker.pid" --storage-driver "$driver" >"$work/daemon.log" 2>&1 &
+  --pidfile "$work/docker.pid" --storage-driver "$driver" \
+  --exec-opt native.cgroupdriver=cgroupfs --cgroup-parent "/${work##*/}" >"$work/daemon.log" 2>&1 &
 daemon=$!
 ready=0
 for attempt in $(seq 1 60); do
@@ -89,6 +90,9 @@ docker_local() { docker --host unix:///var/run/docker.sock "$@"; }
 isolated_id="$(docker_local info --format '{{.ID}}')"
 [[ -n "$isolated_id" && "$isolated_id" != "$host_id" ]]
 [[ "$(docker_local info --format '{{.DockerRootDir}}')" == "$work/data" ]]
+# Host systemd cannot address PIDs from the private PID namespace.
+[[ "$(docker_local info --format '{{.CgroupDriver}}')" == cgroupfs ]]
+echo 'Independent engine uses cgroupfs instead of host systemd'
 driver_status="$(docker_local info --format '{{json .DriverStatus}}')"
 if [[ "$store" == containerd ]]; then
   [[ "$driver_status" == *io.containerd.snapshotter.v1* ]]

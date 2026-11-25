@@ -46,17 +46,25 @@ runtime="${RADIUS_LOCAL_RUNTIME:-slim}"
 }
 if [[ "$runtime" == slim ]]; then
   # Inspect the actual clean image before creating any project resources.
-  if ! local_docker run --rm --pull never --network none --read-only --cap-drop ALL \
-      --security-opt no-new-privileges:true --entrypoint sh "$radius_id" -ec '
-        if command -v python3 || command -v python; then exit 1; fi
-        test ! -e /opt/radius/migrate.py
-        test ! -e /opt/radius/radius_secret_input.py
-        test ! -e /usr/local/bin/schema-init.sh
-        test -x /usr/local/bin/start.sh
-        test -x /usr/local/bin/radius-health-probe.sh
-        test -s /opt/radius/radius_secret_input.sh
-      ' >/dev/null 2>&1; then
-    echo 'Slim runtime requires the Python-free RADIUS image' >&2; exit 2
+  if local_docker run --rm --pull never --network none --read-only --cap-drop ALL \
+      --security-opt no-new-privileges=true --entrypoint sh "$radius_id" -ec '
+        if command -v python3 || command -v python; then exit 42; fi
+        if ! (test ! -e /opt/radius/migrate.py &&
+              test ! -e /opt/radius/radius_secret_input.py &&
+              test ! -e /usr/local/bin/schema-init.sh &&
+              test -x /usr/local/bin/start.sh &&
+              test -x /usr/local/bin/radius-health-probe.sh &&
+              test -s /opt/radius/radius_secret_input.sh); then exit 42; fi
+      ' >/dev/null; then
+    :
+  else
+    probe_status=$?
+    if [[ "$probe_status" == 42 ]]; then
+      echo 'Slim runtime requires the Python-free RADIUS image' >&2
+    else
+      echo "Unable to execute local RADIUS image validation (exit $probe_status)" >&2
+    fi
+    exit 2
   fi
 fi
 project="radiuscsharp$(openssl rand -hex 4)"

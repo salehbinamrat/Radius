@@ -112,6 +112,8 @@ class LocalInstallerChecks(unittest.TestCase):
                        "--data-root", "--exec-root", '--storage-driver "$driver"',
                        '--containerd "$work/containerd.sock"', '--root "$work/containerd-data"',
                        '--state "$work/containerd-state"', "io.containerd.snapshotter.v1",
+                       "--exec-opt native.cgroupdriver=cgroupfs", '--cgroup-parent "/${work##*/}"',
+                       "'{{.CgroupDriver}}'",
                        'mount --bind "$work/docker.sock" /var/run/docker.sock',
                        'docker_local image ls -aq', 'docker_local volume ls -q',
                        "no_external_route", "Offline fresh-engine installation and persistent restart PASS"):
@@ -123,3 +125,10 @@ class LocalInstallerChecks(unittest.TestCase):
         bundle = (ROOT / "scripts/offline-csharp-local-lab.sh").read_text()
         self.assertLess(bundle.index("Offline bundle image store mismatch"), bundle.index("local_docker image load"))
         self.assertIn("image-store.txt images.tar.gz", bundle)
+
+    def test_slim_probe_distinguishes_content_from_runtime_failure(self):
+        source = INSTALLER.read_text()
+        self.assertIn('if [[ "$probe_status" == 42 ]]', source)
+        self.assertIn("Unable to execute local RADIUS image validation", source)
+        self.assertIn("exit 42", source)
+        self.assertIn("no-new-privileges=true", source)
