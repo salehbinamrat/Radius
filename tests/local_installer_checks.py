@@ -109,7 +109,9 @@ class LocalInstallerChecks(unittest.TestCase):
         isolated = (ROOT / "scripts/offline-fresh-engine-smoke.sh").read_text()
         self.assertIn("CSHARP_OFFLINE_TEST_ACK=isolated-ci bash scripts/offline-fresh-engine-smoke.sh", smoke)
         for marker in ("GITHUB_ACTIONS", "unshare --mount --net --pid",
-                       "--data-root", "--exec-root", "--storage-driver vfs",
+                       "--data-root", "--exec-root", '--storage-driver "$driver"',
+                       '--containerd "$work/containerd.sock"', '--root "$work/containerd-data"',
+                       '--state "$work/containerd-state"', "io.containerd.snapshotter.v1",
                        'mount --bind "$work/docker.sock" /var/run/docker.sock',
                        'docker_local image ls -aq', 'docker_local volume ls -q',
                        "no_external_route", "Offline fresh-engine installation and persistent restart PASS"):
@@ -117,3 +119,7 @@ class LocalInstallerChecks(unittest.TestCase):
         self.assertLess(isolated.index("docker_local volume ls -q"), isolated.index('offline-csharp-local-lab.sh" install'))
         self.assertIn('bash "$state/manage.sh" stop', isolated)
         self.assertIn('bash "$state/manage.sh" start', isolated)
+        self.assertIn("Offline installer accepted incompatible image store", smoke)
+        bundle = (ROOT / "scripts/offline-csharp-local-lab.sh").read_text()
+        self.assertLess(bundle.index("Offline bundle image store mismatch"), bundle.index("local_docker image load"))
+        self.assertIn("image-store.txt images.tar.gz", bundle)

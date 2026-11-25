@@ -38,19 +38,44 @@ no_external_route() {
   [[ -z "$(ip -4 route show default)" && -z "$(ip -6 route show default)" ]]
 }
 no_external_route
-printf '%s\n' '{"features":{"containerd-snapshotter":false}}' >"$work/daemon.json"
-dockerd --config-file "$work/daemon.json" --host "unix://$work/docker.sock" \
-  --data-root "$work/data" --exec-root "$work/exec" --pidfile "$work/docker.pid" \
-  --storage-driver vfs >"$work/daemon.log" 2>&1 &
-daemon=$!
+# Match the source image store: Docker 29's OCI manifest ID differs from the
+# classic config ID. Never share the host containerd socket or its state.
+store="$(cat "$package/image-store.txt")"
+case "$store" in
+  containerd) printf '%s\n' '{"features":{"containerd-snapshotter":true}}' >"$work/daemon.json"; driver=overlayfs ;;
+  classic) printf '%s\n' '{"features":{"containerd-snapshotter":false}}' >"$work/daemon.json"; driver=vfs ;;
+  *) exit 2 ;;
+esac
+daemon=
+runtime=
 finish() {
   local result=$?
-  if (( result != 0 )); then tail -n 80 "$work/daemon.log" >&2 || true; fi
-  kill "$daemon" 2>/dev/null || true
-  wait "$daemon" 2>/dev/null || true
+  if (( result != 0 )); then
+    for log in "$work/daemon.log" "$work/containerd.log"; do
+      if [[ -f "$log" ]]; then tail -n 80 "$log" >&2 || true; fi
+    done
+  fi
+  if [[ -n "$daemon" ]]; then kill "$daemon" 2>/dev/null || true; wait "$daemon" 2>/dev/null || true; fi
+  if [[ -n "$runtime" ]]; then kill "$runtime" 2>/dev/null || true; wait "$runtime" 2>/dev/null || true; fi
   exit "$result"
 }
 trap finish EXIT
+containerd config default >"$work/containerd.toml"
+containerd --config "$work/containerd.toml" --root "$work/containerd-data" \
+  --state "$work/containerd-state" --address "$work/containerd.sock" >"$work/containerd.log" 2>&1 &
+runtime=$!
+runtime_ready=0
+for attempt in $(seq 1 30); do
+  if ctr --address "$work/containerd.sock" version >/dev/null 2>&1; then runtime_ready=1; break; fi
+  kill -0 "$runtime" || exit 1
+  sleep 1
+done
+[[ "$runtime_ready" == 1 ]]
+[[ -z "$(ctr --address "$work/containerd.sock" namespaces list -q)" ]]
+dockerd --config-file "$work/daemon.json" --host "unix://$work/docker.sock" \
+  --containerd "$work/containerd.sock" --data-root "$work/data" --exec-root "$work/exec" \
+  --pidfile "$work/docker.pid" --storage-driver "$driver" >"$work/daemon.log" 2>&1 &
+daemon=$!
 ready=0
 for attempt in $(seq 1 60); do
   if docker --host "unix://$work/docker.sock" info >/dev/null 2>&1; then ready=1; break; fi
@@ -64,12 +89,20 @@ docker_local() { docker --host unix:///var/run/docker.sock "$@"; }
 isolated_id="$(docker_local info --format '{{.ID}}')"
 [[ -n "$isolated_id" && "$isolated_id" != "$host_id" ]]
 [[ "$(docker_local info --format '{{.DockerRootDir}}')" == "$work/data" ]]
+driver_status="$(docker_local info --format '{{json .DriverStatus}}')"
+if [[ "$store" == containerd ]]; then
+  [[ "$driver_status" == *io.containerd.snapshotter.v1* ]]
+else
+  [[ "$driver_status" != *io.containerd.snapshotter.v1* ]]
+fi
+echo "Independent containerd and matching image store: $store"
 [[ -z "$(docker_local image ls -aq)" && -z "$(docker_local ps -aq)" && -z "$(docker_local volume ls -q)" ]]
 no_external_route
 echo 'Fresh isolated Docker engine: no images, containers, volumes or external default route'
 state="$work/install"
 RADIUS_LOCAL_INSTALL_ACK=local-lab-only bash "$package/scripts/offline-csharp-local-lab.sh" install "$state" "$digest"
 # Exactly the three transported images; the installer creates only its own tags.
+# Compare exact expected IDs after loading; fail closed on missing or extra IDs.
 diff -u <(sort "$package/image-ids.txt") <(docker_local image ls -aq --no-trunc | sort -u)
 [[ "$(docker_local ps -aq | wc -l)" == 4 ]]
 [[ "$(docker_local ps -q | wc -l)" == 3 ]]
