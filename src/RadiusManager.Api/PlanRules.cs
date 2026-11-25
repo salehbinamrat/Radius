@@ -9,6 +9,10 @@ public static class PlanRules
         if (input is null) return "البيانات غير صالحة";
         if (string.IsNullOrWhiteSpace(input.Name) || input.Name.Trim().Length > 80)
             return "اسم الباقة يجب أن يكون بين 1 و80 حرفا";
+        // PostgreSQL text cannot contain NUL; embedded control characters also
+        // corrupt display/export semantics. Validate the same trimmed value we store.
+        if (input.Name.Trim().Any(char.IsControl))
+            return "اسم الباقة يحتوي على محارف تحكم غير صالحة";
         if (input.DownloadKbps is < 64 or > 1000000 || input.UploadKbps is < 64 or > 1000000)
             return "السرعة يجب أن تكون بين 64 و1000000 كيلوبت/ثانية";
         if (input.QuotaMb is <= 0 or > 100000000)
