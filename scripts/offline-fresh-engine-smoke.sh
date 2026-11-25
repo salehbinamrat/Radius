@@ -34,6 +34,21 @@ work="$1"; package="$2"; digest="$3"; host_id="$4"; host_mount="$5"; host_net="$
 [[ "$(readlink /proc/self/ns/mnt)" != "$host_mount" && "$(readlink /proc/self/ns/net)" != "$host_net" ]]
 [[ "$(ip -o link show | wc -l)" == 1 ]]
 ip link set lo up
+# unshare --net changes the network namespace, but an inherited sysfs mount
+# still exposes the host network devices. Preserve the cgroup mount, then
+# mount sysfs from inside this network namespace (private mount propagation).
+mkdir -- "$work/cgroup-view" "$work/containerd-run" "$work/docker-run"
+mount --bind /sys/fs/cgroup "$work/cgroup-view"
+mount -t sysfs -o nosuid,nodev,noexec sysfs /sys
+mount --bind "$work/cgroup-view" /sys/fs/cgroup
+[[ "$(ls -A /sys/class/net)" == lo ]]
+# containerd's auxiliary ttrpc/shim sockets and Docker's network namespace
+# handles also use fixed /run paths, independently of --root/--state.
+[[ -d /run/containerd && -d /run/docker ]]
+mount --bind "$work/containerd-run" /run/containerd
+mount --bind "$work/docker-run" /run/docker
+[[ -z "$(ls -A /run/containerd)" && -z "$(ls -A /run/docker)" ]]
+echo 'Private sysfs, containerd runtime paths and Docker runtime paths verified'
 no_external_route() {
   [[ -z "$(ip -4 route show default)" && -z "$(ip -6 route show default)" ]]
 }
@@ -51,6 +66,22 @@ runtime=
 finish() {
   local result=$?
   if (( result != 0 )); then
+    # Preserve the original failed service's diagnostics before the disposable
+    # engine is stopped. Never query the host socket or dump environment/SQL.
+    if [[ -S "$work/docker.sock" ]] &&
+       [[ "$(docker --host "unix://$work/docker.sock" info --format '{{.DockerRootDir}}' 2>/dev/null)" == "$work/data" ]]; then
+      diagnostic_docker() { docker --host "unix://$work/docker.sock" "$@"; }
+      echo 'Offline isolated engine service diagnostics:' >&2
+      diagnostic_docker ps -a --format '{{.Names}} {{.Status}}' >&2 || true
+      while read -r cid; do
+        [[ "$cid" =~ ^[a-f0-9]{64}$ ]] || continue
+        diagnostic_docker inspect --format '{{.Name}} status={{.State.Status}} exit={{.State.ExitCode}} error={{.State.Error}}' "$cid" >&2 || true
+        service="$(diagnostic_docker inspect --format '{{index .Config.Labels "com.docker.compose.service"}}' "$cid" 2>/dev/null)" || continue
+        case "$service" in
+          db|schema-init) diagnostic_docker logs --tail 100 "$cid" >&2 || true ;;
+        esac
+      done < <(diagnostic_docker ps -aq --no-trunc)
+    fi
     for log in "$work/daemon.log" "$work/containerd.log"; do
       if [[ -f "$log" ]]; then tail -n 80 "$log" >&2 || true; fi
     done
@@ -84,6 +115,10 @@ for attempt in $(seq 1 60); do
   sleep 1
 done
 [[ "$ready" == 1 ]]
+# Verify that the bridge created by the private daemon is visible through
+# both netlink and the matching sysfs mount before starting any application.
+ip link show docker0 >/dev/null
+[[ -d /sys/class/net/docker0/bridge ]]
 # Never continue if mounting or identity validation fails.
 mount --bind "$work/docker.sock" /var/run/docker.sock
 docker_local() { docker --host unix:///var/run/docker.sock "$@"; }
@@ -104,6 +139,7 @@ echo "Independent containerd and matching image store: $store"
 no_external_route
 echo 'Fresh isolated Docker engine: no images, containers, volumes or external default route'
 state="$work/install"
+echo 'Starting verified offline package installation on isolated engine'
 RADIUS_LOCAL_INSTALL_ACK=local-lab-only bash "$package/scripts/offline-csharp-local-lab.sh" install "$state" "$digest"
 # Exactly the three transported images; the installer creates only its own tags.
 # Compare exact expected IDs after loading; fail closed on missing or extra IDs.

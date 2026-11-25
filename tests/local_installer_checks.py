@@ -132,3 +132,18 @@ class LocalInstallerChecks(unittest.TestCase):
         self.assertIn("Unable to execute local RADIUS image validation", source)
         self.assertIn("exit 42", source)
         self.assertIn("no-new-privileges=true", source)
+
+    def test_offline_namespace_mounts_and_failure_diagnostics(self):
+        source = (ROOT / "scripts/offline-fresh-engine-smoke.sh").read_text()
+        for marker in ('mount -t sysfs -o nosuid,nodev,noexec sysfs /sys',
+                       'mount --bind "$work/cgroup-view" /sys/fs/cgroup',
+                       'mount --bind "$work/containerd-run" /run/containerd',
+                       'mount --bind "$work/docker-run" /run/docker',
+                       '/sys/class/net/docker0/bridge',
+                       'diagnostic_docker logs --tail 100 "$cid"',
+                       'db|schema-init)', '{{.State.ExitCode}}'):
+            self.assertIn(marker, source)
+        self.assertLess(source.index('mount -t sysfs'), source.index('containerd --config'))
+        self.assertLess(source.index('diagnostic_docker logs'), source.index('kill "$daemon"'))
+        self.assertLess(source.index('/sys/class/net/docker0/bridge'),
+                        source.index('offline-csharp-local-lab.sh" install'))
