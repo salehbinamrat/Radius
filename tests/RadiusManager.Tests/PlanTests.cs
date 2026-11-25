@@ -13,6 +13,47 @@ public sealed class PlanTests
     public void InvalidPlanIsRejected(string name,int download,int upload) =>
         Assert.NotNull(PlanRules.Validate(new PlanInput(name,download,upload,null,null)));
 
+    [Theory]
+    [InlineData("a\0b")]
+    [InlineData("a\nb")]
+    [InlineData("a\rb")]
+    [InlineData("a\tb")]
+    [InlineData("a\u007fb")]
+    [InlineData("a\u0085b")]
+    public void EmbeddedControlCharactersAreRejected(string name) =>
+        Assert.NotNull(PlanRules.Validate(new PlanInput(name, 1024, 256, null, null)));
+
+    [Theory]
+    [InlineData("باقة الإنترنت")]
+    [InlineData("باقة 5 GB")]
+    [InlineData("  باقة تجريبية  ")]
+    public void ValidArabicAndTrimmedNamesRemainAccepted(string name) =>
+        Assert.Null(PlanRules.Validate(new PlanInput(name, 1024, 256, null, null)));
+
+    [Fact]
+    public void ExistingPlanNameLengthLimitsArePreserved()
+    {
+        Assert.Null(PlanRules.Validate(new PlanInput(new string('a', 80), 1024, 256, null, null)));
+        Assert.NotNull(PlanRules.Validate(new PlanInput(new string('a', 81), 1024, 256, null, null)));
+        Assert.NotNull(PlanRules.Validate(new PlanInput(null!, 1024, 256, null, null)));
+    }
+
+    [Theory]
+    [InlineData(64, 64, 1, 1)]
+    [InlineData(1000000, 1000000, 100000000, 3650)]
+    public void ExistingValidNumericBoundariesRemainAccepted(int down, int up, long quota, int days) =>
+        Assert.Null(PlanRules.Validate(new PlanInput("باقة", down, up, quota, days)));
+
+    [Theory]
+    [InlineData(63, 64, 1, 1)]
+    [InlineData(64, 1000001, 1, 1)]
+    [InlineData(64, 64, 0, 1)]
+    [InlineData(64, 64, 100000001, 1)]
+    [InlineData(64, 64, 1, 0)]
+    [InlineData(64, 64, 1, 3651)]
+    public void InvalidNumericBoundariesRemainRejected(int down, int up, long quota, int days) =>
+        Assert.NotNull(PlanRules.Validate(new PlanInput("باقة", down, up, quota, days)));
+
     [Fact]
     public void QuotaUnitsAreBytes() => Assert.Equal(5242880L, PlanRules.QuotaBytes(5));
 

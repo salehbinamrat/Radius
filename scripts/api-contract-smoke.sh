@@ -29,6 +29,13 @@ expect_status 403 -u "$ADMIN_USER:$ADMIN_PASSWORD" -H "Origin: https://untrusted
 expect_status 403 -u "$ADMIN_USER:$ADMIN_PASSWORD" -H "Sec-Fetch-Site: cross-site" -H "Content-Type: application/json" --data '{"name":"Rejected","downloadKbps":1024,"uploadKbps":256}' "$API/plans"
 expect_status 400 -u "$ADMIN_USER:$ADMIN_PASSWORD" -H "Content-Type: application/json" --data '{malformed JSON' "$API/plans"
 expect_status 400 -u "$ADMIN_USER:$ADMIN_PASSWORD" -H "Content-Type: application/json" --data '{"name":"Invalid","downloadKbps":-1,"uploadKbps":256}' "$API/plans"
+# Valid JSON with embedded control characters must be rejected by validation,
+# never reach the database text encoder, and never create or modify a plan.
+for escaped in '\u0000' '\n' '\r' '\t' '\u007f' '\u0085'; do
+  payload=$(printf '{"name":"invalid%sb","downloadKbps":1024,"uploadKbps":256}' "$escaped")
+  expect_status 400 -u "$ADMIN_USER:$ADMIN_PASSWORD" -H "Content-Type: application/json" --data "$payload" "$API/plans"
+  expect_status 400 -u "$ADMIN_USER:$ADMIN_PASSWORD" -X PUT -H "Content-Type: application/json" --data "$payload" "$API/plans/00000000-0000-0000-0000-000000000000"
+done
 after=$(curl -fsS -u "$ADMIN_USER:$ADMIN_PASSWORD" "$API/summary")
 python3 - "$before" "$after" <<'PY'
 import json,sys
