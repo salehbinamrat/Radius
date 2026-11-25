@@ -17,6 +17,11 @@ export CSHARP_DB_PASSWORD="$(openssl rand -hex 24)"
 export CSHARP_ADMIN_PASSWORD="$(openssl rand -hex 24)"
 export CSHARP_RADIUS_SECRET="$(openssl rand -hex 24)"
 export CSHARP_OFFICIAL_SQL="$tmp/official.sql"
+export CSHARP_DB_PASSWORD_FILE="$tmp/migration-db-password"
+printf '%s\n' "$CSHARP_DB_PASSWORD" >"$CSHARP_DB_PASSWORD_FILE"
+# Host directory is private (0700); mount only the individual read-only file
+# for the non-root API initializer, as in the existing HTTPS fixture.
+chmod 444 "$CSHARP_DB_PASSWORD_FILE"
 compose_file=tests/csharp-stack-candidate.compose.yaml
 tags=()
 stack_started=0
@@ -63,6 +68,19 @@ grep -Fxq 'C# migration execution refused: Isolated stack database marker mismat
 sql -v marker="radius-csharp-ci:$CSHARP_STACK_ID" <<'SQL'
 COMMENT ON DATABASE radius IS :'marker';
 SQL
+# Invalid, missing and competing secret sources must fail before any writes.
+# A valid file source is then exercised for fresh and legacy-upgrade paths.
+reject_secret() {
+  if stack run --rm --no-deps "$@" schema-init >"$tmp/secret-refusal.log" 2>&1; then
+    echo 'Invalid migration secret source accepted' >&2; exit 1
+  fi
+  grep -Fxq 'C# migration execution refused: Invalid or conflicting migration database secret source' "$tmp/secret-refusal.log"
+  [[ "$(sql -c "SELECT to_regclass('public.app_schema_migrations') IS NULL AND to_regclass('public.radcheck') IS NULL")" == t ]]
+}
+reject_secret -e RADIUS_DB_PASSWORD_FILE=/run/radius-secrets/missing
+reject_secret -e RADIUS_DB_PASSWORD_FILE=/opt/official.sql
+reject_secret -e 'ConnectionStrings__RadiusDb=Host=db;Port=5432;Database=radius;Username=radius;Password=invalid-fixture'
+echo 'C# initializer file secret and fail-closed source checks PASS'
 # The upgrade variant begins with the original Python installer and normal
 # services, using the same isolated project and database volume throughout.
 if [[ "$mode" == legacy-upgrade ]]; then

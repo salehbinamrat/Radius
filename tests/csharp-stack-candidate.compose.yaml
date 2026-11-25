@@ -26,10 +26,12 @@ services:
       LAB_MIGRATION_TEST_MODE: isolated-stack-ci
       MIGRATION_DB_NAME: radius
       MIGRATION_STACK_ID: ${CSHARP_STACK_ID:?Required isolated project ID}
-      ConnectionStrings__RadiusDb: "Host=db;Port=5432;Database=radius;Username=radius;Password=${CSHARP_DB_PASSWORD:?Required disposable password}"
+      ConnectionStrings__RadiusDb: "Host=db;Port=5432;Database=radius;Username=radius"
+      RADIUS_DB_PASSWORD_FILE: /run/radius-secrets/db-password
     entrypoint: ["dotnet", "/app/RadiusManager.Api.dll", "--migration-install-candidate", "/opt/radius", "/opt/official.sql"]
     volumes:
       - ../database:/opt/radius:ro
+      - ${CSHARP_DB_PASSWORD_FILE:?Required private test secret file}:/run/radius-secrets/db-password:ro
       - ${CSHARP_OFFICIAL_SQL:?Required upstream SQL file}:/opt/official.sql:ro
     depends_on:
       db: {condition: service_healthy}

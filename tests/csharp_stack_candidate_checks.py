@@ -34,6 +34,18 @@ class CSharpStackChecks(unittest.TestCase):
             self.assertIn(marker, script)
         self.assertEqual(script.count("stack down -v"), 1)
 
+    def test_initializer_file_secret_is_read_only_and_conflicts_are_tested(self):
+        source = (ROOT / "tests/csharp-stack-candidate.compose.yaml").read_text()
+        init = source.split("  schema-init:\n", 1)[1].split("  radius:\n", 1)[0]
+        self.assertIn("RADIUS_DB_PASSWORD_FILE: /run/radius-secrets/db-password", init)
+        self.assertIn(":/run/radius-secrets/db-password:ro", init)
+        self.assertNotIn("Password=", init)
+        script = (ROOT / "scripts/csharp-stack-candidate-smoke.sh").read_text()
+        self.assertIn("reject_secret -e RADIUS_DB_PASSWORD_FILE=/run/radius-secrets/missing", script)
+        self.assertIn("reject_secret -e RADIUS_DB_PASSWORD_FILE=/opt/official.sql", script)
+        self.assertIn("Password=invalid-fixture", script)
+        self.assertIn("Invalid or conflicting migration database secret source", script)
+
     def test_full_stack_gate_is_mandatory(self):
         ci = (ROOT / ".github/workflows/ci.yml").read_text()
         script = (ROOT / "scripts/csharp-stack-candidate-smoke.sh").read_text()
