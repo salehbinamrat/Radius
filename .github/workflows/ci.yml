@@ -148,6 +148,10 @@ jobs:
         env:
           CSHARP_STACK_TEST_ACK: isolated-ci
         run: bash scripts/csharp-stack-candidate-smoke.sh
+      - name: C# initializer upgrade from a populated legacy Python installation
+        env:
+          CSHARP_STACK_TEST_ACK: isolated-ci
+        run: bash scripts/csharp-stack-candidate-smoke.sh legacy-upgrade
       - name: Encrypted backup, isolated restore and migration replay
         run: bash scripts/lab-recovery-smoke.sh
       - name: 'HTTPS Identity acceptance in a dedicated disposable Docker project'
