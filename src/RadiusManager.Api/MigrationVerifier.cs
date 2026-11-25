@@ -105,6 +105,11 @@ public static class MigrationVerifier
             || Environment.GetEnvironmentVariable("LAB_MIGRATION_TEST_MODE") != "isolated-ci"
             || !IsIsolatedDatabase(name))
             throw new InvalidDataException("C# migration verification requires isolated CI database");
+        return LabConnection(name, applicationName);
+    }
+
+    internal static NpgsqlConnectionStringBuilder LabConnection(string name, string applicationName)
+    {
         var builder = new NpgsqlConnectionStringBuilder(
             Environment.GetEnvironmentVariable("ConnectionStrings__RadiusDb") ?? "");
         if (builder.Host != "db" || builder.Port != 5432 || builder.Username != "radius"

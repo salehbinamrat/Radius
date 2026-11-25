@@ -1,0 +1,80 @@
+# CI-only full-stack candidate, no external volumes or production ports.
+services:
+  db:
+    image: ${CSHARP_DB_IMAGE:?Required local DB image}
+    pull_policy: never
+    restart: "no"
+    environment:
+      POSTGRES_USER: radius
+      POSTGRES_DB: radius
+      POSTGRES_PASSWORD: ${CSHARP_DB_PASSWORD:?Required disposable password}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+      - ../database/001_app.sql:/docker-entrypoint-initdb.d/001_app.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U radius -d radius"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    networks: [private]
+  schema-init:
+    image: ${CSHARP_API_IMAGE:?Required local API image}
+    pull_policy: never
+    restart: "no"
+    environment:
+      CI: "true"
+      LAB_MIGRATION_TEST_MODE: isolated-stack-ci
+      MIGRATION_DB_NAME: radius
+      MIGRATION_STACK_ID: ${CSHARP_STACK_ID:?Required isolated project ID}
+      ConnectionStrings__RadiusDb: "Host=db;Port=5432;Database=radius;Username=radius;Password=${CSHARP_DB_PASSWORD:?Required disposable password}"
+    entrypoint: ["dotnet", "/app/RadiusManager.Api.dll", "--migration-install-candidate", "/opt/radius", "/opt/official.sql"]
+    volumes:
+      - ../database:/opt/radius:ro
+      - ${CSHARP_OFFICIAL_SQL:?Required upstream SQL file}:/opt/official.sql:ro
+    depends_on:
+      db: {condition: service_healthy}
+    networks: [private]
+  radius:
+    image: ${CSHARP_RADIUS_IMAGE:?Required local radius image}
+    pull_policy: never
+    restart: "no"
+    environment:
+      DB_PASSWORD: ${CSHARP_DB_PASSWORD:?Required disposable password}
+      RADIUS_SECRET: ${CSHARP_RADIUS_SECRET:?Required disposable secret}
+      RADIUS_CLIENT_CIDR: 10.255.70.0/24
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/radius-health-publish.sh"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    volumes:
+      - radius_health:/var/lib/radius-health
+    depends_on:
+      schema-init: {condition: service_completed_successfully}
+    networks: [private]
+  api:
+    image: ${CSHARP_API_IMAGE:?Required local API image}
+    pull_policy: never
+    restart: "no"
+    environment:
+      ASPNETCORE_URLS: http://+:8080
+      ConnectionStrings__RadiusDb: "Host=db;Port=5432;Database=radius;Username=radius;Password=${CSHARP_DB_PASSWORD:?Required disposable password}"
+      RADIUS_ADMIN_AUTH_MODE: basic
+      RADIUS_ADMIN_USER: admin
+      RADIUS_ADMIN_PASSWORD: ${CSHARP_ADMIN_PASSWORD:?Required disposable password}
+      RADIUS_SERVICE_HISTORY_PERSIST: "1"
+    ports:
+      - "127.0.0.1::8080/tcp"
+    volumes:
+      - radius_health:/var/lib/radius-health:ro
+      - service_history:/var/lib/radius-service-history
+    depends_on:
+      schema-init: {condition: service_completed_successfully}
+    networks: [private]
+volumes:
+  db_data:
+  radius_health:
+  service_history:
+networks:
+  private:
+    driver: bridge

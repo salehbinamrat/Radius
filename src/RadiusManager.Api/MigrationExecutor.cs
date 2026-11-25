@@ -135,9 +135,12 @@ public static class MigrationExecutor
         string? officialSchemaFile = null)
     {
         var name = Environment.GetEnvironmentVariable("MIGRATION_DB_NAME");
+        var mode = Environment.GetEnvironmentVariable("LAB_MIGRATION_TEST_MODE");
+        var stack = Environment.GetEnvironmentVariable("MIGRATION_STACK_ID");
+        var stackMode = mode == "isolated-stack-ci" && name == "radius" && officialSchemaFile is not null
+            && stack is not null && System.Text.RegularExpressions.Regex.IsMatch(stack, @"\Aradiuscsharp[a-f0-9]{8}\z");
         if (Environment.GetEnvironmentVariable("CI") != "true"
-            || Environment.GetEnvironmentVariable("LAB_MIGRATION_TEST_MODE") != "isolated-ci"
-            || !MigrationVerifier.IsIsolatedDatabase(name))
+            || (!stackMode && (mode != "isolated-ci" || !MigrationVerifier.IsIsolatedDatabase(name))))
         {
             errors.WriteLine("C# migration execution requires isolated CI database");
             return 1;
@@ -145,18 +148,31 @@ public static class MigrationExecutor
         try
         {
             var inject = Environment.GetEnvironmentVariable("MIGRATION_FAIL_AFTER_SQL_VERSION");
-            if (!string.IsNullOrEmpty(inject) && inject is not ("2" or "3" or "4" or "6" or "7" or "8" or "9" or "10"))
+            if (!string.IsNullOrEmpty(inject) && (stackMode || inject is not ("2" or "3" or "4" or "6" or "7" or "8" or "9" or "10")))
                 throw new InvalidDataException("Invalid isolated failure injection");
             var catalog = MigrationCatalog.Read(directory);
             var officialSql = officialSchemaFile is null ? null :
                 new System.Text.UTF8Encoding(false, true).GetString(File.ReadAllBytes(officialSchemaFile));
             if (officialSql is not null && string.IsNullOrWhiteSpace(officialSql))
                 throw new InvalidDataException("Official schema input is empty");
-            var builder = MigrationVerifier.IsolatedConnection(name!, "radius-csharp-migration-executor");
+            var builder = stackMode
+                ? MigrationVerifier.LabConnection(name!, "radius-csharp-migration-executor")
+                : MigrationVerifier.IsolatedConnection(name!, "radius-csharp-migration-executor");
             using var deadline = new CancellationTokenSource(TimeSpan.FromMinutes(5));
             var ct = deadline.Token;
             await using var conn = new NpgsqlConnection(builder.ConnectionString);
             await conn.OpenAsync(ct);
+            if (stackMode)
+            {
+                // Check the disposable database's explicit marker before any lock or write.
+                await using var marker = new NpgsqlCommand("""
+                    SELECT shobj_description(oid, 'pg_database') FROM pg_database
+                    WHERE datname=current_database()
+                    """, conn);
+                var actual = await marker.ExecuteScalarAsync(ct) as string;
+                if (actual != "radius-csharp-ci:" + stack)
+                    throw new InvalidDataException("Isolated stack database marker mismatch");
+            }
             await using (var tx = await conn.BeginTransactionAsync(ct))
             {
                 await Execute(conn, tx, "SET LOCAL lock_timeout TO '60s'", ct);
