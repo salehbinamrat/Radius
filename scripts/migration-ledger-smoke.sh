@@ -11,8 +11,10 @@ suffix=$(python3 -c 'import secrets; print(secrets.token_hex(4))')
 db_one="radius_mig_$suffix"
 db_two="radius_mig_$(python3 -c 'import secrets; print(secrets.token_hex(4))')"
 db_partial="radius_mig_$(python3 -c 'import secrets; print(secrets.token_hex(4))')"
+db_csharp="radius_mig_$(python3 -c 'import secrets; print(secrets.token_hex(4))')"
+db_csharp_legacy="radius_mig_$(python3 -c 'import secrets; print(secrets.token_hex(4))')"
 cleanup() {
-  for db in "$db_one" "$db_two" "$db_partial"; do
+  for db in "$db_one" "$db_two" "$db_partial" "$db_csharp" "$db_csharp_legacy"; do
     [[ "$db" =~ ^radius_mig_[a-f0-9]{8}$ ]] || continue
     docker compose exec -T db dropdb -U radius --if-exists "$db" >/dev/null 2>&1 || true
   done
@@ -251,4 +253,68 @@ fi
 assert_count "$db_partial" "SELECT count(*) FROM pg_catalog.pg_tables WHERE schemaname='public' AND tablename='app_schema_migrations'" 0
 assert_count "$db_partial" "SELECT count(*) FROM pg_catalog.pg_tables WHERE schemaname='public' AND tablename='app_nas_drafts'" 1
 
+# Candidate executor: preserve the current Python installation path while
+# proving the same transaction, restart, legacy-adoption and lock contracts.
+apply_csharp() {
+  local db="$1" injection="${2:-}"
+  docker compose run --rm --no-deps -e CI=true -e LAB_MIGRATION_TEST_MODE=isolated-ci \
+    -e MIGRATION_DB_NAME="$db" -e MIGRATION_FAIL_AFTER_SQL_VERSION="$injection" \
+    -v "$PWD/database:/opt/radius:ro" --entrypoint dotnet api \
+    /app/RadiusManager.Api.dll --migration-apply-candidate /opt/radius
+}
+setup_database "$db_csharp"
+docker compose exec -T db psql -X -v ON_ERROR_STOP=1 -U radius -d "$db_csharp" \
+  -v plan_id="$plan_id" <<'SQL' >/dev/null
+INSERT INTO app_plans (id,name,upload_kbps,download_kbps)
+VALUES (:'plan_id'::uuid, 'preserved_csharp_migration_test',256,1024);
+SQL
+for version in 2 3 4 6 7 8 9 10; do
+  if apply_csharp "$db_csharp" "$version" >"$tmp/csharp-injected.log" 2>&1; then
+    echo "C# failure injection unexpectedly accepted: $version" >&2; exit 1
+  fi
+  grep -Fxq "C# migration execution refused: CI failure injection after version $version SQL; transaction rolled back" "$tmp/csharp-injected.log"
+  assert_count "$db_csharp" "SELECT count(*) FROM app_schema_migrations" "$((version-1))"
+  assert_count "$db_csharp" "SELECT count(*) FROM app_plans WHERE id='$plan_id'::uuid" 1
+done
+assert_count "$db_csharp" "SELECT count(*) FROM pg_proc WHERE proname='app_accounting_row_anomalous'" 0
+apply_csharp "$db_csharp"
+assert_count "$db_csharp" "SELECT count(*) FROM app_schema_migrations WHERE engine_version='3.0.0-csharp-lab'" 10
+verify_csharp "$db_csharp"
+docker compose run --rm --no-deps -e MIGRATION_DB_NAME="$db_csharp" \
+  -e LAB_MIGRATION_TEST_MODE=isolated-ci --entrypoint python3 \
+  schema-init /opt/radius/migrate.py --verify-only
+before_ledger=$(sql_count "$db_csharp" "SELECT md5(string_agg(row_to_json(m)::text, ',' ORDER BY version)) FROM app_schema_migrations m")
+apply_csharp "$db_csharp"
+[[ "$(sql_count "$db_csharp" "SELECT md5(string_agg(row_to_json(m)::text, ',' ORDER BY version)) FROM app_schema_migrations m")" == "$before_ledger" ]]
+assert_count "$db_csharp" "SELECT count(*) FROM app_plans WHERE id='$plan_id'::uuid" 1
+
+# Both engines must reject partial legacy state and checksum drift.
+if apply_csharp "$db_partial" >"$tmp/csharp-partial.log" 2>&1; then
+  echo 'C# executor accepted partial legacy schema' >&2; exit 1
+fi
+grep -Fxq 'C# migration execution refused: Existing application schema is partial; manual repair needed' "$tmp/csharp-partial.log"
+assert_count "$db_partial" "SELECT count(*) FROM pg_catalog.pg_tables WHERE schemaname='public' AND tablename='app_schema_migrations'" 0
+if apply_csharp "$db_one" >"$tmp/csharp-drift.log" 2>&1; then
+  echo 'C# executor accepted checksum drift' >&2; exit 1
+fi
+grep -Fxq 'C# migration execution refused: Migration checksum/filename mismatch' "$tmp/csharp-drift.log"
+
+# A legacy version 2 schema with no ledger, two C# runners and a Python runner
+# compete under the same lock. Exactly one migration ledger may result.
+setup_database "$db_csharp_legacy"
+docker compose run --rm --no-deps -e MIGRATION_DB_NAME="$db_csharp_legacy" \
+  --entrypoint bash schema-init -ec \
+  'export PGPASSWORD="$DB_PASSWORD"; psql -X -v ON_ERROR_STOP=1 -1 -h db -U radius -d "$MIGRATION_DB_NAME" -f /opt/radius/002_lab_accounts.sql' >/dev/null
+apply_csharp "$db_csharp_legacy" >"$tmp/csharp-concurrent1.log" 2>&1 &
+first=$!
+apply_csharp "$db_csharp_legacy" >"$tmp/csharp-concurrent2.log" 2>&1 &
+second=$!
+run_migration "$db_csharp_legacy" >"$tmp/python-concurrent.log" 2>&1 &
+third=$!
+wait "$first"
+wait "$second"
+wait "$third"
+verify_csharp "$db_csharp_legacy"
+assert_count "$db_csharp_legacy" "SELECT count(*) FROM app_schema_migrations" 10
+echo 'C# migration execution parity PASS: rollback, restart, legacy adoption, cross-engine locking and checksum refusal (isolated fixtures)'
 echo 'Stage 02B PASS: fresh+populated, failure injection, restart, SHA-256 drift, mixed-version, concurrency, partial-schema refusal; all original fixture data preserved.'
