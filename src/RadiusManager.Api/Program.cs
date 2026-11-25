@@ -15,6 +15,11 @@ if (args.Length == 2 && args[0] == "--migration-preflight")
     Environment.ExitCode = MigrationCatalog.WriteManifest(args[1], Console.Out, Console.Error);
     return;
 }
+if (args.Length == 2 && args[0] == "--migration-verify")
+{
+    Environment.ExitCode = await MigrationVerifier.RunAsync(args[1], Console.Out, Console.Error);
+    return;
+}
 var builder = WebApplication.CreateBuilder(args);
 var adminAuthMode = Environment.GetEnvironmentVariable("RADIUS_ADMIN_AUTH_MODE") ?? "basic";
 if (adminAuthMode is not ("basic" or "session"))

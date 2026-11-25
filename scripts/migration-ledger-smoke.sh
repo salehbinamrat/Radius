@@ -35,6 +35,22 @@ run_migration() {
     -e LAB_MIGRATION_TEST_MODE=isolated-ci --entrypoint python3 \
     schema-init /opt/radius/migrate.py
 }
+# Candidate runs in the built API image, only against disposable fixtures.
+verify_csharp() {
+  local db="$1"
+  docker compose run --rm --no-deps -e CI=true -e LAB_MIGRATION_TEST_MODE=isolated-ci \
+    -e MIGRATION_DB_NAME="$db" -v "$PWD/database:/opt/radius:ro" \
+    --entrypoint dotnet api /app/RadiusManager.Api.dll --migration-verify /opt/radius
+}
+assert_csharp_refusal() {
+  local db="$1" marker="$2"
+  if verify_csharp "$db" >"$tmp/csharp-refusal.log" 2>&1; then
+    echo 'C# candidate unexpectedly accepted invalid migration state' >&2; exit 1
+  fi
+  grep -Fxq "C# migration verification refused: $marker" "$tmp/csharp-refusal.log" || {
+    echo 'C# candidate refusal did not match expected reason' >&2; exit 1;
+  }
+}
 sql_count() {
   docker compose exec -T db psql -X -v ON_ERROR_STOP=1 -tAc "$2" -U radius -d "$1" |
     tr -d '\r\n '
@@ -157,12 +173,19 @@ docker compose run --rm --no-deps -e MIGRATION_DB_NAME="$db_one" \
   -e LAB_MIGRATION_TEST_MODE=isolated-ci --entrypoint python3 \
   schema-init /opt/radius/migrate.py --verify-only >"$tmp/verify.log" 2>&1
 
+# Verify legacy-installed schema without modifying ledger or fixture data.
+before_ledger=$(sql_count "$db_one" "SELECT md5(string_agg(row_to_json(m)::text, ',' ORDER BY version)) FROM app_schema_migrations m")
+verify_csharp "$db_one"
+[[ "$(sql_count "$db_one" "SELECT md5(string_agg(row_to_json(m)::text, ',' ORDER BY version)) FROM app_schema_migrations m")" == "$before_ledger" ]]
+assert_count "$db_one" "SELECT count(*) FROM app_plans WHERE id='$plan_id'::uuid" 1
+
 # A disabled guard must be treated as applied-schema drift.
 docker compose exec -T db psql -X -v ON_ERROR_STOP=1 -U radius -d "$db_one" \
   -c 'ALTER TABLE app_admin_audit_events DISABLE TRIGGER audit_append_only' >/dev/null
 if run_migration "$db_one" >"$tmp/disabled-guard.log" 2>&1; then
   echo "Disabled audit guard was unexpectedly accepted" >&2; exit 1
 fi
+assert_csharp_refusal "$db_one" 'Applied migration 8 has missing/partial objects'
 docker compose exec -T db psql -X -v ON_ERROR_STOP=1 -U radius -d "$db_one" \
   -c 'ALTER TABLE app_admin_audit_events ENABLE ALWAYS TRIGGER audit_append_only' >/dev/null
 run_migration "$db_one" >"$tmp/guard-verified.log" 2>&1
@@ -173,6 +196,7 @@ if run_migration "$db_one" >"$tmp/index-drift.log" 2>&1; then
   echo "Incorrect accounting index definition was accepted" >&2; exit 1;
 fi
 grep -q 'Accounting index definition or validity mismatch' "$tmp/index-drift.log"
+assert_csharp_refusal "$db_one" 'Accounting index definition or validity mismatch'
 docker compose exec -T db psql -X -v ON_ERROR_STOP=1 -U radius -d "$db_one" \
   -c 'DROP INDEX public.idx_app_radacct_recent; CREATE INDEX idx_app_radacct_recent ON public.radacct ((COALESCE(acctupdatetime,acctstarttime)) DESC,radacctid DESC)' >/dev/null
 run_migration "$db_one" >"$tmp/index-verified.log" 2>&1
@@ -182,6 +206,7 @@ docker compose exec -T db psql -X -v ON_ERROR_STOP=1 -U radius -d "$db_one" \
 if run_migration "$db_one" >"$tmp/drift.log" 2>&1; then
   echo "Corrupted migration checksum was accepted" >&2; exit 1;
 fi
+assert_csharp_refusal "$db_one" 'Migration checksum/filename mismatch'
 assert_count "$db_one" "SELECT count(*) FROM app_plans WHERE id='$plan_id'::uuid" 1
 
 # 3. Mixed-version legacy DB with already-created version 2 is adopted without replay.
@@ -211,6 +236,11 @@ if docker compose run --rm --no-deps -e MIGRATION_DB_NAME="$db_partial" \
   echo "Verify-only unexpectedly created a baseline" >&2; exit 1;
 fi
 assert_count "$db_partial" "SELECT count(*) FROM pg_catalog.pg_tables WHERE schemaname='public' AND tablename='app_schema_migrations'" 0
+
+assert_csharp_refusal "$db_partial" 'Migration ledger missing; verify-only cannot create schema'
+assert_count "$db_partial" "SELECT count(*) FROM pg_catalog.pg_tables WHERE schemaname='public' AND tablename='app_schema_migrations'" 0
+verify_csharp "$db_two"
+echo 'C# read-only migration verifier parity PASS (isolated fixtures)'
 
 # 5. Partial legacy objects must prevent even creating the ledger.
 docker compose exec -T db psql -X -v ON_ERROR_STOP=1 -U radius -d "$db_partial" \
