@@ -138,7 +138,7 @@ public static class MigrationExecutor
         var mode = Environment.GetEnvironmentVariable("LAB_MIGRATION_TEST_MODE");
         var stack = Environment.GetEnvironmentVariable("MIGRATION_STACK_ID");
         var stackMode = mode == "isolated-stack-ci" && name == "radius" && officialSchemaFile is not null
-            && stack is not null && System.Text.RegularExpressions.Regex.IsMatch(stack, @"\Aradiuscsharp[a-f0-9]{8}\z");
+            && stack is not null && System.Text.RegularExpressions.Regex.IsMatch(stack, @"\Aradius(?:csharp|https)[a-f0-9]{8}\z");
         if (Environment.GetEnvironmentVariable("CI") != "true"
             || (!stackMode && (mode != "isolated-ci" || !MigrationVerifier.IsIsolatedDatabase(name))))
         {

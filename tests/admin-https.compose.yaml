@@ -43,6 +43,29 @@ services:
       db: {condition: service_healthy}
     networks: [private]
 
+  # Optional C# candidate: same owner-only initialization boundary as legacy.
+  # The profile is activated only by the isolated CI acceptance script.
+  csharp-schema-init:
+    image: radius-stage3-ci-api:latest
+    pull_policy: never
+    profiles: ["csharp-init-test"]
+    restart: "no"
+    environment:
+      CI: "true"
+      LAB_MIGRATION_TEST_MODE: isolated-stack-ci
+      MIGRATION_DB_NAME: radius
+      MIGRATION_STACK_ID: ${RADIUS_HTTPS_CSHARP_STACK_ID:-disabled}
+      ConnectionStrings__RadiusDb: "Host=db;Port=5432;Database=radius;Username=radius"
+      RADIUS_DB_PASSWORD_FILE: /run/radius-secrets/db-password
+    entrypoint: ["dotnet", "/app/RadiusManager.Api.dll", "--migration-install-candidate", "/opt/radius", "/opt/official.sql"]
+    volumes:
+      - ${RADIUS_HTTPS_SECRET_DIR:?Private temporary secret directory required}/db-password:/run/radius-secrets/db-password:ro
+      - ../database:/opt/radius:ro
+      - ${RADIUS_HTTPS_FIXTURE_DIR:?Temporary fixture directory required}/official.sql:/opt/official.sql:ro
+    depends_on:
+      db: {condition: service_healthy}
+    networks: [private]
+
   # Explicit one-off profile; never mounts the owner password or publishes ports.
   radius-runtime:
     image: radius-stage3-ci-schema:latest
