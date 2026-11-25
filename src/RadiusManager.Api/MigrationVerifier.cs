@@ -110,11 +110,37 @@ public static class MigrationVerifier
 
     internal static NpgsqlConnectionStringBuilder LabConnection(string name, string applicationName)
     {
-        var builder = new NpgsqlConnectionStringBuilder(
-            Environment.GetEnvironmentVariable("ConnectionStrings__RadiusDb") ?? "");
+        return BuildLabConnection(
+            Environment.GetEnvironmentVariable("ConnectionStrings__RadiusDb"),
+            Environment.GetEnvironmentVariable("RADIUS_DB_PASSWORD_FILE"), name, applicationName);
+    }
+
+    // Keep the migration engine's existing narrow hexadecimal password contract,
+    // while sharing the application's bounded and redacted file reader.
+    public static NpgsqlConnectionStringBuilder BuildLabConnection(
+        string? configuration, string? passwordFile, string name, string applicationName)
+    {
+        NpgsqlConnectionStringBuilder builder;
+        try
+        {
+            builder = new NpgsqlConnectionStringBuilder(
+                SecretInput.DatabaseConnection(configuration, passwordFile));
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
+        {
+            // Never propagate the connection string, password or file path.
+            throw new InvalidDataException("Invalid or conflicting migration database secret source");
+        }
         if (builder.Host != "db" || builder.Port != 5432 || builder.Username != "radius"
-            || builder.Database != "radius" || string.IsNullOrEmpty(builder.Password))
+            || builder.Database != "radius")
             throw new InvalidDataException("Unexpected isolated database connection configuration");
+        if (!string.IsNullOrEmpty(builder.Passfile)
+            || !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("PGPASSWORD"))
+            || !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("PGPASSFILE")))
+            throw new InvalidDataException("Invalid or conflicting migration database secret source");
+        if (builder.Password is not { Length: 48 } password
+            || !password.All(c => c is >= 'a' and <= 'f' or >= '0' and <= '9'))
+            throw new InvalidDataException("Invalid or conflicting migration database secret source");
         builder.Database = name!;
         builder.Pooling = false;
         builder.Timeout = 10;
