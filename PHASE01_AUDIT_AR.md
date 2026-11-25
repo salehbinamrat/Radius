@@ -1,0 +1,41 @@
+# المرحلة 01 — تدقيق الأساس البرمجي والتنقية (الجزء 01A)
+التاريخ: 2026-11-25. **هذه مراجعة أولية مثبتة وليست تدقيقا سطريا شاملا أو اعتمادا للمرحلة.**
+
+## خط الأساس
+- دمج PR 70 عند 7c2f053f64a6111fd2971cc8291d9c398359a30b؛ اختبارات PR 45512459120 وpush 45512438489 وmain السابق 45512360706 ناجحة بجميع الوظائف. سجل PR يؤكد اختبار 64-bit وعزل NAS والفحص الأمني للصور الثلاث والاستعادة المشفرة. اختبار main بعد الدمج جديد ويجب التحقق منه قبل الدمج التالي.
+- جرد Git الكامل غير المبتور: Radius 332 ملفا (80 Markdown، 51 C#، 50 Python، 42 Shell، 41 mjs، 16 tsx، 17 SQL، والبقية تكوينات وأصول). R1 1581، R2 842، R3 1877، R4 174. المجموع 4806؛ لا تمثل هذه الأعداد ملفات تم تدقيق كل أسطرها.
+- R1 ace45161041f8ccd7ebfced6217ed7a7c53457d0؛ R2 2cb8a425faa3c054273b4bb08d321e9e7fed44d9؛ R3 157ca373863cb593676598810126a976cf205bca؛ R4 0743da95b6ab686c6510855c2ba629436a88c10d. أعيد التحقق من الفروع الافتراضية وتطابق المعرفات وجردها.
+
+## مكونات Radius والفجوات
+| المجال | الدليل من المصدر | الحالة وحدودها | المرجع |
+|---|---|---|---|
+| بنية التشغيل | compose.yaml، radius/Dockerfile، src/RadiusManager.Api/Dockerfile، .github/workflows/ci.yml | مختبر متكامل؛ حساب db المشترك وBasic في compose الأساسي، HTTPS والأدوار المنفصلة في ملفات الاختبار؛ لا اعتماد إنتاج | Radius |
+| إدارة الباقات | PlanRules.cs وPlanEndpoints.cs و001_app.sql | سرعة مثبتة؛ الحصة والصلاحية غير مطبقتين | R1/R2/R3 |
+| الكروت | LabAccountEndpoints.cs و002_lab_accounts.sql | كرت اصطناعي واحد بمعاملة، فقط باقة بلا حصة أو صلاحية؛ لا بيع/دفعات | R1/R3/R4 |
+| المحاسبة | LabSessionEndpoints.cs وLabUsageEndpoints.cs و003/009/010 SQL وaccounting-wire-smoke.sh | رصد تراكمي و64-bit وNAS اصطناعي؛ لا خصم مالي أو مصالحة أحداث متأخرة مؤكدة | R2/R1 |
+| أجهزة NAS | NasDraftEndpoints.cs و004_nas_drafts.sql | مسودات فقط، لا اتصال أو أسرار حقيقية | R2/R3/R4 |
+| الهوية والملكية | AdminIdentityEndpoints.cs وOwnershipEndpoints.cs وResellerEndpoints.cs و005–008 SQL | وظائف مختبرية مثبتة؛ تحتاج مراجعة كل الصلاحيات | Radius/R1 |
+| المراقبة | ServiceObservationWorker.cs وLabStatusHub.cs وServiceIncidentStore.cs وfrontend/src | SignalR والتاريخ والحوادث؛ ليس قياسا فعليا لكل جهاز | Radius/R2 |
+| الواجهة | wwwroot/index.html وapp.mjs وnoc-ui.mjs وultra-features.mjs وfrontend/src/main.tsx | انتقال تدريجي؛ عدة جذور React وجسر أحداث مع JS، لا حذف للقديم بمجرد وجود React | Radius |
+| الفوترة والاشتراكات | LabAccountEndpoints.cs وREADME_AR.md وARCHITECTURE_DECISION_RADIUS_AR.md | لا توجد بوابة مالية معتمدة؛ تتطلب تصميم ledger وموافقة schema | R3/R1 |
+| النسخ والاستعادة | scripts/lab-backup.sh وlab-restore-drill.sh وlab-recovery-smoke.sh | استعادة منطقية مشفرة ناجحة في المختبر؛ لا تشغيل بيانات Debian القديمة على Alpine | Radius |
+| الأمان | scripts/security-scan-ci.sh وverify-security-evidence.py وradius/source-build-baseline.json | فحص الصور وجرد الحزم ناجح؛ بناء مصدر غير صادر رسميا وتغطية CVE المصدر وRouterOS الفعلي غير مكتملة | Radius/R2 |
+
+ملفات C# في الجدول تحت src/RadiusManager.Api، وملفات SQL تحت database.
+
+## تدقيق موجه للمراجع (تنفيذ مستقل ومراعاة التراخيص)
+- R1: app/operators/mng-batch-add.php (blob c70c7788eba55cf311ecdc5d52066eb4b4fd0cae) يدعم أنماط دفعات متنوعة؛ config-maint-disconnect-user.php (a5fa0941736cd4ed734a28e1936ac9e0ce8ffce1) واجهة PoD/CoA. نستلهم الدفعات وإدارة التقارير والجلسات، لا نقل PHP أو منح مشغل حرية إرسال أوامر غير مقيدة.
+- R2: internal/radiusd/plugins/accounting/handlers/update_handler.go (2dda77df7f1389a7ca4f9e321cb4551690b1bb5c) يعالج عدادات Gigawords؛ online_count_checker.go (ae5f47b5c89bf820af66d8e729759583968a4709) يفحص حد الجلسات. نستلهم اختبارات الحدود والحجز الذري؛ لا نعتمد استبدال المحرك أو التقييم الأمني الفاشل السابق.
+- R3: system/autoload/Balance.php (66981a196e2f1cd6f42391d634627d1cdf98fa1a) يجمع خصما وإضافة بخطوتين؛ system/cron.php (c669a5bf44e23520c3f07f18d27cc47f4cf3d7a8) يجدد ثم يخصم. خطر انقطاع/تزامن يحتاج اختبارا وتصميما ذريين في مشروعنا؛ ليس ادعاء بنتيجة استغلال مثبتة. نستلهم تجديد الاشتراك والفواتير دون نسخ هذا النمط.
+- R4: hotspot/generateuser.php (25eb2c32eaf86c5c7bb36be38e3f89ce80a6888e) يستدعي API لإنشاء مستخدمين؛ hotspot/adduserprofile.php (940101129e05a10391c1328bd834de38a85d19cf) يستخدم Scheduler. نعتمد الواجهة والدفعات والطباعة مع مصدر صلاحية مركزي بدلا من نسخ سكربتات RouterOS القديمة.
+- R1/R3/R4 GPL؛ R2 MIT. لا نسخ للكود، لا تغيير لمستودعات المراجع.
+
+## عيوب مثبتة ومعالجة 01A
+1. bash -n scripts/*.sh radius/*.sh يفحص أول ملف فقط، والبقية وسائط. إعادة إنتاج فعلية محليا: ملف أول صحيح والثاني تالف، النتيجة القديمة 0. فحص كل ملف منفردا رفض الملف التالف. فحص JavaScript القديم يستخدم process substitution لا يضمن نجاح find؛ استبداله بجرد globstar محدود المجلدات وفحص كل ملف، ورفض غياب مجموعة أو ملف غير صالح. إضافة ست حالات regression تشمل ملفا متأخرا، ملف fixtures، وحدة متداخلة ومجموعة مفقودة. تجربة محلية مستقلة نجحت للحالة الصحيحة ورفضت الملف الثاني وJS المتداخل وغياب الوحدات. لا تغيير لمسارات CI أو تخفيف الاختبارات.
+2. README وSTART_HERE وPROJECT_STATUS تعرض حالة تأسيسية قديمة: أصلحنا التوصيف الحالي أو وسمناه تاريخيا، مع الاحتفاظ بتحذيرات المختبر والتوثيق السابق.
+3. تداخل React/JS: مثبت من main.tsx وapp.mjs وindex.html. لا دليل أن ملفات app.mjs أو ultra-features أو CSS قديمة غير مستخدمة؛ منع حذفها حتى تحليل import/DOM/event graph والاختبارات. 
+4. README يؤكد عدم تطبيق الحصص وLabAccountEndpoints يمنع إصدار كرت لباقات ذات حدود غير مطبقة؛ يجب عدم إضعاف هذا الحارس. 
+5. مخاطر متبقية: شمول تغطية المصدر، صلاحيات DB للملف الأساسي، اختبار RouterOS الفعلي، قواعد محاسبة التحديث المتأخر، توثيق جميع المسارات، وتحليل التبعيات غير المستخدمة. لا ادعاء بتدقيق كامل لمرجع أو كل ملف.
+
+## شرط قبول المرحلة 01
+هذا الجزء يرفع إصلاح التغطية والتوثيق فقط. يلزم نجاح push وPR وmain بعد الدمج، ثم تدقيق تفصيلي لباقي الوحدات (API/SQL، الواجهة وعقود الأحداث، أدوات التشغيل، الاختبارات والمراجع) وتقرير قابل للتتبع عن التبعيات والملفات الميتة مع إثبات عدم الاستخدام قبل الحذف. لا انتقال إلى Phase 02 ولا تغييرات schema أو بيانات أو راوترات.
