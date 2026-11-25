@@ -24,7 +24,7 @@ class LocalInstallerChecks(unittest.TestCase):
         for marker in ("unix:///var/run/docker.sock", "env -i", "local-lab-only",
                        "label=com.docker.compose.project", "radius-csharp-local:",
                        "export-csharp-init-bundle.sh", "CSHARP_MANIFEST_SHA256",
-                       "stack up -d --wait db", "stack up -d api radius", "retained state",
+                       "stack up -d --pull never --no-build --wait db", "stack up -d --pull never --no-build api radius", "retained state",
                        "C# local laboratory installation PASS"):
             self.assertIn(marker, source)
         for forbidden in ("down -v", "rm -rf", "python3 /", "--build", "docker pull"):
@@ -73,7 +73,20 @@ class LocalInstallerChecks(unittest.TestCase):
         self.assertIn("Manager accepted substituted container identity", smoke)
         self.assertIn("Manager accepted mismatched migration ledger", smoke)
         self.assertIn("Manager accepted concurrent lifecycle invocation", smoke)
-        self.assertIn("command -v flock", installer)
+        self.assertIn("docker flock openssl sha256sum curl", installer)
         self.assertLess(manager.index("flock -n 9"), manager.index("stack ps -aq"))
         self.assertNotIn("stack start", manager)
         self.assertNotIn("stack stop", manager)
+
+    def test_offline_prerequisites_are_checked_before_creation(self):
+        source = INSTALLER.read_text()
+        smoke = (ROOT / "scripts/csharp-local-installer-smoke.sh").read_text()
+        for marker in ("Distinct DB, API and RADIUS image IDs required",
+                       "Required image is not available locally; no download attempted",
+                       "Local image identity or platform mismatch", "Unsupported local Docker platform",
+                       "local_docker compose version"):
+            self.assertLess(source.index(marker), source.index('mkdir -- "$state"'))
+        self.assertIn("Installer accepted missing local image", smoke)
+        self.assertIn("Installer accepted duplicate role images", smoke)
+        self.assertIn('service.get("pull_policy") == "never"', smoke)
+        self.assertIn('"build" not in service', smoke)
