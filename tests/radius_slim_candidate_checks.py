@@ -1,5 +1,8 @@
 from pathlib import Path
 import unittest
+import os
+import subprocess
+import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -20,7 +23,7 @@ class RadiusSlimCandidateChecks(unittest.TestCase):
         evidence = (ROOT / "scripts/verify-radius-slim-evidence.py").read_text()
         self.assertLess(ci.index("bash scripts/radius-slim-candidate-smoke.sh"),
                         ci.index("bash scripts/security-scan-ci.sh"))
-        for marker in ("--network none", "RADIUS_SLIM_IMAGE_ID", "local-fresh", "radius-slim-image-id.txt"):
+        for marker in ("prepare-csharp-local-images.sh", "RADIUS_SLIM_IMAGE_ID", "local-fresh", "radius-slim-image-id.txt"):
             self.assertIn(marker, smoke)
         self.assertIn("bash scripts/csharp-local-installer-smoke.sh", smoke)
         self.assertIn('for service in api radius db;', scan)
@@ -30,3 +33,27 @@ class RadiusSlimCandidateChecks(unittest.TestCase):
                        "Legacy image layers retained", "Candidate package scan coverage differs",
                        '"production_approved": False'):
             self.assertIn(marker, evidence)
+
+    def test_preparation_requires_explicit_new_output_and_no_runtime(self):
+        script = ROOT / "scripts/prepare-csharp-local-images.sh"
+        source = script.read_text()
+        for marker in ("local-lab-only", "unix:///var/run/docker.sock", "env -i",
+                       "--network none", "verify_ids", "image-ids.txt",
+                       "compatible-image-id.txt", "sha256sum", "C# local image preparation PASS",
+                       "tests/postgres-alpine-remediation.Dockerfile",
+                       "src/RadiusManager.Api/Dockerfile", "radius/Dockerfile"):
+            self.assertIn(marker, source)
+        for forbidden in ("compose up", "compose down", "volume rm", "python3 /"):
+            self.assertNotIn(forbidden, source)
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "new"
+            result = subprocess.run(["bash", str(script), str(target)],
+                                    env={**os.environ, "RADIUS_LOCAL_BUILD_ACK": ""},
+                                    capture_output=True)
+            self.assertEqual(result.returncode, 2)
+            self.assertFalse(target.exists())
+            result = subprocess.run(["bash", str(script), directory],
+                                    env={**os.environ, "RADIUS_LOCAL_BUILD_ACK": "local-lab-only"},
+                                    capture_output=True)
+            self.assertEqual(result.returncode, 2)
+            self.assertEqual(list(Path(directory).iterdir()), [])
