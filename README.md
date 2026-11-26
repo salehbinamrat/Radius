@@ -12,7 +12,7 @@ Plans with stable rate-limit groups; individual synthetic vouchers with one-time
 
 Quota, validity and simultaneous-session enforcement, live NAS enrollment, device-specific RouterOS v6/v7 compatibility, production vouchers and billing, high availability and production deployment remain open. The default Compose profile is a loopback laboratory profile, not the separate restricted HTTPS acceptance configuration. The source-built FreeRADIUS scan is not a complete source-level security attestation.
 
-See [README_AR.md](README_AR.md) for setup. Historical status documents describe earlier snapshots, not the current release.
+For a new local laboratory installation, use the C# image preparation and Python-free installer documented in [README_AR.md](README_AR.md). The original Compose path remains explicitly retained for compatibility and recovery testing. Historical status documents describe earlier snapshots, not the current release.
 
 ## Safe local tests
 
