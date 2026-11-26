@@ -222,6 +222,12 @@ def verified_prefix(connection, files):
 
 
 def run():
+    # Only the two documented modes are accepted. A mistyped verification
+    # option must never silently turn into a write-capable migration.
+    args = sys.argv[1:]
+    if args not in ([], ["--verify-only"]):
+        raise RuntimeError("Unsupported migration arguments")
+    verify_only = args == ["--verify-only"]
     password = load_hex("DB_PASSWORD")
     dbname = os.environ.get("MIGRATION_DB_NAME", "radius")
     lab_mode = os.environ.get("LAB_MIGRATION_TEST_MODE") == "isolated-ci"
@@ -240,6 +246,10 @@ def run():
         connect_timeout=10, application_name="radius-schema-migrator",
     )
     try:
+        if verify_only:
+            # PostgreSQL enforces read-only transactions in verification mode,
+            # including ledger and object checks. Session advisory locks remain valid.
+            connection.set_session(readonly=True)
         # One session advisory lock spans ALL version transactions. BEGIN/COMMIT
         # and ROLLBACK are handled by the psycopg2 "with connection:" blocks.
         with connection:
@@ -250,13 +260,13 @@ def run():
         with connection:
             with connection.cursor() as cursor:
                 ledger_exists = exists(cursor, "public.app_schema_migrations")
-        if "--verify-only" in sys.argv and not ledger_exists:
+        if verify_only and not ledger_exists:
             raise RuntimeError("Migration ledger missing; verify-only cannot create schema")
         if not ledger_exists:
             create_ledger_and_adopt_legacy(connection, files)
 
         applied = verified_prefix(connection, files)
-        if "--verify-only" in sys.argv:
+        if verify_only:
             if applied != len(files):
                 raise RuntimeError("Migrations still pending; verification incomplete")
             print(f"Migrations: verified {applied} immutable versions")

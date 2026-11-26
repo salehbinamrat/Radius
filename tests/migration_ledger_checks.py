@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """Stage 02B: migrations must be immutable, transactional, versioned and serialized."""
 import ast
+import runpy
+import sys
+from types import ModuleType
+from unittest.mock import MagicMock, patch
 from pathlib import Path
 import unittest
 
@@ -43,9 +47,54 @@ class MigrationLedgerContracts(unittest.TestCase):
 
     def test_read_only_verification_cannot_bootstrap_and_errors_are_redacted(self):
         source = ENGINE.read_text(encoding="utf-8")
-        self.assertIn('if "--verify-only" in sys.argv and not ledger_exists:', source)
+        self.assertIn("if verify_only and not ledger_exists:", source)
+        self.assertIn("connection.set_session(readonly=True)", source)
         self.assertIn('except psycopg2.Error as exc:', source)
         self.assertIn("exc.pgcode", source)
+
+    def load_engine_with_isolated_dependencies(self):
+        driver = ModuleType("psycopg2")
+        driver.connect = MagicMock()
+        secret = ModuleType("radius_secret_input")
+        secret.load_hex = MagicMock(return_value="a" * 48)
+        with patch.dict(sys.modules, {"psycopg2": driver, "radius_secret_input": secret}):
+            engine = runpy.run_path(str(ENGINE))
+        return engine["run"], driver, secret
+
+    def test_invalid_cli_modes_refuse_before_secrets_or_database(self):
+        for args in (["--verify"], ["--help"], ["--verify-only", "--verify-only"],
+                     ["--verify-only", "extra"], ["extra", "--verify-only"], [""]):
+            with self.subTest(args=args):
+                run, driver, secret = self.load_engine_with_isolated_dependencies()
+                with patch.object(sys, "argv", [str(ENGINE), *args]):
+                    with self.assertRaisesRegex(RuntimeError, "^Unsupported migration arguments$"):
+                        run()
+                secret.load_hex.assert_not_called()
+                driver.connect.assert_not_called()
+
+    def test_verify_only_enforces_readonly_before_any_sql(self):
+        run, driver, _ = self.load_engine_with_isolated_dependencies()
+        conn = driver.connect.return_value
+        cursor = conn.cursor.return_value.__enter__.return_value
+        files = [(1, "001_app.sql", "digest", "fixture SQL", ("fixture",))]
+        adopt = MagicMock()
+        with patch.dict(run.__globals__, {"migration_files": MagicMock(return_value=files),
+                                           "exists": MagicMock(return_value=True),
+                                           "verified_prefix": MagicMock(return_value=1),
+                                           "create_ledger_and_adopt_legacy": adopt}), \
+             patch.dict("os.environ", {}, clear=True), \
+             patch.object(sys, "argv", [str(ENGINE), "--verify-only"]), \
+             patch("builtins.print"):
+            run()
+        conn.set_session.assert_called_once_with(readonly=True)
+        self.assertEqual(conn.method_calls[0][0], "set_session")
+        adopt.assert_not_called()
+        statements = [call.args[0] for call in cursor.execute.call_args_list]
+        self.assertEqual(len(statements), 3)
+        self.assertIn("pg_advisory_lock", statements[1])
+        self.assertIn("pg_advisory_unlock", statements[2])
+        self.assertNotIn("fixture SQL", statements)
+        conn.close.assert_called_once()
 
     def test_compose_migrator_bundling_preserves_original_db_volume(self):
         dockerfile = (ROOT / "radius/Dockerfile").read_text()
