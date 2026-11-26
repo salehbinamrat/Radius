@@ -69,6 +69,24 @@ if [[ "$runtime" == slim ]]; then
   # independent offline package path. Both use the same immutable IDs.
   prepared="$RUNNER_TEMP/radius-prepared-images"
   trusted=$(sha256sum "$prepared/SHA256SUMS" | cut -d ' ' -f1)
+  legacy=$(cat "$prepared/compatible-image-id.txt")
+  if RADIUS_LOCAL_INSTALL_ACK=local-lab-only bash scripts/install-csharp-local-lab.sh --check "$state" "${ids[0]}" "$legacy" "${ids[2]}" >"$tmp/refusal.log" 2>&1; then
+    echo 'Preflight accepted a non-API image in the API role' >&2; exit 1
+  fi
+  grep -Fxq 'Local API non-root .NET 10 runtime preflight failed; verify image role and platform' "$tmp/refusal.log"
+  [[ ! -e "$state" ]]
+  # Snapshot the CI project resource set, excluding temporary probe containers
+  # which are removed on exit. The preflight must leave no new resources.
+  resources() {
+    docker ps -aq --no-trunc | sort
+    docker volume ls -q | sort
+    docker network ls -q --no-trunc | sort
+    docker image ls --no-trunc --format '{{.ID}} {{.Repository}}:{{.Tag}}' | sort
+  }
+  before_resources=$(resources)
+  RADIUS_LOCAL_INSTALL_ACK=local-lab-only bash scripts/install-csharp-local-lab.sh --check "$state" --prepared "$prepared" "$trusted"
+  [[ ! -e "$state" && "$(resources)" == "$before_resources" ]]
+  echo 'Prepared image host preflight left Docker resources and destination unchanged PASS'
   RADIUS_LOCAL_INSTALL_ACK=local-lab-only bash scripts/install-csharp-local-lab.sh "$state" --prepared "$prepared" "$trusted"
   project="$(cat "$state/project-id")"
   [[ "$project" =~ ^radiuscsharp[a-f0-9]{8}$ && "$(cat "$state/runtime-profile")" == slim ]]

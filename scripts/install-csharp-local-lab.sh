@@ -1,11 +1,18 @@
 #!/usr/bin/env bash
 # Fresh isolated local lab only. Never replace, migrate or delete another stack.
 set -euo pipefail
+set +x
+check_only=0
+if [[ "${1:-}" == --check ]]; then
+  check_only=1
+  shift
+fi
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 root="$PWD"
 [[ $# == 4 && "${RADIUS_LOCAL_INSTALL_ACK:-}" == local-lab-only ]] || {
   echo 'Usage: RADIUS_LOCAL_INSTALL_ACK=local-lab-only bash scripts/install-csharp-local-lab.sh /absolute/new-directory DB_IMAGE_ID API_IMAGE_ID RADIUS_IMAGE_ID' >&2
   echo '   or: install-csharp-local-lab.sh /absolute/new-directory --prepared /absolute/prepared-images TRUSTED_MANIFEST_SHA256' >&2
+  echo '   Prefix arguments with --check to validate without installing.' >&2
   exit 2
 }
 state="$1"; shift
@@ -57,10 +64,19 @@ if [[ "$1" == --prepared ]]; then
   trap - EXIT
   echo 'Trusted prepared image manifest verified'
 fi
-for command in docker flock openssl sha256sum curl; do
+# flock is provided by util-linux on Ubuntu/Debian.
+# Validate host tools before any Docker operation. The installed
+# manager also requires Bash associative arrays and GNU file utilities.
+[[ "${BASH_VERSINFO[0]}" -gt 4 || ( "${BASH_VERSINFO[0]}" -eq 4 && "${BASH_VERSINFO[1]}" -ge 3 ) ]] || {
+  echo 'Bash 4.3 or newer is required' >&2; exit 2;
+}
+for command in docker flock openssl sha256sum curl realpath dirname mktemp cp cmp cut cat rm rmdir chmod stat seq sleep grep df; do
   command -v "$command" >/dev/null || { echo "Missing local installation prerequisite: $command" >&2; exit 2; }
 done
-# flock is provided by util-linux on Ubuntu/Debian.
+parent="$(dirname "$state")"
+[[ -w "$parent" && -x "$parent" ]] || {
+  echo 'Installation parent is not writable and searchable' >&2; exit 2;
+}
 # Fixed local socket; no remote Docker context or inherited Compose overrides.
 local_docker() { env -i PATH="$PATH" HOME="$HOME" docker --host unix:///var/run/docker.sock "$@"; }
 for id in "$@"; do
@@ -129,6 +145,35 @@ if ! local_docker run --rm --pull never --network none --read-only \
   exit 2
 fi
 echo 'Local PostgreSQL non-root entrypoint preflight PASS'
+# Verify the exact API image under its configured non-root runtime user,
+# without starting the server, opening ports, or mounting application data.
+if ! local_docker run --rm --pull never --network none --read-only --cap-drop ALL \
+    --security-opt no-new-privileges=true --entrypoint /bin/sh "$api_id" -ec '
+      test "$(id -u)" != 0
+      test -s /app/RadiusManager.Api.dll
+      test -s /app/RadiusManager.Api.runtimeconfig.json
+      test -s /app/wwwroot/index.html
+      test -s /app/wwwroot/modern/noc-react.mjs
+      test -z "$(dotnet --list-sdks)"
+      dotnet --list-runtimes | grep -Eq "^Microsoft[.]AspNetCore[.]App 10[.]"
+      dotnet --list-runtimes | grep -Eq "^Microsoft[.]NETCore[.]App 10[.]"
+      for tool in python python3 node npm; do
+        if command -v "$tool" >/dev/null 2>&1; then exit 1; fi
+      done
+    '; then
+  echo 'Local API non-root .NET 10 runtime preflight failed; verify image role and platform' >&2
+  exit 2
+fi
+echo 'Local API non-root .NET 10 runtime preflight PASS'
+if [[ "$check_only" == 1 ]]; then
+  # Report capacity without inventing a hardware-sizing guarantee.
+  printf 'Local Docker platform: %s\n' "$platform"
+  local_docker compose version
+  local_docker info --format 'Docker server: {{.ServerVersion}}; storage: {{.Driver}}; CPUs: {{.NCPU}}; memory bytes: {{.MemTotal}}'
+  df -Pk -- "$parent"
+  echo 'Local installation preflight PASS (no installation created)'
+  exit 0
+fi
 project="radiuscsharp$(openssl rand -hex 4)"
 [[ "$project" =~ ^radiuscsharp[a-f0-9]{8}$ ]]
 [[ -z "$(local_docker ps -aq --filter "label=com.docker.compose.project=$project")" ]]

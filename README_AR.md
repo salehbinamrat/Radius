@@ -26,8 +26,13 @@ RADIUS_LOCAL_BUILD_ACK=local-lab-only bash scripts/prepare-csharp-local-images.s
 (cd "$HOME/radius-images" && sha256sum --check --strict SHA256SUMS)
 # احفظ البصمة من جهاز التحضير الموثوق، ولا تعتمد بصمة من حزمة غير موثوقة.
 digest=$(sha256sum "$HOME/radius-images/SHA256SUMS" | cut -d ' ' -f1)
+# فحص الجهاز والصور المحلية أولا دون إنشاء تثبيت:
+RADIUS_LOCAL_INSTALL_ACK=local-lab-only bash scripts/install-csharp-local-lab.sh --check "$HOME/radius-local-lab" --prepared "$HOME/radius-images" "$digest"
+# التثبيت بعد نجاح الفحص:
 RADIUS_LOCAL_INSTALL_ACK=local-lab-only bash scripts/install-csharp-local-lab.sh "$HOME/radius-local-lab" --prepared "$HOME/radius-images" "$digest"
 ```
+
+وضع `--check` يتحقق من أدوات المضيف، صلاحية مجلد التثبيت، منصة Docker، سلامة معرفات الصور، تشغيل PostgreSQL بغير root، تشغيل .NET 10 بغير root وملفات API والواجهة، والصورة المخففة؛ يعرض معلومات CPU/RAM والتخزين والمساحة الحرة دون إنشاء تثبيت. لا يثبت تحمّل عدد مشتركين معين أو توافق كل جهاز. اختبارات CI الحالية على Linux amd64؛ قبول ARM64 أو Windows أو Mini PC مادي يحتاج أدلة منفصلة. يجب أن تكون الصور متاحة محليا قبل هذا الفحص.
 
 يمكن أيضا تمرير معرفات DB وAPI وصورة RADIUS المتوافقة الموثوقة إلى سكربت التحضير بعد مسار المخرجات لتجنب إعادة البناء. تستخدم النتيجة نفس محرك C# والمثبت المختبر؛ لا تحتاج .env أو Python على المضيف أو حاوية RADIUS النهائية. صورة التوافق لا تزال وسيطا في بناء الصورة المخففة. لا ينقل هذا الأمر بيانات تثبيت موجود، ولا يعتمد التشغيل للإنتاج. فحص الثغرات والقبول إلزاميان في CI للإصدار المقابل. المسار الأساسي القديم أدناه محفوظ لاختبارات التوافق والاستعادة حتى اعتماد الانتقال الآمن.
 
