@@ -16,6 +16,8 @@ import urllib.request
 ENDPOINTS = ("summary", "plans", "lab-accounts")
 WORKERS = 4
 PER_ENDPOINT = 16
+# Preserve the original baseline, then increase bounded concurrent reads.
+STAGES = ((4, 16), (8, 32), (16, 64))
 DEADLINE = 5
 ROLES = ("db", "api", "radius")
 
@@ -25,8 +27,8 @@ def require(ok, message):
         raise ValueError(message)
 
 
-def metrics(values):
-    require(len(values) == PER_ENDPOINT and all(math.isfinite(v) and 0 <= v <= DEADLINE for v in values),
+def metrics(values, expected=PER_ENDPOINT):
+    require(expected > 0 and len(values) == expected and all(math.isfinite(v) and 0 <= v <= DEADLINE for v in values),
             "Incomplete or invalid latency samples")
     values = sorted(values)
     return {"count": len(values), "p50_ms": round(1000 * values[math.ceil(.5 * len(values)) - 1], 3),
@@ -54,8 +56,10 @@ def request(url, endpoint, authorization=None, expected=200):
             require(isinstance(json.loads(body), (list, dict)), endpoint + ": invalid JSON response")
     except urllib.error.HTTPError as exc:
         with exc:
-            require(exc.code == expected, endpoint + ": HTTP " + str(exc.code))
-    return time.monotonic() - started
+            require(exc.code == expected and expected == 401, endpoint + ": HTTP " + str(exc.code))
+    elapsed = time.monotonic() - started
+    require(0 <= elapsed <= DEADLINE, endpoint + ": request deadline exceeded")
+    return elapsed
 
 
 def docker(*args):
@@ -85,6 +89,25 @@ def snapshot(ids, project):
     return result
 
 
+def run_stage(url, auth, ids, project, workers, per_endpoint):
+    require((workers, per_endpoint) in STAGES, "Unapproved load stage")
+    request(url, "plans", expected=401)
+    before = snapshot(ids, project)
+    tasks = list(ENDPOINTS) * per_endpoint
+    started = time.monotonic()
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        elapsed = list(pool.map(lambda name: request(url, name, auth), tasks))
+    duration = time.monotonic() - started
+    require(math.isfinite(duration) and duration > 0, "Invalid batch duration")
+    after = snapshot(ids, project)
+    request(url, "plans", expected=401)
+    return {"workers": workers, "requests": len(tasks), "batch_seconds": round(duration, 3),
+            "requests_per_second": round(len(tasks) / duration, 3),
+            "endpoints": {name: metrics([v for n, v in zip(tasks, elapsed) if n == name], per_endpoint)
+                          for name in ENDPOINTS},
+            "resource_snapshots": {"before": before, "after": after}}
+
+
 def main():
     require(os.environ.get("CI") == "true" and os.environ.get("CSHARP_LOCAL_INSTALL_TEST_ACK") == "isolated-ci",
             "Installed performance baseline requires isolated CI")
@@ -110,28 +133,23 @@ def main():
                  if line.startswith("CSHARP_ADMIN_PASSWORD=")]
     require(len(passwords) == 1 and re.fullmatch(r"[a-f0-9]{48}", passwords[0]), "Invalid test credential")
     auth = "Basic " + base64.b64encode(("admin:" + passwords[0]).encode()).decode("ascii")
-    request(url, "plans", expected=401)
-    before = snapshot(ids, project)
-    tasks = list(ENDPOINTS) * PER_ENDPOINT
-    started = time.monotonic()
-    with ThreadPoolExecutor(max_workers=WORKERS) as pool:
-        elapsed = list(pool.map(lambda name: request(url, name, auth), tasks))
-    duration = time.monotonic() - started
-    require(math.isfinite(duration) and duration > 0, "Invalid batch duration")
-    after = snapshot(ids, project)
-    request(url, "plans", expected=401)
-    report = {"schema": 1, "profile": profile, "fixture": "fresh-installed-lab",
-              "workers": WORKERS, "requests": len(tasks), "batch_seconds": round(duration, 3),
-              "requests_per_second": round(len(tasks) / duration, 3),
-              "endpoints": {name: metrics([v for n, v in zip(tasks, elapsed) if n == name]) for name in ENDPOINTS},
-              "resource_snapshots": {"before": before, "after": after},
-              "limitations": "Read-only loopback CI; snapshots are not peaks; not capacity or production SLA"}
     reports = Path(os.environ["RUNNER_TEMP"]) / "radius-installed-performance"
     reports.mkdir(mode=0o700, exist_ok=True)
-    with (reports / (profile + ".json")).open("x") as out:
-        json.dump(report, out, indent=2)
-        out.write("\n")
-    print(json.dumps(report, indent=2))
+    # Keep completed stages even if a later stage fails. The original
+    # compatible/slim schema-1 report remains directly comparable.
+    stages = []
+    for workers, per_endpoint in STAGES:
+        stage = run_stage(url, auth, ids, project, workers, per_endpoint)
+        stages.append(stage)
+        print("Installed " + profile + " load stage " + str(workers) + " workers PASS")
+        report = {"schema": 1, "profile": profile, "fixture": "fresh-installed-lab",
+                  **stage, "limitations": "Read-only loopback CI; snapshots are not peaks; not capacity or production SLA"}
+        name = profile if workers == WORKERS else profile + "-workers-" + str(workers)
+        with (reports / (name + ".json")).open("x") as out:
+            json.dump(report, out, indent=2)
+            out.write("\n")
+        print(json.dumps(report, indent=2))
+    require(sum(stage["requests"] for stage in stages) == 336, "Incomplete load stages")
     print("Installed " + profile + " concurrent read and resource baseline PASS")
 
 

@@ -19,6 +19,17 @@ class LocalStackPerformanceChecks(unittest.TestCase):
             with self.assertRaises(ValueError):
                 perf.metrics(bad)
 
+    def test_bounded_progressive_stages(self):
+        self.assertEqual(perf.STAGES, ((4, 16), (8, 32), (16, 64)))
+        self.assertEqual(sum(n * len(perf.ENDPOINTS) for _, n in perf.STAGES), 336)
+        values = [i / 1000 for i in range(1, 65)]
+        self.assertEqual(perf.metrics(values, 64),
+                         {"count": 64, "p50_ms": 32.0, "p95_ms": 61.0, "max_ms": 64.0})
+        with self.assertRaises(ValueError):
+            perf.metrics(values, 32)
+        with self.assertRaisesRegex(ValueError, "Unapproved load stage"):
+            perf.run_stage(None, None, None, None, 128, 1024)
+
     def test_read_only_local_gate_and_artifact(self):
         source = (ROOT / "tests/local_stack_performance.py").read_text()
         smoke = (ROOT / "scripts/csharp-local-installer-smoke.sh").read_text()
