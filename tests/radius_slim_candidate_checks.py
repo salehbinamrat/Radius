@@ -8,13 +8,19 @@ ROOT = Path(__file__).resolve().parents[1]
 
 class RadiusSlimCandidateChecks(unittest.TestCase):
     def test_candidate_is_flattened_and_separate(self):
-        source = (ROOT / "tests/radius-slim-candidate.Dockerfile").read_text()
+        source = (ROOT / "radius/Dockerfile.slim").read_text()
         for marker in ("apk del py3-psycopg2 python3", "FROM scratch",
                        "COPY --from=trimmed / /", "mods-enabled", "rlm_python",
                        "ENTRYPOINT", "runtime-packages"):
             self.assertIn(marker, source)
         self.assertNotIn("radius-slim", (ROOT / "compose.yaml").read_text())
-        self.assertEqual((ROOT / "tests/radius-slim-candidate.Dockerfile.dockerignore").read_text().splitlines()[0], "**")
+        rules = (ROOT / "radius/Dockerfile.slim.dockerignore").read_text().splitlines()
+        self.assertEqual([line for line in rules if line and not line.startswith("#")], ["**", "!Dockerfile.slim"])
+        self.assertFalse((ROOT / "tests/radius-slim-candidate.Dockerfile").exists())
+        self.assertFalse((ROOT / "tests/radius-slim-candidate.Dockerfile.dockerignore").exists())
+        self.assertIn('FROM ${LEGACY_IMAGE} AS trimmed', source)
+        self.assertNotIn("COPY ", "\n".join(line for line in source.splitlines()
+                                            if not line.startswith("COPY --from=trimmed ")))
 
     def test_candidate_has_real_protocol_and_independent_scan_gates(self):
         ci = (ROOT / ".github/workflows/ci.yml").read_text()
@@ -41,7 +47,8 @@ class RadiusSlimCandidateChecks(unittest.TestCase):
                        "--network none", "verify_ids", "image-ids.txt",
                        "compatible-image-id.txt", "sha256sum", "C# local image preparation PASS",
                        "tests/postgres-alpine-remediation.Dockerfile",
-                       "src/RadiusManager.Api/Dockerfile", "radius/Dockerfile"):
+                       "src/RadiusManager.Api/Dockerfile", "radius/Dockerfile",
+                       '-f radius/Dockerfile.slim -t "$slim_tag" radius'):
             self.assertIn(marker, source)
         for forbidden in ("compose up", "compose down", "volume rm", "python3 /"):
             self.assertNotIn(forbidden, source)
