@@ -23,7 +23,7 @@ class RadiusSlimCandidateChecks(unittest.TestCase):
         evidence = (ROOT / "scripts/verify-radius-slim-evidence.py").read_text()
         self.assertLess(ci.index("bash scripts/radius-slim-candidate-smoke.sh"),
                         ci.index("bash scripts/security-scan-ci.sh"))
-        for marker in ("prepare-csharp-local-images.sh", "RADIUS_SLIM_IMAGE_ID", "local-fresh", "radius-slim-image-id.txt"):
+        for marker in ("radius-prepared-images", "RADIUS_SLIM_IMAGE_ID", "local-fresh", "radius-slim-image-id.txt", "source-prepared"):
             self.assertIn(marker, smoke)
         self.assertIn("bash scripts/csharp-local-installer-smoke.sh", smoke)
         self.assertIn('for service in api radius db;', scan)
@@ -57,3 +57,23 @@ class RadiusSlimCandidateChecks(unittest.TestCase):
                                     capture_output=True)
             self.assertEqual(result.returncode, 2)
             self.assertEqual(list(Path(directory).iterdir()), [])
+
+    def test_direct_source_preparation_drives_all_runtime_checks(self):
+        ci = (ROOT / ".github/workflows/ci.yml").read_text()
+        smoke = (ROOT / "scripts/radius-slim-candidate-smoke.sh").read_text()
+        for marker in ('bash scripts/prepare-csharp-local-images.sh "$RUNNER_TEMP/radius-prepared-images"',
+                       'docker compose up -d --no-build --pull never',
+                       'docker compose ps -aq "$role"',
+                       'test "$(docker inspect --format \'{{.Image}}\' "$cid")" = "$expected"',
+                       'Source-prepared image identity and compatibility startup PASS'):
+            self.assertIn(marker, ci)
+        self.assertNotIn("docker compose up -d --build", ci)
+        self.assertLess(ci.index('bash scripts/prepare-csharp-local-images.sh'),
+                        ci.index('docker compose up -d --no-build --pull never'))
+        self.assertLess(ci.index('docker compose up -d --no-build --pull never'),
+                        ci.index('bash scripts/radius-slim-candidate-smoke.sh'))
+        self.assertNotIn("docker build", smoke)
+        self.assertNotIn("bash scripts/prepare-csharp-local-images.sh", smoke)
+        self.assertIn('"${prepared[0]}" == "$db" && "${prepared[1]}" == "$api"', smoke)
+        self.assertIn('$(cat "$work/compatible-image-id.txt")', smoke)
+        self.assertIn('sha256sum --check --strict --status SHA256SUMS', smoke)
