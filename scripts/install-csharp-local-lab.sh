@@ -46,19 +46,40 @@ runtime="${RADIUS_LOCAL_RUNTIME:-slim}"
 }
 if [[ "$runtime" == slim ]]; then
   # Inspect the actual clean image before creating any project resources.
-  if ! local_docker run --rm --pull never --network none --read-only --cap-drop ALL \
-      --security-opt no-new-privileges:true --entrypoint sh "$radius_id" -ec '
-        if command -v python3 || command -v python; then exit 1; fi
-        test ! -e /opt/radius/migrate.py
-        test ! -e /opt/radius/radius_secret_input.py
-        test ! -e /usr/local/bin/schema-init.sh
-        test -x /usr/local/bin/start.sh
-        test -x /usr/local/bin/radius-health-probe.sh
-        test -s /opt/radius/radius_secret_input.sh
-      ' >/dev/null 2>&1; then
-    echo 'Slim runtime requires the Python-free RADIUS image' >&2; exit 2
+  if local_docker run --rm --pull never --network none --read-only --cap-drop ALL \
+      --security-opt no-new-privileges=true --entrypoint sh "$radius_id" -ec '
+        if command -v python3 || command -v python; then exit 42; fi
+        if ! (test ! -e /opt/radius/migrate.py &&
+              test ! -e /opt/radius/radius_secret_input.py &&
+              test ! -e /usr/local/bin/schema-init.sh &&
+              test -x /usr/local/bin/start.sh &&
+              test -x /usr/local/bin/radius-health-probe.sh &&
+              test -s /opt/radius/radius_secret_input.sh); then exit 42; fi
+      ' >/dev/null; then
+    :
+  else
+    probe_status=$?
+    if [[ "$probe_status" == 42 ]]; then
+      echo 'Slim runtime requires the Python-free RADIUS image' >&2
+    else
+      echo "Unable to execute local RADIUS image validation (exit $probe_status)" >&2
+    fi
+    exit 2
   fi
 fi
+# A successful image lookup does not prove a non-root executable can run
+# after image import. Use the exact DB image, no network or persistent data.
+# --version makes the upstream entrypoint skip initialization.
+if ! local_docker run --rm --pull never --network none --read-only \
+    --entrypoint /bin/sh "$db_id" -ec '
+      stat -c "%a %u:%g %n" / /usr /usr/local /usr/local/bin /usr/local/bin/docker-entrypoint.sh
+      test "$(id -u postgres)" != 0
+      gosu postgres /usr/local/bin/docker-entrypoint.sh postgres --version
+    '; then
+  echo 'Local PostgreSQL non-root execution preflight failed; inspect runtime permissions' >&2
+  exit 2
+fi
+echo 'Local PostgreSQL non-root entrypoint preflight PASS'
 project="radiuscsharp$(openssl rand -hex 4)"
 [[ "$project" =~ ^radiuscsharp[a-f0-9]{8}$ ]]
 [[ -z "$(local_docker ps -aq --filter "label=com.docker.compose.project=$project")" ]]

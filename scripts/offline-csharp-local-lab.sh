@@ -37,13 +37,23 @@ check_images() {
     [[ "$(local_docker image inspect --format '{{.Id}} {{.Os}}/{{.Architecture}}' "$id")" == "$id $platform" ]] || return 1
   done
 }
-manifest() { sha256sum -- "${files[@]}" image-ids.txt platform.txt images.tar.gz; }
+image_store() {
+  local status
+  status="$(local_docker info --format '{{json .DriverStatus}}')" || return 1
+  if [[ "$status" == *io.containerd.snapshotter.v1* ]]; then
+    echo containerd
+  else
+    echo classic
+  fi
+}
+manifest() { sha256sum -- "${files[@]}" image-ids.txt platform.txt image-store.txt images.tar.gz; }
 case "${1:-}" in
   export)
     [[ $# == 5 ]] || exit 2
     destination="$2"; shift 2
     new_directory "$destination" && verify_ids "$@" || { echo 'Invalid bundle destination or image IDs' >&2; exit 2; }
     platform="$(local_platform)"
+    store="$(image_store)"
     check_images "$@"
     for file in "${files[@]}"; do [[ -f "$file" && ! -L "$file" ]] || exit 2; done
     umask 077
@@ -54,6 +64,7 @@ case "${1:-}" in
     done
     printf '%s\n' "$@" >"$destination/image-ids.txt"
     printf '%s\n' "$platform" >"$destination/platform.txt"
+    printf '%s\n' "$store" >"$destination/image-store.txt"
     # Save by immutable ID rather than mutable registry tags.
     local_docker image save "$@" | gzip -1 >"$destination/images.tar.gz"
     (cd "$destination" && manifest >SHA256SUMS.tmp && mv -- SHA256SUMS.tmp SHA256SUMS)
@@ -63,7 +74,7 @@ case "${1:-}" in
     [[ $# == 3 && "$3" =~ ^[a-f0-9]{64}$ ]] || exit 2
     state="$2"; trusted="$3"
     new_directory "$state" || { echo 'Invalid or existing installation destination' >&2; exit 2; }
-    for file in "${files[@]}" image-ids.txt platform.txt images.tar.gz SHA256SUMS; do
+    for file in "${files[@]}" image-ids.txt platform.txt image-store.txt images.tar.gz SHA256SUMS; do
       [[ -f "$file" && ! -L "$file" && "$(realpath -- "$file")" == "$root/$file" ]] || exit 2
     done
     [[ "$(sha256sum SHA256SUMS | cut -d ' ' -f1)" == "$trusted" ]] &&
@@ -72,6 +83,7 @@ case "${1:-}" in
     verify_ids "${ids[@]}" || exit 2
     platform="$(local_platform)"
     [[ "$(cat platform.txt)" == "$platform" ]] || { echo 'Offline bundle platform mismatch' >&2; exit 2; }
+    [[ "$(cat image-store.txt)" == "$(image_store)" ]] || { echo 'Offline bundle image store mismatch; use matching Docker storage mode' >&2; exit 2; }
     local_docker compose version >/dev/null
     # Import only the trusted image archive; never pull or build.
     local_docker image load --input images.tar.gz --quiet

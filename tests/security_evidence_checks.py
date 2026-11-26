@@ -111,3 +111,21 @@ class SecurityEvidenceChecks(unittest.TestCase):
         self.assertIn("apk info -v | sort", scan)
         self.assertIn('python3 scripts/verify-security-evidence.py "$reports"', scan)
         self.assertIn('exit "$failed"', scan)
+
+    def test_reviewed_expat_transition_accepts_only_exact_delta(self):
+        raw = b"expat-2.10.0-r0\nexpat-dev-2.10.0-r0\nlibexpat-2.10.0-r0\nother-1.0-r0\n"
+        expected = {"count": 4, "sha256": hashlib.sha256(raw).hexdigest(),
+                    "reviewed_transition": self.baseline["inventories"]["build"].get(
+                        "reviewed_transition", {
+                            "from_version": "2.10.0-r0", "to_version": "2.11.0-r0",
+                            "packages": ["expat", "expat-dev", "libexpat"]})}
+        updated = raw.replace(b"2.10.0-r0", b"2.11.0-r0")
+        self.assertEqual(evidence.inventory(raw, expected, "build"), set(raw.decode().splitlines()))
+        self.assertEqual(evidence.inventory(updated, expected, "build"), set(updated.decode().splitlines()))
+        for invalid in (updated.replace(b"other-1.0", b"other-2.0"),
+                        updated.replace(b"libexpat-2.11.0", b"libexpat-2.12.0"),
+                        updated.replace(b"expat-dev-2.11.0", b"expat-dev-2.10.0"),
+                        updated.replace(b"other-1.0-r0", b"expat-2.11.0-r0"),
+                        updated + b"extra-1.0-r0\n"):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                evidence.inventory(invalid, expected, "build")

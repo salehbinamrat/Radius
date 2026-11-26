@@ -78,9 +78,35 @@ if [[ "$runtime" == slim ]]; then
   grep -Fxq 'Offline bundle integrity check failed' "$tmp/refusal.log"
   [[ ! -e "$state" ]]
   cp "$tmp/original-platform" "$package/platform.txt"
+  # A validly hashed but incompatible storage mode must fail before image load.
+  cp "$package/image-store.txt" "$tmp/original-store"
+  cp "$package/SHA256SUMS" "$tmp/original-package-manifest"
+  if [[ "$(cat "$package/image-store.txt")" == containerd ]]; then
+    echo classic >"$package/image-store.txt"
+  else
+    echo containerd >"$package/image-store.txt"
+  fi
+  (cd "$package" && sha256sum image-store.txt >"$tmp/new-store-hash")
+  # Keep the exact manifest ordering used by the exporter.
+  python3 - "$package/SHA256SUMS" "$tmp/new-store-hash" <<'PY'
+from pathlib import Path
+import sys
+manifest, replacement = map(Path, sys.argv[1:])
+manifest.write_text("".join(replacement.read_text() if line.endswith("  image-store.txt\n") else line
+                            for line in manifest.read_text().splitlines(keepends=True)))
+PY
+  other_digest="$(sha256sum "$package/SHA256SUMS" | cut -d ' ' -f1)"
+  if RADIUS_LOCAL_INSTALL_ACK=local-lab-only bash "$package/scripts/offline-csharp-local-lab.sh" install "$state" "$other_digest" >"$tmp/refusal.log" 2>&1; then
+    echo 'Offline installer accepted incompatible image store' >&2; exit 1
+  fi
+  grep -Fxq 'Offline bundle image store mismatch; use matching Docker storage mode' "$tmp/refusal.log"
+  [[ ! -e "$state" ]]
+  cp "$tmp/original-store" "$package/image-store.txt"
+  cp "$tmp/original-package-manifest" "$package/SHA256SUMS"
   # Execute the installer from the exported tree, without a checkout or SDK.
   RADIUS_LOCAL_INSTALL_ACK=local-lab-only bash "$package/scripts/offline-csharp-local-lab.sh" install "$state" "$digest"
   echo 'Offline bundle export, integrity refusal and local image import PASS'
+  CSHARP_OFFLINE_TEST_ACK=isolated-ci bash scripts/offline-fresh-engine-smoke.sh "$package" "$digest"
 else
   RADIUS_LOCAL_INSTALL_ACK=local-lab-only bash scripts/install-csharp-local-lab.sh "$state" "${ids[@]}"
 fi

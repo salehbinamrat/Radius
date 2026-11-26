@@ -18,8 +18,22 @@ def inventory(raw, expected, label):
     lines = raw.decode("utf-8").splitlines()
     require(len(lines) == expected["count"] and len(set(lines)) == len(lines),
             label + ": package count/uniqueness changed; review required")
-    require(hashlib.sha256(raw).hexdigest() == expected["sha256"],
-            label + ": package inventory changed; review required")
+    actual = hashlib.sha256(raw).hexdigest()
+    if actual != expected["sha256"]:
+        # Permit only the exact reviewed Expat transition, not arbitrary
+        # versions or a new baseline derived from the running image.
+        transition = expected.get("reviewed_transition")
+        if transition:
+            old = [name + "-" + transition["from_version"] for name in transition["packages"]]
+            new = [name + "-" + transition["to_version"] for name in transition["packages"]]
+            if all(lines.count(item) == 1 for item in new) and not set(old) & set(lines):
+                canonical = raw
+                for before, after in zip(old, new):
+                    canonical = canonical.replace((after + "\n").encode(), (before + "\n").encode())
+                if hashlib.sha256(canonical).hexdigest() == expected["sha256"]:
+                    print(label + ": exact reviewed package transition verified; actual SHA-256 " + actual)
+                    return set(lines)
+        raise ValueError(label + ": package inventory changed; review required (SHA-256 " + actual + ")")
     return set(lines)
 
 
@@ -44,9 +58,12 @@ def verify(root, baseline):
         reports[service] = results
 
     inv = baseline["inventories"]
-    inventory((root / "radius-source-build-packages.txt").read_bytes(), inv["build"], "build")
+    build_packages = inventory((root / "radius-source-build-packages.txt").read_bytes(), inv["build"], "build")
     runtime_raw = (root / "radius-source-runtime-packages.txt").read_bytes()
     packages = inventory(runtime_raw, inv["runtime"], "runtime")
+    require({p for p in build_packages if p.startswith("libexpat-")} ==
+            {p for p in packages if p.startswith("libexpat-")},
+            "Build/runtime libexpat version mismatch")
     require((root / "radius-live-packages.txt").read_bytes() == runtime_raw,
             "Running daemon package inventory differs from build")
     alpine = [r for r in reports["radius"] if r.get("Type") == "alpine"]

@@ -103,3 +103,60 @@ class LocalInstallerChecks(unittest.TestCase):
         self.assertNotIn("docker build", source)
         self.assertIn("Offline installer accepted modified bundle", smoke)
         self.assertIn("Offline bundle export, integrity refusal and local image import PASS", smoke)
+
+    def test_offline_acceptance_is_mandatory_and_isolated(self):
+        smoke = (ROOT / "scripts/csharp-local-installer-smoke.sh").read_text()
+        isolated = (ROOT / "scripts/offline-fresh-engine-smoke.sh").read_text()
+        self.assertIn("CSHARP_OFFLINE_TEST_ACK=isolated-ci bash scripts/offline-fresh-engine-smoke.sh", smoke)
+        for marker in ("GITHUB_ACTIONS", "unshare --mount --net --pid",
+                       "--data-root", "--exec-root", '--storage-driver "$driver"',
+                       '--containerd "$work/containerd.sock"', '--root "$work/containerd-data"',
+                       '--state "$work/containerd-state"', "io.containerd.snapshotter.v1",
+                       "--exec-opt native.cgroupdriver=cgroupfs", '--cgroup-parent "/${work##*/}"',
+                       "'{{.CgroupDriver}}'",
+                       'mount --bind "$work/docker.sock" /var/run/docker.sock',
+                       'docker_local image ls -aq', 'docker_local volume ls -q',
+                       "no_external_route", "Offline fresh-engine installation and persistent restart PASS"):
+            self.assertIn(marker, isolated)
+        self.assertLess(isolated.index("docker_local volume ls -q"), isolated.index('offline-csharp-local-lab.sh" install'))
+        self.assertIn('bash "$state/manage.sh" stop', isolated)
+        self.assertIn('bash "$state/manage.sh" start', isolated)
+        self.assertIn("Offline installer accepted incompatible image store", smoke)
+        bundle = (ROOT / "scripts/offline-csharp-local-lab.sh").read_text()
+        self.assertLess(bundle.index("Offline bundle image store mismatch"), bundle.index("local_docker image load"))
+        self.assertIn("image-store.txt images.tar.gz", bundle)
+
+    def test_slim_probe_distinguishes_content_from_runtime_failure(self):
+        source = INSTALLER.read_text()
+        self.assertIn('if [[ "$probe_status" == 42 ]]', source)
+        self.assertIn("Unable to execute local RADIUS image validation", source)
+        self.assertIn("exit 42", source)
+        self.assertIn("no-new-privileges=true", source)
+
+    def test_offline_namespace_mounts_and_failure_diagnostics(self):
+        source = (ROOT / "scripts/offline-fresh-engine-smoke.sh").read_text()
+        for marker in ('mount -t sysfs -o nosuid,nodev,noexec sysfs /sys',
+                       'mount --bind "$work/cgroup-view" /sys/fs/cgroup',
+                       'mount --bind "$work/containerd-run" /run/containerd',
+                       'mount --bind "$work/docker-run" /run/docker',
+                       '/sys/class/net/docker0/bridge',
+                       'diagnostic_docker logs --tail 100 "$cid"',
+                       'db|schema-init)', '{{.State.ExitCode}}'):
+            self.assertIn(marker, source)
+        self.assertLess(source.index('mount -t sysfs'), source.index('containerd --config'))
+        self.assertLess(source.index('diagnostic_docker logs'), source.index('kill "$daemon"'))
+        self.assertLess(source.index('/sys/class/net/docker0/bridge'),
+                        source.index('offline-csharp-local-lab.sh" install'))
+
+    def test_offline_daemon_masks_and_postgres_execution_preflight(self):
+        source = (ROOT / "scripts/offline-fresh-engine-smoke.sh").read_text()
+        installer = INSTALLER.read_text()
+        self.assertLess(source.index("umask 022"), source.index("containerd --config"))
+        self.assertLess(source.index('"/proc/$runtime/status"'), source.index("dockerd --config-file"))
+        self.assertIn('"/proc/$daemon/status"', source)
+        self.assertIn('stat -c %a "$work"', source)
+        self.assertLess(source.index("umask 077"), source.index('offline-csharp-local-lab.sh" install'))
+        self.assertIn('gosu postgres /usr/local/bin/docker-entrypoint.sh postgres --version', installer)
+        self.assertLess(installer.index("Local PostgreSQL non-root entrypoint preflight PASS"),
+                        installer.index('mkdir -- "$state"'))
+        self.assertIn('Local PostgreSQL non-root execution preflight failed', installer)
