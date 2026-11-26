@@ -2,6 +2,7 @@
 import os
 import re
 import sys
+import stat
 from pathlib import Path
 
 NAMES = ("DB_PASSWORD", "RADIUS_SECRET")
@@ -16,7 +17,11 @@ def load_hex(name, env=None):
         if inline or not Path(file).is_absolute():
             raise RuntimeError("Invalid or conflicting " + name + " source")
         try:
-            with open(file, "rb") as stream:
+            # Open nonblocking, then inspect the opened descriptor: a FIFO
+            # must not hang migration, even if a path is replaced during open.
+            with os.fdopen(os.open(file, os.O_RDONLY | getattr(os, "O_NONBLOCK", 0)), "rb") as stream:
+                if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
+                    raise ValueError()
                 raw = stream.read(51)
             if not re.fullmatch(rb"[a-f0-9]{48}(?:\r?\n)?", raw):
                 raise ValueError()

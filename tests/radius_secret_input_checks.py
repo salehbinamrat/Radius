@@ -4,6 +4,7 @@ import importlib.util
 import ipaddress
 import subprocess
 import os
+import sys
 import tempfile
 import unittest
 
@@ -62,6 +63,36 @@ class RadiusSecretInputChecks(unittest.TestCase):
             self.assertEqual(result.returncode, 0)
             self.assertEqual(result.stdout, (expected+"\n").encode())
             self.assertEqual(result.stderr, b"")
+
+    @unittest.skipUnless(hasattr(os, "mkfifo"), "POSIX FIFO fixture")
+    def test_readers_reject_nonregular_files_without_blocking(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            fifo = root / "fifo"
+            os.mkfifo(fifo)
+            fifo_link = root / "fifo-link"
+            fifo_link.symlink_to(fifo)
+            regular = root / "secret"
+            regular.write_bytes(b"a" * 48 + b"\r\n")
+            regular_link = root / "regular-link"
+            regular_link.symlink_to(regular)
+            readers = (
+                [sys.executable, str(ROOT / "radius/radius_secret_input.py")],
+                ["bash", str(ROOT / "radius/radius_secret_input.sh")],
+            )
+            for reader in readers:
+                for name in ("DB_PASSWORD", "RADIUS_SECRET"):
+                    for path, valid in ((root, False), (fifo, False), (fifo_link, False),
+                                        (regular, True), (regular_link, True)):
+                        with self.subTest(reader=reader[0], name=name, path=path.name):
+                            result = subprocess.run(
+                                [*reader, name], env={"PATH": os.environ["PATH"],
+                                                       name + "_FILE": str(path)},
+                                capture_output=True, timeout=5)
+                            self.assertEqual(result.returncode, 0 if valid else 1)
+                            self.assertEqual(result.stdout, b"a" * 48 + b"\n" if valid else b"")
+                            self.assertEqual(result.stderr, b"" if valid else
+                                             b"RADIUS secret or configuration input rejected\n")
 
     def test_shell_ipv4_network_matches_legacy(self):
         script = ROOT / "radius/radius_secret_input.sh"
