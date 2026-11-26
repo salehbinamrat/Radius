@@ -18,6 +18,12 @@ WORKERS = 4
 PER_ENDPOINT = 16
 # Preserve the original baseline, then increase bounded concurrent reads.
 STAGES = ((4, 16), (8, 32), (16, 64))
+# Program.cs uses a shared fixed window of 120 requests per minute per IP.
+# Leave headroom for both unauthorized probes and any local health traffic.
+RATE_LIMIT = 120
+WINDOW_SECONDS = 60
+COOLDOWN_SECONDS = WINDOW_SECONDS + 1
+MAX_PER_ENDPOINT_PER_WINDOW = 32
 DEADLINE = 5
 ROLES = ("db", "api", "radius")
 
@@ -89,23 +95,62 @@ def snapshot(ids, project):
     return result
 
 
-def run_stage(url, auth, ids, project, workers, per_endpoint):
+def window_plan(workers, per_endpoint):
     require((workers, per_endpoint) in STAGES, "Unapproved load stage")
-    request(url, "plans", expected=401)
-    before = snapshot(ids, project)
-    tasks = list(ENDPOINTS) * per_endpoint
-    started = time.monotonic()
-    with ThreadPoolExecutor(max_workers=workers) as pool:
-        elapsed = list(pool.map(lambda name: request(url, name, auth), tasks))
-    duration = time.monotonic() - started
-    require(math.isfinite(duration) and duration > 0, "Invalid batch duration")
-    after = snapshot(ids, project)
-    request(url, "plans", expected=401)
-    return {"workers": workers, "requests": len(tasks), "batch_seconds": round(duration, 3),
-            "requests_per_second": round(len(tasks) / duration, 3),
-            "endpoints": {name: metrics([v for n, v in zip(tasks, elapsed) if n == name], per_endpoint)
-                          for name in ENDPOINTS},
-            "resource_snapshots": {"before": before, "after": after}}
+    windows = []
+    remaining = per_endpoint
+    while remaining:
+        count = min(remaining, MAX_PER_ENDPOINT_PER_WINDOW)
+        require(count * len(ENDPOINTS) + 2 < RATE_LIMIT, "Read window exceeds security budget")
+        windows.append(count)
+        remaining -= count
+    return windows
+
+
+def run_stage(url, auth, ids, project, workers, per_endpoint):
+    windows = window_plan(workers, per_endpoint)
+    started_stage = time.monotonic()
+    samples = {name: [] for name in ENDPOINTS}
+    active_seconds = 0.0
+    evidence = []
+    for number, count in enumerate(windows, 1):
+        # Wait a complete fixed window after any preceding traffic, including
+        # UI smoke and readiness probes before the first measurement.
+        # Never change, bypass, retry or count HTTP 429 as a successful read.
+        print(f"Preparing {workers}-worker window {number}/{len(windows)}; "
+              f"waiting {COOLDOWN_SECONDS}s for the existing rate limit", flush=True)
+        time.sleep(COOLDOWN_SECONDS)
+        request(url, "plans", expected=401)
+        before = snapshot(ids, project)
+        tasks = list(ENDPOINTS) * count
+        started = time.monotonic()
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            elapsed = list(pool.map(lambda name: request(url, name, auth), tasks))
+        duration = time.monotonic() - started
+        require(math.isfinite(duration) and duration > 0, "Invalid batch duration")
+        after = snapshot(ids, project)
+        request(url, "plans", expected=401)
+        for name, value in zip(tasks, elapsed):
+            samples[name].append(value)
+        active_seconds += duration
+        evidence.append({"window": number, "requests": len(tasks),
+                         "batch_seconds": round(duration, 3),
+                         "requests_per_second": round(len(tasks) / duration, 3),
+                         "resource_snapshots": {"before": before, "after": after}})
+    total = sum(len(values) for values in samples.values())
+    require(total == per_endpoint * len(ENDPOINTS), "Incomplete load stage")
+    wall_seconds = time.monotonic() - started_stage
+    require(math.isfinite(wall_seconds) and wall_seconds >= active_seconds > 0, "Invalid stage duration")
+    return {"workers": workers, "requests": total, "batch_seconds": round(active_seconds, 3),
+            "requests_per_second": round(total / active_seconds, 3),
+            "wall_seconds": round(wall_seconds, 3),
+            "wall_requests_per_second": round(total / wall_seconds, 3),
+            "rate_limit": {"requests_per_ip": RATE_LIMIT, "window_seconds": WINDOW_SECONDS,
+                           "cooldown_seconds_per_window": COOLDOWN_SECONDS},
+            "windows": evidence,
+            "endpoints": {name: metrics(values, per_endpoint) for name, values in samples.items()},
+            "resource_snapshots": {"before": evidence[0]["resource_snapshots"]["before"],
+                                   "after": evidence[-1]["resource_snapshots"]["after"]}}
 
 
 def main():
@@ -143,7 +188,7 @@ def main():
         stages.append(stage)
         print("Installed " + profile + " load stage " + str(workers) + " workers PASS")
         report = {"schema": 1, "profile": profile, "fixture": "fresh-installed-lab",
-                  **stage, "limitations": "Read-only loopback CI; snapshots are not peaks; not capacity or production SLA"}
+                  **stage, "limitations": "Read-only loopback CI; active batch throughput excludes security cooldowns; wall throughput includes them; snapshots are not peaks; not capacity or production SLA"}
         name = profile if workers == WORKERS else profile + "-workers-" + str(workers)
         with (reports / (name + ".json")).open("x") as out:
             json.dump(report, out, indent=2)
