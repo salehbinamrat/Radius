@@ -188,6 +188,14 @@ jobs:
           path: ${{ runner.temp }}/radius-security-reports/
           if-no-files-found: error
           retention-days: 14
+      - name: Retain installed performance baselines
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: radius-installed-performance
+          path: ${{ runner.temp }}/radius-installed-performance/
+          if-no-files-found: ignore
+          retention-days: 14
       - name: Diagnose failed RADIUS integration
         if: failure()
         run: |
