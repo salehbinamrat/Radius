@@ -77,6 +77,37 @@ assert_injected_failure() {
   echo "Verified injected rollback after migration $version SQL"
 }
 
+# The actual compatibility initializer must reject invalid secrets before
+# executing any SQL or migration. A stub PATH makes accidental calls observable
+# without touching even the disposable database.
+docker compose run --rm --no-deps --pull never --entrypoint bash schema-init -ec '
+  umask 077
+  work=$(mktemp -d)
+  trap "rm -rf -- \"$work\"" EXIT
+  mkdir "$work/bin"
+  for tool in psql python3; do
+    printf "%s\n" "#!/bin/sh" "touch \"$work/unexpected-call\"" "exit 99" >"$work/bin/$tool"
+    chmod 700 "$work/bin/$tool"
+  done
+  export PATH="$work/bin:$PATH" TMPDIR="$work"
+  printf "%048d\n" 0 >"$work/valid"
+  printf "%048d\000" 0 >"$work/invalid"
+  refuse() {
+    if "$@" bash /usr/local/bin/schema-init.sh >"$work/out" 2>"$work/err"; then
+      echo "Initializer accepted invalid secret input" >&2; exit 1
+    fi
+    test ! -s "$work/out"
+    grep -Fxq "RADIUS secret or configuration input rejected" "$work/err"
+    test ! -e "$work/unexpected-call"
+    test "$(find "$work" -maxdepth 1 -type f | wc -l)" -eq 4
+  }
+  refuse env -u DB_PASSWORD_FILE DB_PASSWORD=invalid
+  refuse env -u DB_PASSWORD DB_PASSWORD_FILE="$work/invalid"
+  refuse env DB_PASSWORD="$(printf "%048d" 0)" DB_PASSWORD_FILE="$work/valid"
+  refuse env -u DB_PASSWORD DB_PASSWORD_FILE="$work/missing"
+'
+echo 'Legacy schema initialization rejects invalid secret sources before SQL or migration PASS'
+
 # 1. Fresh DB, data preserved across transaction rollback and interrupted restart.
 setup_database "$db_one"
 plan_id=$(python3 -c 'import uuid; print(uuid.uuid4())')
