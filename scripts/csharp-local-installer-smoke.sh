@@ -214,6 +214,8 @@ for attempt in $(seq 1 30); do
 done
 [[ "$ready" == 1 ]]
 RADIUS_UI_URL="$url" bash scripts/ui-smoke.sh
+# Compare the actual fresh compatible and slim installations after restart.
+python3 tests/local_stack_performance.py "$state"
 echo 'Actual local C# installer, overwrite refusal and persistent restart PASS'
 echo 'Installed manager rejects changed configuration and restarts original containers PASS'
 if [[ "$runtime" == slim ]]; then
