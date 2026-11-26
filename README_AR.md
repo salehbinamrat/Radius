@@ -24,8 +24,9 @@
 ```bash
 RADIUS_LOCAL_BUILD_ACK=local-lab-only bash scripts/prepare-csharp-local-images.sh "$HOME/radius-images"
 (cd "$HOME/radius-images" && sha256sum --check --strict SHA256SUMS)
-mapfile -t ids < "$HOME/radius-images/image-ids.txt"
-RADIUS_LOCAL_INSTALL_ACK=local-lab-only bash scripts/install-csharp-local-lab.sh "$HOME/radius-local-lab" "${ids[@]}"
+# احفظ البصمة من جهاز التحضير الموثوق، ولا تعتمد بصمة من حزمة غير موثوقة.
+digest=$(sha256sum "$HOME/radius-images/SHA256SUMS" | cut -d ' ' -f1)
+RADIUS_LOCAL_INSTALL_ACK=local-lab-only bash scripts/install-csharp-local-lab.sh "$HOME/radius-local-lab" --prepared "$HOME/radius-images" "$digest"
 ```
 
 يمكن أيضا تمرير معرفات DB وAPI وصورة RADIUS المتوافقة الموثوقة إلى سكربت التحضير بعد مسار المخرجات لتجنب إعادة البناء. تستخدم النتيجة نفس محرك C# والمثبت المختبر؛ لا تحتاج .env أو Python على المضيف أو حاوية RADIUS النهائية. صورة التوافق لا تزال وسيطا في بناء الصورة المخففة. لا ينقل هذا الأمر بيانات تثبيت موجود، ولا يعتمد التشغيل للإنتاج. فحص الثغرات والقبول إلزاميان في CI للإصدار المقابل. المسار الأساسي القديم أدناه محفوظ لاختبارات التوافق والاستعادة حتى اعتماد الانتقال الآمن.

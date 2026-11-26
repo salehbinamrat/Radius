@@ -5,12 +5,58 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 root="$PWD"
 [[ $# == 4 && "${RADIUS_LOCAL_INSTALL_ACK:-}" == local-lab-only ]] || {
   echo 'Usage: RADIUS_LOCAL_INSTALL_ACK=local-lab-only bash scripts/install-csharp-local-lab.sh /absolute/new-directory DB_IMAGE_ID API_IMAGE_ID RADIUS_IMAGE_ID' >&2
+  echo '   or: install-csharp-local-lab.sh /absolute/new-directory --prepared /absolute/prepared-images TRUSTED_MANIFEST_SHA256' >&2
   exit 2
 }
 state="$1"; shift
+prepared_platform=
 [[ "$state" =~ ^/[a-zA-Z0-9_./-]+$ && "$state" == "$(realpath -m -- "$state")" && ! -e "$state" && ! -L "$state" && -d "$(dirname "$state")" ]] || {
   echo 'Use a new canonical absolute directory with an existing parent; refusing overwrite' >&2; exit 2;
 }
+# A trusted preparation digest binds the exact generated image list.
+# Keep the existing explicit-ID interface for verified offline bundles and
+# compatibility tests. Never silently fall back after a manifest failure.
+if [[ "$1" == --prepared ]]; then
+  prepared="$2"; trusted="$3"
+  [[ "${RADIUS_LOCAL_RUNTIME:-slim}" == slim &&
+     "$trusted" =~ ^[a-f0-9]{64}$ &&
+     "$prepared" =~ ^/[a-zA-Z0-9_./-]+$ &&
+     "$prepared" == "$(realpath -- "$prepared")" && -d "$prepared" ]] || {
+    echo 'Invalid prepared image directory, digest or runtime' >&2; exit 2;
+  }
+  # Fixed allowlist; do not follow manifest-provided paths. Copy once to a
+  # private temporary directory, then validate and consume the same bytes.
+  umask 077
+  snapshot="$(mktemp -d)"
+  trap 'rm -f -- "$snapshot/platform.txt" "$snapshot/compatible-image-id.txt" "$snapshot/image-ids.txt" "$snapshot/SHA256SUMS"; rmdir -- "$snapshot"' EXIT
+  for file in platform.txt compatible-image-id.txt image-ids.txt SHA256SUMS; do
+    [[ -f "$prepared/$file" && ! -L "$prepared/$file" ]] || {
+      echo 'Missing regular prepared image manifest input' >&2; exit 2;
+    }
+    cp -- "$prepared/$file" "$snapshot/$file"
+  done
+  if ! (cd "$snapshot" &&
+        [[ "$(sha256sum SHA256SUMS | cut -d ' ' -f1)" == "$trusted" ]] &&
+        sha256sum platform.txt compatible-image-id.txt image-ids.txt | cmp -s -- SHA256SUMS -); then
+    echo 'Prepared image manifest integrity check failed' >&2; exit 2
+  fi
+  mapfile -t prepared_ids <"$snapshot/image-ids.txt"
+  prepared_platform="$(cat "$snapshot/platform.txt")"
+  compatible_id="$(cat "$snapshot/compatible-image-id.txt")"
+  [[ "${#prepared_ids[@]}" == 3 &&
+     "$compatible_id" =~ ^sha256:[a-f0-9]{64}$ &&
+     "$compatible_id" != "${prepared_ids[0]}" &&
+     "$compatible_id" != "${prepared_ids[1]}" &&
+     "$compatible_id" != "${prepared_ids[2]}" &&
+     ( "$prepared_platform" == linux/amd64 || "$prepared_platform" == linux/arm64 ) ]] || {
+    echo 'Invalid prepared image roles or platform' >&2; exit 2;
+  }
+  set -- "${prepared_ids[@]}"
+  rm -f -- "$snapshot/platform.txt" "$snapshot/compatible-image-id.txt" "$snapshot/image-ids.txt" "$snapshot/SHA256SUMS"
+  rmdir -- "$snapshot"
+  trap - EXIT
+  echo 'Trusted prepared image manifest verified'
+fi
 for command in docker flock openssl sha256sum curl; do
   command -v "$command" >/dev/null || { echo "Missing local installation prerequisite: $command" >&2; exit 2; }
 done
@@ -31,6 +77,9 @@ case "$platform" in
   linux/aarch64|linux/arm64) platform=linux/arm64 ;;
   *) echo 'Unsupported local Docker platform' >&2; exit 2 ;;
 esac
+if [[ -n "${prepared_platform:-}" && "$prepared_platform" != "$platform" ]]; then
+  echo 'Prepared image manifest platform mismatch' >&2; exit 2
+fi
 for id in "$@"; do
   actual="$(local_docker image inspect --format '{{.Id}} {{.Os}}/{{.Architecture}}' "$id" 2>/dev/null)" || {
     echo 'Required image is not available locally; no download attempted' >&2; exit 2;
