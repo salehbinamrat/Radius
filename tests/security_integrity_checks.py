@@ -94,6 +94,56 @@ class SecurityIntegrityChecks(unittest.TestCase):
         ci = (ROOT / '.github/workflows/ci.yml').read_text()
         self.assertIn('scripts/radius-authenticator-smoke.sh', ci)
 
+    def test_native_security_rewrite_without_python_is_exact_and_fail_closed(self):
+        import os
+        import shutil
+        import stat
+        import tempfile
+        prepare = ROOT / "radius/prepare-native.sh"
+        self.assertNotIn("python3", prepare.read_text())
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            commands = root / "bin"
+            commands.mkdir()
+            for tool in ("mktemp", "cp", "mv", "rm"):
+                executable = shutil.which(tool)
+                self.assertIsNotNone(executable)
+                (commands / tool).symlink_to(executable)
+            path = root / "radiusd.conf"
+            def run():
+                return subprocess.run(
+                    [shutil.which("bash"), "-c",
+                     'source "$1"; rewrite_native_security_config "$2"',
+                     "native-test", str(prepare), str(path)],
+                    env={**os.environ, "PATH": str(commands)},
+                    capture_output=True, text=True)
+            valid = b"# unrelated\n \t# user \t= radius \n#group=radius\nlast"
+            path.write_bytes(valid)
+            path.chmod(0o640)
+            old = path.stat()
+            result = run()
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(path.read_bytes(), b"# unrelated\n\tuser = freerad\n\tgroup = freerad\nlast")
+            self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o640)
+            self.assertEqual((path.stat().st_uid, path.stat().st_gid), (old.st_uid, old.st_gid))
+            for invalid in (b"# user = radius\n", valid + b"\n# user=radius\n",
+                            b"user = radius\n# group = radius\n"):
+                path.write_bytes(invalid)
+                before = path.stat()
+                result = run()
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("Upstream security configuration changed", result.stderr)
+                self.assertEqual(path.read_bytes(), invalid)
+                self.assertEqual(path.stat().st_ino, before.st_ino)
+                self.assertFalse(list(root.glob(".radius-native-*")))
+            path.unlink()
+            target = root / "target"
+            target.write_bytes(valid)
+            path.symlink_to(target)
+            self.assertNotEqual(run().returncode, 0)
+            self.assertEqual(target.read_bytes(), valid)
+            self.assertTrue(path.is_symlink())
+
     def test_build_base_images_have_immutable_digests(self):
         import re
         for path, expected in (('radius/Dockerfile', 2), ('src/RadiusManager.Api/Dockerfile', 3)):
