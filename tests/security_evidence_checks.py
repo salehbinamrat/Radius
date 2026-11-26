@@ -129,3 +129,23 @@ class SecurityEvidenceChecks(unittest.TestCase):
                         updated + b"extra-1.0-r0\n"):
             with self.subTest(invalid=invalid), self.assertRaises(ValueError):
                 evidence.inventory(invalid, expected, "build")
+
+    def test_combined_reviewed_transitions_preserve_whole_inventory_hash(self):
+        raw = (b"expat-2.10.0-r0\nexpat-dev-2.10.0-r0\n"
+               b"libexpat-2.10.0-r0\nlibxml2-2.13.9-r3\nother-1.0-r0\n")
+        expected = {"count": 5, "sha256": hashlib.sha256(raw).hexdigest(),
+                    "reviewed_transition": {"from_version": "2.10.0-r0",
+                        "to_version": "2.11.0-r0", "packages": ["expat", "expat-dev", "libexpat"]},
+                    "additional_reviewed_transitions": [{"from_version": "2.13.9-r3",
+                        "to_version": "2.13.9-r5", "packages": ["libxml2"]}]}
+        expat = raw.replace(b"2.10.0-r0", b"2.11.0-r0")
+        xml = raw.replace(b"libxml2-2.13.9-r3", b"libxml2-2.13.9-r5")
+        both = expat.replace(b"libxml2-2.13.9-r3", b"libxml2-2.13.9-r5")
+        for valid in (raw, expat, xml, both):
+            self.assertEqual(evidence.inventory(valid, expected, "build"), set(valid.decode().splitlines()))
+        for invalid in (both.replace(b"libxml2-2.13.9-r5", b"libxml2-2.13.9-r2"),
+                        both.replace(b"libxml2-2.13.9-r5", b"libxml2-2.13.9-r6"),
+                        both.replace(b"expat-dev-2.11.0-r0", b"expat-dev-2.10.0-r0"),
+                        both.replace(b"other-1.0-r0", b"other-2.0-r0")):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                evidence.inventory(invalid, expected, "build")

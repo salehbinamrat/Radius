@@ -20,19 +20,32 @@ def inventory(raw, expected, label):
             label + ": package count/uniqueness changed; review required")
     actual = hashlib.sha256(raw).hexdigest()
     if actual != expected["sha256"]:
-        # Permit only the exact reviewed Expat transition, not arbitrary
-        # versions or a new baseline derived from the running image.
-        transition = expected.get("reviewed_transition")
-        if transition:
-            old = [name + "-" + transition["from_version"] for name in transition["packages"]]
-            new = [name + "-" + transition["to_version"] for name in transition["packages"]]
+        # Canonicalize only complete, independently reviewed transitions.
+        # The original whole-inventory SHA-256 must still match. This also
+        # handles two security updates arriving together without accepting
+        # partial groups, unknown versions, or unrelated inventory changes.
+        transitions = ([expected["reviewed_transition"]]
+                       if "reviewed_transition" in expected else [])
+        transitions += expected.get("additional_reviewed_transitions", [])
+        canonical = raw
+        changed = False
+        used = set()
+        for transition in transitions:
+            names = transition["packages"]
+            require(names and len(set(names)) == len(names) and not used.intersection(names),
+                    label + ": invalid overlapping reviewed transitions")
+            used.update(names)
+            old = [name + "-" + transition["from_version"] for name in names]
+            new = [name + "-" + transition["to_version"] for name in names]
             if all(lines.count(item) == 1 for item in new) and not set(old) & set(lines):
-                canonical = raw
                 for before, after in zip(old, new):
                     canonical = canonical.replace((after + "\n").encode(), (before + "\n").encode())
-                if hashlib.sha256(canonical).hexdigest() == expected["sha256"]:
-                    print(label + ": exact reviewed package transition verified; actual SHA-256 " + actual)
-                    return set(lines)
+                changed = True
+            elif not (all(lines.count(item) == 1 for item in old) and not set(new) & set(lines)):
+                raise ValueError(label + ": package inventory changed; review required (SHA-256 " + actual + ")")
+        if changed and hashlib.sha256(canonical).hexdigest() == expected["sha256"]:
+            print(label + ": exact reviewed package transition verified; actual SHA-256 " + actual)
+            return set(lines)
         raise ValueError(label + ": package inventory changed; review required (SHA-256 " + actual + ")")
     return set(lines)
 
