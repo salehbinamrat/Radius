@@ -66,7 +66,7 @@ else
 fi
 verify_ids "$db" "$api" "$legacy"
 local_docker build --pull=false --network none --build-arg LEGACY_IMAGE="$legacy_tag" \
-  -f tests/radius-slim-candidate.Dockerfile -t "$slim_tag" tests
+  -f radius/Dockerfile.slim -t "$slim_tag" radius
 slim="$(image_id "$slim_tag")"
 [[ "$slim" != "$legacy" ]]
 verify_ids "$db" "$api" "$slim"
