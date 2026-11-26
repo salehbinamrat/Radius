@@ -1,4 +1,5 @@
 .env
+.env.setup.*/
 **/bin/
 **/obj/
 **/node_modules/
