@@ -4,9 +4,12 @@ FROM postgres:16.16-alpine3.24@sha256:f2f98726820d0342055351c6e9d36e705f5bfffb3d
 # CVE-2026-86144: Alpine v3.24 security fix, official signed APK repository.
 # apk info -v PACKAGE prints human-readable fields; use the package manager's
 # version-aware installed-status query instead of matching its display text.
+# Alpine replaced r3 with r5 (CI 45840447457). A security minimum avoids
+# dependence on a superseded repository revision; actual image scan, package
+# evidence and encrypted restore remain mandatory. Never fall back to r2.
 RUN set -eu; \
-    apk add --no-cache 'libxml2=2.13.9-r3'; \
-    apk info --exists 'libxml2=2.13.9-r3'; \
+    apk add --no-cache 'libxml2>=2.13.9-r5'; \
+    apk info --exists 'libxml2>=2.13.9-r5'; \
     if apk info --exists 'libxml2=2.13.9-r2'; then \
         echo 'Vulnerable libxml2 version still installed' >&2; exit 1; \
     fi; \
@@ -53,7 +56,8 @@ RUN set -eu; \
     test "$(readlink /usr/local/bin/su-exec)" = /sbin/su-exec; \
     test "$(gosu postgres id -u)" = "$(id -u postgres)"; \
     test "$(gosu postgres id -g)" = "$(id -g postgres)"; \
-    apk info --exists 'libxml2=2.13.9-r3' 'su-exec=0.3-r0'; \
+    apk info --exists 'libxml2>=2.13.9-r5'; \
+    apk info --exists 'su-exec=0.3-r0'; \
     test -d "$PGDATA"; \
     postgres --version
 ENV POSTGRES_INITDB_ARGS="--locale-provider=icu --icu-locale=en-US --locale=en_US.utf8 --encoding=UTF8"

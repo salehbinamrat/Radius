@@ -31,7 +31,20 @@
           45597356221,
           45678859051
         ]
-      }
+      },
+      "additional_reviewed_transitions": [
+        {
+          "from_version": "2.13.9-r3",
+          "to_version": "2.13.9-r5",
+          "packages": [
+            "libxml2"
+          ],
+          "evidence_runs": [
+            45830751119,
+            45840447457
+          ]
+        }
+      ]
     },
     "runtime": {
       "count": 62,
