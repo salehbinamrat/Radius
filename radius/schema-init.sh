@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
+set +x
+# Use the same strict reader as the daemon and health probe. Reject malformed
+# or conflicting sources before creating a temporary file or contacting SQL.
+db_password=$(bash /opt/radius/radius_secret_input.sh DB_PASSWORD)
 # Use a private libpq password file instead of exporting the password.
 umask 077
 pgpass=$(mktemp)
 trap 'rm -f -- "$pgpass"' EXIT
-db_password=$(python3 /opt/radius/radius_secret_input.py DB_PASSWORD)
 printf 'db:5432:radius:radius:%s\n' "$db_password" > "$pgpass"
 unset db_password PGPASSWORD
 export PGPASSFILE="$pgpass"

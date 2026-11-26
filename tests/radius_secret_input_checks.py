@@ -108,5 +108,22 @@ class RadiusSecretInputChecks(unittest.TestCase):
         self.assertLess(role.index('CREATE ROLE radius_runtime'),role.index('bash scripts/radius-file-secret-smoke.sh'))
         self.assertIn("RADIUS_SECRET_FILE=/run/radius-secrets/radius-secret",(ROOT/"scripts/radius-file-secret-smoke.sh").read_text())
 
+    def test_schema_initializer_shares_strict_shell_reader_before_sql(self):
+        source = (ROOT / "radius/schema-init.sh").read_text()
+        smoke = (ROOT / "scripts/migration-ledger-smoke.sh").read_text()
+        reader = 'db_password=$(bash /opt/radius/radius_secret_input.sh DB_PASSWORD)'
+        self.assertIn(reader, source)
+        self.assertNotIn("python3 /opt/radius/radius_secret_input.py", source)
+        self.assertLess(source.index("set +x"), source.index(reader))
+        self.assertLess(source.index(reader), source.index("pgpass=$(mktemp)"))
+        self.assertLess(source.index(reader), source.index("psql -X"))
+        self.assertIn("python3 /opt/radius/migrate.py", source)
+        for marker in ('--no-deps --pull never --entrypoint bash schema-init',
+                       'for tool in psql python3', 'test ! -e "$work/unexpected-call"',
+                       'Legacy schema initialization rejects invalid secret sources before SQL or migration PASS'):
+            self.assertIn(marker, smoke)
+        self.assertLess(smoke.index('Legacy schema initialization rejects invalid secret sources'),
+                        smoke.index('setup_database "$db_one"'))
+
 if __name__=="__main__":
     unittest.main()
