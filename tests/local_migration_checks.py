@@ -30,3 +30,17 @@ class LocalMigrationChecks(unittest.TestCase):
                        'CSHARP_BUNDLE_DIR="$tmp/rewritten"', "radius-csharp-local:",
                        "Local C# initialization without CI authorization"):
             self.assertIn(marker, script)
+
+    def test_local_upgrade_preserves_populated_database_and_refuses_untrusted_input(self):
+        ci = (ROOT / ".github/workflows/ci.yml").read_text()
+        script = (ROOT / "scripts/csharp-stack-candidate-smoke.sh").read_text()
+        self.assertIn("bash scripts/csharp-stack-candidate-smoke.sh local-upgrade", ci)
+        for marker in ('"$mode" == local-upgrade', 'upgrade_mode=1', 'local_mode=1',
+                       'db_volume_before=', 'populated-refusal.log',
+                       'Local upgrade accepted missing trusted manifest on populated DB',
+                       'Explicit local C# upgrade preserved original database volume'):
+            self.assertIn(marker, script)
+        self.assertLess(script.index('stack stop api radius'), script.index('populated-refusal.log'))
+        self.assertLess(script.index('populated-refusal.log'), script.index('stack up -d radius api', script.index('populated-refusal.log')))
+        self.assertIn('[[ "$(fingerprint)" == "$before" ]]', script)
+        self.assertIn('[[ "$(stack ps -q db)" == "$db_container_before" ]]', script)

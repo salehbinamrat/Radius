@@ -6,9 +6,13 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
   echo 'C# stack acceptance requires isolated CI' >&2; exit 1;
 }
 mode="${1:-fresh}"
-[[ $# -le 1 && ( "$mode" == fresh || "$mode" == legacy-upgrade || "$mode" == local-fresh ) ]] || {
-  echo 'Expected fresh, legacy-upgrade or local-fresh' >&2; exit 1;
+[[ $# -le 1 && ( "$mode" == fresh || "$mode" == legacy-upgrade || "$mode" == local-fresh || "$mode" == local-upgrade ) ]] || {
+  echo 'Expected fresh, legacy-upgrade, local-fresh or local-upgrade' >&2; exit 1;
 }
+local_mode=0
+upgrade_mode=0
+if [[ "$mode" == local-fresh || "$mode" == local-upgrade ]]; then local_mode=1; fi
+if [[ "$mode" == legacy-upgrade || "$mode" == local-upgrade ]]; then upgrade_mode=1; fi
 umask 077
 tmp=$(mktemp -d)
 export CSHARP_STACK_ID="radiuscsharp$(openssl rand -hex 4)"
@@ -26,7 +30,7 @@ printf '%s\n' "$CSHARP_DB_PASSWORD" >"$CSHARP_DB_PASSWORD_FILE"
 chmod 444 "$CSHARP_DB_PASSWORD_FILE"
 compose_file=tests/csharp-stack-candidate.compose.yaml
 compose_args=(-f "$compose_file")
-if [[ "$mode" == local-fresh ]]; then
+if [[ "$local_mode" == 1 ]]; then
   compose_args+=(-f tests/csharp-stack-local.compose.yaml)
 fi
 tags=()
@@ -95,13 +99,13 @@ fi
 grep -Fxq 'C# migration execution refused: Isolated stack database marker mismatch' "$tmp/unmarked.log"
 [[ "$(sql -c "SELECT to_regclass('public.app_schema_migrations') IS NULL AND to_regclass('public.radcheck') IS NULL")" == t ]]
 marker="radius-csharp-ci:$CSHARP_STACK_ID"
-if [[ "$mode" == local-fresh ]]; then
+if [[ "$local_mode" == 1 ]]; then
   marker="radius-csharp-local:$CSHARP_STACK_ID"
 fi
 sql -v marker="$marker" <<'SQL'
 COMMENT ON DATABASE radius IS :'marker';
 SQL
-if [[ "$mode" == local-fresh ]]; then
+if [[ "$local_mode" == 1 ]]; then
   reject_local() {
     local reason="$1"; shift
     if stack run --rm --no-deps "$@" schema-init >"$tmp/local-refusal.log" 2>&1; then
@@ -144,7 +148,7 @@ reject_secret -e 'ConnectionStrings__RadiusDb=Host=db;Port=5432;Database=radius;
 echo 'C# initializer file secret and fail-closed source checks PASS'
 # The upgrade variant begins with the original Python installer and normal
 # services, using the same isolated project and database volume throughout.
-if [[ "$mode" == legacy-upgrade ]]; then
+if [[ "$upgrade_mode" == 1 ]]; then
   mounts=()
   for file in "$PWD"/database/[0-9][0-9][0-9]_*.sql; do
     mounts+=(-v "$file:/opt/radius/${file##*/}:ro")
@@ -164,12 +168,12 @@ init=$(stack ps -aq schema-init)
 stack logs --no-color schema-init | grep -F 'C# migration bundle integrity PASS: 13 expected inputs'
 stack logs --no-color schema-init | grep -F 'C# migration execution PASS: 10 immutable versions'
 }
-if [[ "$mode" != legacy-upgrade ]]; then verify_initializer; fi
+if [[ "$upgrade_mode" == 0 ]]; then verify_initializer; fi
 for svc in db api radius; do
   case "$svc" in db) expected="$db_id";; api) expected="$api_id";; radius) expected="$radius_id";; esac
   [[ "$(docker inspect --format '{{.Image}}' "$(stack ps -q "$svc")")" == "$expected" ]]
 done
-if [[ "$mode" != legacy-upgrade ]]; then
+if [[ "$upgrade_mode" == 0 ]]; then
   [[ "$(sql -c "SELECT count(*) FROM app_schema_migrations WHERE engine_version='3.0.0-csharp-lab'")" == 10 ]]
 fi
 wait_ready() {
@@ -236,14 +240,26 @@ SQL
 }
 ledger_before=$(sql -c "SELECT md5(string_agg(row_to_json(m)::text, ',' ORDER BY version)) FROM app_schema_migrations m")
 before=$(fingerprint)
-if [[ "$mode" == legacy-upgrade ]]; then
+if [[ "$upgrade_mode" == 1 ]]; then
   # Stop application services before changing the initializer. DB stays
   # running on its original volume; never recreate or remove it.
   db_container_before=$(stack ps -q db)
+  db_volume_before=$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/var/lib/postgresql/data"}}{{.Name}}{{end}}{{end}}' "$db_container_before")
+  [[ -n "$db_volume_before" ]]
   stack stop api radius
+  if [[ "$mode" == local-upgrade ]]; then
+    # Refuse a bad trusted manifest against populated data, not just an
+    # empty fixture. Do not change any actual database row or marker.
+    if stack run --rm --no-deps -e RADIUS_MIGRATION_MANIFEST_SHA256= schema-init >"$tmp/populated-refusal.log" 2>&1; then
+      echo 'Local upgrade accepted missing trusted manifest on populated DB' >&2; exit 1
+    fi
+    grep -Fxq 'C# migration execution refused: Local migration requires a trusted manifest SHA-256' "$tmp/populated-refusal.log"
+    [[ "$(fingerprint)" == "$before" ]]
+  fi
   stack up -d radius api
   verify_initializer
   [[ "$(stack ps -q db)" == "$db_container_before" ]]
+  [[ "$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/var/lib/postgresql/data"}}{{.Name}}{{end}}{{end}}' "$db_container_before")" == "$db_volume_before" ]]
   [[ "$(sql -c "SELECT count(*) FROM app_schema_migrations WHERE engine_version='2.1.0'")" == 10 ]]
   wait_ready
   [[ "$(fingerprint)" == "$before" ]]
@@ -254,6 +270,10 @@ if [[ "$mode" == legacy-upgrade ]]; then
   curl -fsS -u "$auth" "$url/api/lab-accounts" |
     python3 -c 'import json,sys; name=sys.argv[1]; assert any(row["username"]==name and row["active"] for row in json.load(sys.stdin))' "$username"
   echo 'Legacy Python to C# full-stack upgrade preserved ledger, credentials and accounting PASS'
+  if [[ "$mode" == local-upgrade ]]; then
+    stack logs --no-color schema-init | grep -F 'C# migration execution PASS: 10 immutable versions (isolated local lab)'
+    echo 'Explicit local C# upgrade preserved original database volume, ledger, credentials and accounting PASS'
+  fi
 fi
 # Replay the candidate with existing data; no new version or voucher may appear.
 stack run --rm --no-deps schema-init
@@ -268,7 +288,7 @@ if stack exec -T radius radtest "$username" "$password" 127.0.0.1 0 "$CSHARP_RAD
 grep -q 'Access-Reject' "$tmp/auth.log"
 unset password auth
 echo 'C# isolated full-stack startup, UI, API, PAP, accounting, replay and disable PASS'
-if [[ "$mode" == local-fresh ]]; then
+if [[ "$local_mode" == 1 ]]; then
   stack logs --no-color schema-init | grep -F 'C# migration execution PASS: 10 immutable versions (isolated local lab)'
   echo 'Local C# initialization without CI authorization and full-stack acceptance PASS'
 fi

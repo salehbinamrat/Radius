@@ -156,6 +156,10 @@ jobs:
         env:
           CSHARP_STACK_TEST_ACK: isolated-ci
         run: bash scripts/csharp-stack-candidate-smoke.sh local-fresh
+      - name: Explicit local C# upgrade of populated legacy laboratory database
+        env:
+          CSHARP_STACK_TEST_ACK: isolated-ci
+        run: bash scripts/csharp-stack-candidate-smoke.sh local-upgrade
       - name: Actual local C# installation entry point acceptance
         env:
           CSHARP_LOCAL_INSTALL_TEST_ACK: isolated-ci
