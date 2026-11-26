@@ -194,3 +194,29 @@ class LocalInstallerChecks(unittest.TestCase):
             (prepared / "image-ids.txt").unlink()
             (prepared / "image-ids.txt").symlink_to(prepared / "platform.txt")
             refuse("Missing regular prepared image manifest input", manifest())
+
+    def test_host_preflight_is_before_installation_and_checks_actual_api_role(self):
+        source = INSTALLER.read_text()
+        smoke = (ROOT / "scripts/csharp-local-installer-smoke.sh").read_text()
+        for marker in ('check_only=1', 'Bash 4.3 or newer is required',
+                       'Installation parent is not writable and searchable',
+                       'test "$(id -u)" != 0', '/app/RadiusManager.Api.runtimeconfig.json',
+                       'Microsoft[.]AspNetCore[.]App 10[.]', 'Microsoft[.]NETCore[.]App 10[.]',
+                       'Local API non-root .NET 10 runtime preflight PASS',
+                       'Local installation preflight PASS (no installation created)'):
+            self.assertIn(marker, source)
+        self.assertLess(source.index('Local API non-root .NET 10 runtime preflight PASS'),
+                        source.index('mkdir -- "$state"'))
+        self.assertLess(source.index('Local installation preflight PASS (no installation created)'),
+                        source.index('project="radiuscsharp'))
+        self.assertIn('Preflight accepted a non-API image in the API role', smoke)
+        self.assertIn('Prepared image host preflight left Docker resources and destination unchanged PASS', smoke)
+        self.assertIn('[[ ! -e "$state" && "$(resources)" == "$before_resources" ]]', smoke)
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp) / "new"
+            result = subprocess.run(["bash", str(INSTALLER), "--check", str(state),
+                                     "sha256:" + "a"*64, "sha256:" + "b"*64, "sha256:" + "c"*64],
+                                    env={**os.environ, "RADIUS_LOCAL_INSTALL_ACK": ""},
+                                    capture_output=True)
+            self.assertEqual(result.returncode, 2)
+            self.assertFalse(state.exists())
