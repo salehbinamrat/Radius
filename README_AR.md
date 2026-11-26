@@ -13,7 +13,7 @@
 
 ## متطلبات التشغيل
 
-- Debian/Ubuntu مع Docker Engine وDocker Compose plugin وPython 3.
+- Debian/Ubuntu مع Docker Engine وDocker Compose plugin وOpenSSL وBash وأدوات GNU الأساسية. إعداد `.env` لا يحتاج Python على المضيف؛ أدوات الاختبار ومسار التهيئة القديم داخل الحاوية ما زالا يستخدمانه.
 - الوصول إلى الإنترنت *وقت بناء صور الحاويات فقط* لتحميل الصور والحزم؛ لا يحتاج المتصفح إلى CDN.
 - منافذ 8080/TCP و1812/UDP و1813/UDP محلية على 127.0.0.1 افتراضيا.
 

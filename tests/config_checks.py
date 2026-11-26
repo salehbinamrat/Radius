@@ -3,6 +3,11 @@
 from pathlib import Path
 import unittest
 import re
+import os
+import shutil
+import stat
+import subprocess
+import tempfile
 
 ROOT=Path(__file__).resolve().parent.parent
 
@@ -26,6 +31,76 @@ class ProjectConfigTests(unittest.TestCase):
         self.assertEqual(env.count('CHANGE_ME_GENERATE_WITH_SETUP'),3)
         self.assertFalse((ROOT/'.env').exists(),'do not bundle secrets')
         self.assertIn('.env\n',(ROOT/'.gitignore').read_text())
+
+    def test_setup_without_python_preserves_existing_and_publishes_private_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'scripts').mkdir()
+            shutil.copyfile(ROOT / 'scripts/setup.sh', root / 'scripts/setup.sh')
+            shutil.copyfile(ROOT / '.env.example', root / '.env.example')
+            # Only explicit utilities, no Python in the child PATH.
+            tools = root / 'tools'
+            tools.mkdir()
+            for name in ('dirname', 'openssl', 'mktemp', 'chmod', 'ln', 'rm', 'rmdir'):
+                (tools / name).symlink_to(shutil.which(name))
+            env = {**os.environ, 'PATH': str(tools)}
+            cmd = [shutil.which('bash'), str(root / 'scripts/setup.sh')]
+            first = subprocess.run(cmd, env=env, capture_output=True, text=True)
+            self.assertEqual(first.returncode, 0, first.stderr)
+            config = root / '.env'
+            self.assertEqual(stat.S_IMODE(config.stat().st_mode), 0o600)
+            original = config.read_text()
+            values = dict(line.split('=', 1) for line in original.splitlines()
+                          if line and not line.startswith('#'))
+            secrets = [values[key] for key in ('DB_PASSWORD', 'RADIUS_SECRET', 'ADMIN_PASSWORD')]
+            self.assertEqual(len(set(secrets)), 3)
+            for value in secrets:
+                self.assertRegex(value, r'^[a-f0-9]{48}$')
+                self.assertNotIn(value, first.stdout + first.stderr)
+            self.assertEqual(values['RADIUS_BIND_IP'], '127.0.0.1')
+            self.assertEqual(values['ADMIN_USER'], 'admin')
+            second = subprocess.run(cmd, env=env, capture_output=True, text=True)
+            self.assertEqual(second.returncode, 0, second.stderr)
+            self.assertTrue(config.read_text() == original)
+            config.unlink()
+            with subprocess.Popen(cmd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE) as one, \
+                 subprocess.Popen(cmd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE) as two:
+                one.communicate(timeout=15)
+                two.communicate(timeout=15)
+                self.assertEqual((one.returncode, two.returncode), (0, 0))
+            self.assertEqual(config.read_text().count('CHANGE_ME_GENERATE_WITH_SETUP'), 0)
+            self.assertEqual(len(config.read_text().splitlines()), len(original.splitlines()))
+            self.assertEqual(stat.S_IMODE(config.stat().st_mode), 0o600)
+            self.assertFalse(list(root.glob('.env.setup.*')))
+
+    def test_setup_refuses_invalid_template_and_generator_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'scripts').mkdir()
+            shutil.copyfile(ROOT / 'scripts/setup.sh', root / 'scripts/setup.sh')
+            template = root / '.env.example'
+            valid = (ROOT / '.env.example').read_text()
+            cmd = ['bash', str(root / 'scripts/setup.sh')]
+            for text in (valid.replace('DB_PASSWORD=CHANGE_ME_GENERATE_WITH_SETUP\n', ''),
+                         valid + 'DB_PASSWORD=CHANGE_ME_GENERATE_WITH_SETUP\n',
+                         valid.replace('ADMIN_PASSWORD=CHANGE_ME_GENERATE_WITH_SETUP', 'ADMIN_PASSWORD=invalid')):
+                template.write_text(text)
+                self.assertNotEqual(subprocess.run(cmd, capture_output=True).returncode, 0)
+                self.assertFalse((root / '.env').exists())
+                self.assertFalse(list(root.glob('.env.setup.*')))
+            template.write_text(valid)
+            tools = root / 'tools'
+            tools.mkdir()
+            openssl = tools / 'openssl'
+            openssl.write_text('#!/bin/sh\nexit 23\n')
+            openssl.chmod(0o755)
+            env = {**os.environ, 'PATH': str(tools) + ':' + os.environ['PATH']}
+            self.assertNotEqual(subprocess.run(cmd, env=env, capture_output=True).returncode, 0)
+            self.assertFalse((root / '.env').exists())
+            self.assertFalse(list(root.glob('.env.setup.*')))
+            (root / '.env').symlink_to(root / 'missing')
+            self.assertNotEqual(subprocess.run(cmd, capture_output=True).returncode, 0)
+            self.assertTrue((root / '.env').is_symlink())
 
     def test_quota_explicitly_not_enforced(self):
         text=(ROOT/'README_AR.md').read_text()
