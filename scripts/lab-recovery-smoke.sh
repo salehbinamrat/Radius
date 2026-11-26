@@ -37,8 +37,26 @@ VALUES (:'name','Cleartext-Password',':=',:'password');
 SQL
 unset password
 
-# Re-running existing additive files must leave the historical test data untouched.
-docker compose run --rm schema-init >/dev/null
+# Re-run only the already-built initializer. Starting its dependencies would
+# honor db's pull_policy: build and silently replace the tested database image.
+db_before=$(docker compose ps -q db)
+[[ -n "$db_before" && "$db_before" != *$'\n'* ]]
+db_image_before=$(docker inspect --format '{{.Image}}' "$db_before")
+[[ "$db_image_before" =~ ^sha256:[a-f0-9]{64}$ ]]
+db_tag_before=$(docker image inspect --format '{{.Id}}' radius-postgres-local:16.16-icu)
+[[ "$db_image_before" == "$db_tag_before" ]]
+schema_before=$(docker compose ps -aq schema-init)
+[[ -n "$schema_before" && "$schema_before" != *$'\n'* ]]
+schema_image_before=$(docker inspect --format '{{.Image}}' "$schema_before")
+[[ "$schema_image_before" =~ ^sha256:[a-f0-9]{64}$ ]]
+# --no-deps prevents dependency recreation; --pull never forbids a pull.
+docker compose run --rm --no-deps --pull never schema-init >/dev/null
+[[ "$(docker compose ps -q db)" == "$db_before" ]]
+[[ "$(docker inspect --format '{{.Image}}' "$db_before")" == "$db_image_before" ]]
+[[ "$(docker image inspect --format '{{.Id}}' radius-postgres-local:16.16-icu)" == "$db_tag_before" ]]
+[[ "$(docker compose ps -aq schema-init)" == "$schema_before" ]]
+[[ "$(docker inspect --format '{{.Image}}' "$schema_before")" == "$schema_image_before" ]]
+echo 'Recovery replay preserved original database and initializer image identities PASS'
 docker compose exec -T db psql -X -v ON_ERROR_STOP=1 -U radius -d radius -tA -v plan_id="$plan_id" -v name="$username" <<'SQL' | grep -qx REPLAY_OK
 SELECT CASE WHEN
   (SELECT count(*) FROM app_plans WHERE id=:'plan_id'::uuid)=1

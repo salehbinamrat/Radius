@@ -78,6 +78,13 @@ jobs:
         run: |
           bash scripts/prepare-csharp-local-images.sh "$RUNNER_TEMP/radius-prepared-images"
           (cd "$RUNNER_TEMP/radius-prepared-images" && sha256sum --check --strict SHA256SUMS)
+          # Keep preparation evidence even if a later integration gate fails.
+          reports="$RUNNER_TEMP/radius-security-reports/source-prepared"
+          mkdir -p "$reports"
+          for file in platform.txt compatible-image-id.txt image-ids.txt SHA256SUMS; do
+            cp -- "$RUNNER_TEMP/radius-prepared-images/$file" "$reports/$file"
+          done
+          (cd "$reports" && sha256sum --check --strict --status SHA256SUMS)
       - name: Start compatibility integration with the exact prepared images
         run: |
           set -euo pipefail

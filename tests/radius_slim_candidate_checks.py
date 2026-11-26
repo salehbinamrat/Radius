@@ -77,3 +77,11 @@ class RadiusSlimCandidateChecks(unittest.TestCase):
         self.assertIn('"${prepared[0]}" == "$db" && "${prepared[1]}" == "$api"', smoke)
         self.assertIn('$(cat "$work/compatible-image-id.txt")', smoke)
         self.assertIn('sha256sum --check --strict --status SHA256SUMS', smoke)
+
+    def test_preparation_evidence_survives_later_failure(self):
+        ci = (ROOT / ".github/workflows/ci.yml").read_text()
+        smoke = (ROOT / "scripts/radius-slim-candidate-smoke.sh").read_text()
+        self.assertLess(ci.index('reports="$RUNNER_TEMP/radius-security-reports/source-prepared"'),
+                        ci.index('docker compose up -d --no-build --pull never'))
+        self.assertIn('Prepared database or API image identity changed during integration', smoke)
+        self.assertIn('cmp "$work/SHA256SUMS" "$reports/source-prepared/SHA256SUMS"', smoke)

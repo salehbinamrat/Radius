@@ -94,5 +94,18 @@ class RecoverySafetyChecks(unittest.TestCase):
         self.assertLess(ci.index("bash scripts/nas-drafts-smoke.sh"),
                         ci.index("bash scripts/lab-recovery-smoke.sh"))
 
+
+    def test_recovery_replay_cannot_rebuild_or_recreate_dependencies(self):
+        script = (SCRIPTS / "lab-recovery-smoke.sh").read_text(encoding="utf-8")
+        replay = "docker compose run --rm --no-deps --pull never schema-init"
+        self.assertIn(replay, script)
+        self.assertNotIn("docker compose run --rm schema-init", script)
+        self.assertLess(script.index("db_image_before="), script.index(replay))
+        self.assertLess(script.index(replay), script.index('[[ "$(docker compose ps -q db)" == "$db_before" ]]'))
+        for marker in ('db_tag_before=', 'schema_image_before=',
+                       '[[ "$(docker inspect --format \'{{.Image}}\' "$db_before")" == "$db_image_before" ]]',
+                       'Recovery replay preserved original database and initializer image identities PASS'):
+            self.assertIn(marker, script)
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
