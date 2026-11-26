@@ -12,16 +12,21 @@ class SecurityIntegrityChecks(unittest.TestCase):
         # A step can start with "- uses:" or "- name:" followed by "uses:".
         pattern = r'(?m)^[ \t]+(?:-[ \t]+)?uses:[ \t]+(\S+)'
         actions = re.findall(pattern, ci)
-        self.assertEqual(len(actions), 7)
         for action in actions:
             self.assertRegex(action, r'^[^@]+@[a-f0-9]{40}$')
         from collections import Counter
-        self.assertEqual(Counter(action.split('@', 1)[0] for action in actions), {
-            'actions/checkout': 3,
-            'actions/setup-node': 2,
-            'actions/setup-dotnet': 1,
-            'actions/upload-artifact': 1,
+        # Both security and performance evidence use the same reviewed
+        # upload action. Pin the complete references and multiplicities,
+        # rather than accepting an arbitrary commit from an allowed action.
+        self.assertEqual(Counter(actions), {
+            'actions/checkout@11d5960a326750d5838078e36cf38b85af677262': 3,
+            'actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020': 2,
+            'actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9': 1,
+            'actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02': 2,
         })
+        for artifact in ('radius-security-reports', 'radius-installed-performance'):
+            self.assertEqual(ci.count('name: ' + artifact + '\n'), 1)
+            self.assertIn('path: ${{ runner.temp }}/' + artifact + '/', ci)
         # Exercise both YAML layouts, including an unpinned named step.
         sample = (
             '      - uses: actions/checkout@v4\n'
