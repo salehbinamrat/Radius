@@ -160,3 +160,37 @@ class LocalInstallerChecks(unittest.TestCase):
         self.assertLess(installer.index("Local PostgreSQL non-root entrypoint preflight PASS"),
                         installer.index('mkdir -- "$state"'))
         self.assertIn('Local PostgreSQL non-root execution preflight failed', installer)
+
+    def test_prepared_manifest_refusal_before_docker_or_state_creation(self):
+        import hashlib
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            prepared = root / "prepared"
+            prepared.mkdir()
+            state = root / "install"
+            (prepared / "platform.txt").write_text("linux/amd64\n")
+            (prepared / "compatible-image-id.txt").write_text("sha256:" + "d"*64 + "\n")
+            (prepared / "image-ids.txt").write_text("".join("sha256:" + c*64 + "\n" for c in "abc"))
+            def manifest():
+                content = "".join(hashlib.sha256((prepared / name).read_bytes()).hexdigest() +
+                                  "  " + name + "\n" for name in
+                                  ("platform.txt", "compatible-image-id.txt", "image-ids.txt"))
+                (prepared / "SHA256SUMS").write_text(content)
+                return hashlib.sha256(content.encode()).hexdigest()
+            digest = manifest()
+            def refuse(expected, trusted=digest):
+                result = subprocess.run(["bash", str(INSTALLER), str(state), "--prepared",
+                                         str(prepared), trusted],
+                                        env={**os.environ, "RADIUS_LOCAL_INSTALL_ACK": "local-lab-only",
+                                             "RADIUS_LOCAL_RUNTIME": "slim"},
+                                        capture_output=True, text=True)
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertIn(expected, result.stderr)
+                self.assertFalse(state.exists())
+            refuse("Prepared image manifest integrity check failed", "0"*64)
+            (prepared / "image-ids.txt").write_text("tampered\n")
+            refuse("Prepared image manifest integrity check failed")
+            refuse("Invalid prepared image roles or platform", manifest())
+            (prepared / "image-ids.txt").unlink()
+            (prepared / "image-ids.txt").symlink_to(prepared / "platform.txt")
+            refuse("Missing regular prepared image manifest input", manifest())

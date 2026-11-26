@@ -65,6 +65,23 @@ fi
 grep -Fxq 'Distinct DB, API and RADIUS image IDs required' "$tmp/refusal.log"
 [[ ! -e "$state" ]]
 if [[ "$runtime" == slim ]]; then
+  # Exercise the documented source-prepared installer directly, before the
+  # independent offline package path. Both use the same immutable IDs.
+  prepared="$RUNNER_TEMP/radius-prepared-images"
+  trusted=$(sha256sum "$prepared/SHA256SUMS" | cut -d ' ' -f1)
+  RADIUS_LOCAL_INSTALL_ACK=local-lab-only bash scripts/install-csharp-local-lab.sh "$state" --prepared "$prepared" "$trusted"
+  project="$(cat "$state/project-id")"
+  [[ "$project" =~ ^radiuscsharp[a-f0-9]{8}$ && "$(cat "$state/runtime-profile")" == slim ]]
+  [[ "$(docker inspect --format '{{.Image}}' "$(stack ps -q db)")" == "${ids[0]}" ]]
+  [[ "$(docker inspect --format '{{.Image}}' "$(stack ps -q api)")" == "${ids[1]}" ]]
+  [[ "$(docker inspect --format '{{.Image}}' "$(stack ps -q radius)")" == "${ids[2]}" ]]
+  (cd "$state" && bash manage.sh status) >/dev/null
+  echo 'Direct prepared manifest installation and exact image identities PASS'
+  # Remove only this disposable CI project; preserve the source preparation.
+  stack down -v --remove-orphans
+  for svc in db api radius; do docker image rm "radius-local-$svc:$project" >/dev/null; done
+  state="$tmp/offline-install"
+  project=
   package="$tmp/package"
   RADIUS_LOCAL_INSTALL_ACK=local-lab-only bash scripts/offline-csharp-local-lab.sh export "$package" "${ids[@]}"
   digest="$(sha256sum "$package/SHA256SUMS" | cut -d ' ' -f1)"
