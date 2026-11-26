@@ -47,7 +47,7 @@ class RuntimePackageChecks(unittest.TestCase):
     def test_runtime_package_gate_is_mandatory(self):
         ci = (ROOT / ".github/workflows/ci.yml").read_text()
         self.assertIn("run: bash scripts/runtime-package-smoke.sh", ci)
-        self.assertLess(ci.index("docker compose up -d --build"),
+        self.assertLess(ci.index("docker compose up -d --no-build --pull never"),
                         ci.index("run: bash scripts/runtime-package-smoke.sh"))
         self.assertLess(ci.index("run: bash scripts/runtime-package-smoke.sh"),
                         ci.index("run: bash scripts/security-scan-ci.sh"))

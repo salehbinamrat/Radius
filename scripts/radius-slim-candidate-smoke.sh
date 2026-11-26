@@ -9,18 +9,27 @@ target_tag=radius-slim-candidate:ci
 [[ -z "$(docker image ls -q "$target_tag")" ]]
 db=$(docker inspect --format '{{.Image}}' "$(docker compose ps -q db)")
 api=$(docker inspect --format '{{.Image}}' "$(docker compose ps -q api)")
-work=$(mktemp -d)
-trap 'rm -rf -- "$work"' EXIT
-RADIUS_LOCAL_BUILD_ACK=local-lab-only bash scripts/prepare-csharp-local-images.sh "$work/images" "$db" "$api" "$legacy"
-(cd "$work/images" && sha256sum --check --strict --status SHA256SUMS)
-mapfile -t prepared <"$work/images/image-ids.txt"
-[[ "${#prepared[@]}" == 3 && "${prepared[0]}" == "$db" && "${prepared[1]}" == "$api" ]]
-[[ "$(cat "$work/images/compatible-image-id.txt")" == "$legacy" ]]
+work="$RUNNER_TEMP/radius-prepared-images"
+(cd "$work" && sha256sum --check --strict --status SHA256SUMS)
+mapfile -t prepared <"$work/image-ids.txt"
+[[ "${#prepared[@]}" == 3 ]] || { echo 'Invalid prepared image list' >&2; exit 1; }
+[[ "${prepared[0]}" == "$db" && "${prepared[1]}" == "$api" ]] || {
+  echo 'Prepared database or API image identity changed during integration' >&2
+  printf 'DB expected=%s actual=%s\nAPI expected=%s actual=%s\n' "${prepared[0]}" "$db" "${prepared[1]}" "$api" >&2
+  exit 1
+}
+[[ "$(cat "$work/compatible-image-id.txt")" == "$legacy" ]] || {
+  echo 'Prepared compatible RADIUS image identity changed during integration' >&2; exit 1;
+}
 candidate="${prepared[2]}"
 [[ "$candidate" =~ ^sha256:[a-f0-9]{64}$ && "$candidate" != "$legacy" ]]
+[[ "$(docker image inspect --format '{{.Id}}' "$candidate")" == "$candidate" ]]
 docker tag "$candidate" "$target_tag"
 reports="$RUNNER_TEMP/radius-security-reports"
 mkdir -p "$reports"
+# The manifest is retained at source preparation, before any integration step.
+(cd "$reports/source-prepared" && sha256sum --check --strict --status SHA256SUMS)
+cmp "$work/SHA256SUMS" "$reports/source-prepared/SHA256SUMS"
 docker image inspect "$legacy" "$candidate" >"$reports/radius-slim-image-inspect.json"
 # Inspect only clean disposable containers with no network, credentials or volumes.
 read_image() { docker run --rm --pull never --network none --entrypoint sh "$1" -ec "$2"; }

@@ -72,7 +72,65 @@ jobs:
           LAB_NETWORK_PREFLIGHT_ACK: isolated-lab
         run: bash scripts/lab-deployment-preflight.sh
       - run: docker compose config --quiet
-      - run: docker compose up -d --build
+      - name: Prepare actual laboratory images from source
+        env:
+          RADIUS_LOCAL_BUILD_ACK: local-lab-only
+        run: |
+          bash scripts/prepare-csharp-local-images.sh "$RUNNER_TEMP/radius-prepared-images"
+          (cd "$RUNNER_TEMP/radius-prepared-images" && sha256sum --check --strict SHA256SUMS)
+          # Keep preparation evidence even if a later integration gate fails.
+          reports="$RUNNER_TEMP/radius-security-reports/source-prepared"
+          mkdir -p "$reports"
+          for file in platform.txt compatible-image-id.txt image-ids.txt SHA256SUMS; do
+            cp -- "$RUNNER_TEMP/radius-prepared-images/$file" "$reports/$file"
+          done
+          (cd "$reports" && sha256sum --check --strict --status SHA256SUMS)
+      - name: Start compatibility integration with the exact prepared images
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/radius-prepared-images"
+          (cd "$work" && sha256sum --check --strict SHA256SUMS)
+          mapfile -t ids <"$work/image-ids.txt"
+          test "${#ids[@]}" = 3
+          legacy=$(cat "$work/compatible-image-id.txt")
+          for id in "${ids[@]}" "$legacy"; do
+            [[ "$id" =~ ^sha256:[a-f0-9]{64}$ ]]
+            test "$(docker image inspect --format '{{.Id}}' "$id")" = "$id"
+          done
+          # Derive service image names from the resolved Compose contract.
+          # Only image names are printed, never the resolved environment.
+          names=$(docker compose config --format json | python3 -c '
+          import json,sys
+          cfg=json.load(sys.stdin)
+          assert cfg["name"]=="private-radius-lab"
+          services=cfg["services"]
+          assert set(services)=={"db","api","radius","schema-init"}
+          for role in ("db","api","radius","schema-init"):
+              print(services[role].get("image") or cfg["name"]+"-"+role)
+          ')
+          mapfile -t tags <<<"$names"
+          test "${#tags[@]}" = 4
+          test "${tags[0]}" = radius-postgres-local:16.16-icu
+          for tag in "${tags[@]}"; do
+            [[ "$tag" =~ ^[a-z0-9][a-z0-9_.:-]+$ ]]
+            test -z "$(docker image ls -q "$tag")"
+          done
+          docker tag "${ids[0]}" "${tags[0]}"
+          docker tag "${ids[1]}" "${tags[1]}"
+          docker tag "$legacy" "${tags[2]}"
+          docker tag "$legacy" "${tags[3]}"
+          docker compose up -d --no-build --pull never
+          for role in db api radius schema-init; do
+            case "$role" in
+              db) expected="${ids[0]}";;
+              api) expected="${ids[1]}";;
+              *) expected="$legacy";;
+            esac
+            cid=$(docker compose ps -aq "$role")
+            [[ -n "$cid" && "$cid" != *$'\n'* ]]
+            test "$(docker inspect --format '{{.Image}}' "$cid")" = "$expected"
+          done
+          echo 'Source-prepared image identity and compatibility startup PASS'
       - name: Verify API runtime-only package contents
         env:
           RADIUS_PACKAGE_TEST_ACK: isolated-ci
