@@ -309,6 +309,46 @@ docker compose run --rm --no-deps -e MIGRATION_DB_NAME="$db_one" \
   -e LAB_MIGRATION_TEST_MODE=isolated-ci --entrypoint python3 \
   schema-init /opt/radius/migrate.py --verify-only >"$tmp/verify.log" 2>&1
 
+# Observe actual server-side timeouts on the real legacy migrator connection,
+# including when ambient PGOPTIONS attempts to disable those defaults.
+docker compose run --rm --no-deps --pull never -T \
+  -e MIGRATION_DB_NAME="$db_one" -e LAB_MIGRATION_TEST_MODE=isolated-ci \
+  -e 'PGOPTIONS=-c lock_timeout=0 -c statement_timeout=0 -c idle_in_transaction_session_timeout=0' \
+  --entrypoint python3 schema-init - <<'MIGRATION_TIMEOUTS'
+import runpy
+import sys
+import psycopg2
+
+connect = psycopg2.connect
+observed = []
+def checked_connect(*args, **kwargs):
+    conn = connect(*args, **kwargs)
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                SELECT setting::int FROM pg_settings
+                WHERE name IN ('lock_timeout', 'statement_timeout',
+                               'idle_in_transaction_session_timeout')
+                ORDER BY name
+            """)
+            observed.extend(row[0] for row in cursor.fetchall())
+        conn.rollback()
+        if observed != [150000, 60000, 150000]:
+            raise RuntimeError("Unexpected migration server timeout policy")
+        return conn
+    except BaseException:
+        conn.close()
+        raise
+
+psycopg2.connect = checked_connect
+sys.path.insert(0, "/opt/radius")
+sys.argv = ["/opt/radius/migrate.py", "--verify-only"]
+runpy.run_path(sys.argv[0], run_name="__main__")
+if observed != [150000, 60000, 150000]:
+    raise RuntimeError("Migration did not exercise the real connection")
+print("Legacy migration server timeouts and read-only verification PASS")
+MIGRATION_TIMEOUTS
+
 # Verify legacy-installed schema without modifying ledger or fixture data.
 before_ledger=$(sql_count "$db_one" "SELECT md5(string_agg(row_to_json(m)::text, ',' ORDER BY version)) FROM app_schema_migrations m")
 verify_csharp "$db_one"

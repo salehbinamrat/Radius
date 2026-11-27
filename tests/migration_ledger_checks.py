@@ -56,6 +56,11 @@ class MigrationLedgerContracts(unittest.TestCase):
         self.assertIn("LockId = 20261124", verifier)
         self.assertEqual(source.count("psql -X"), 1)
         self.assertIn("-v ON_ERROR_STOP=1 -1", source)
+        self.assertIn("PGCONNECT_TIMEOUT=10 psql -X", source)
+        for limit in ("SET LOCAL lock_timeout TO '60s';",
+                      "SET LOCAL statement_timeout TO '150s';",
+                      "SET LOCAL idle_in_transaction_session_timeout TO '150s';"):
+            self.assertLess(source.index(limit), source.index("SELECT pg_advisory_xact_lock"))
         self.assertLess(source.index("SET TRANSACTION ISOLATION LEVEL READ COMMITTED;"), source.index("pg_advisory_xact_lock"))
         self.assertLess(source.index("SET LOCAL lock_timeout"), source.index("pg_advisory_xact_lock(725134019, 20261124)"))
         self.assertLess(source.index("pg_advisory_xact_lock"), source.index("to_regclass('public.app_plans')"))
@@ -71,6 +76,9 @@ class MigrationLedgerContracts(unittest.TestCase):
         source = ENGINE.read_text(encoding="utf-8")
         self.assertIn("if verify_only and not ledger_exists:", source)
         self.assertIn("connection.set_session(readonly=True)", source)
+        smoke = (ROOT / "scripts/migration-ledger-smoke.sh").read_text()
+        self.assertIn("Legacy migration server timeouts and read-only verification PASS", smoke)
+        self.assertIn("observed != [150000, 60000, 150000]", smoke)
         self.assertIn('except psycopg2.Error as exc:', source)
         self.assertIn("exc.pgcode", source)
 
@@ -108,6 +116,10 @@ class MigrationLedgerContracts(unittest.TestCase):
              patch.object(sys, "argv", [str(ENGINE), "--verify-only"]), \
              patch("builtins.print"):
             run()
+        self.assertEqual(driver.connect.call_args.kwargs["connect_timeout"], 10)
+        self.assertEqual(driver.connect.call_args.kwargs["options"],
+                         "-c lock_timeout=60s -c statement_timeout=150s "
+                         "-c idle_in_transaction_session_timeout=150s")
         conn.set_session.assert_called_once_with(readonly=True)
         self.assertEqual(conn.method_calls[0][0], "set_session")
         adopt.assert_not_called()
