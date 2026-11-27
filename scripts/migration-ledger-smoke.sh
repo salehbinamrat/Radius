@@ -108,6 +108,61 @@ docker compose run --rm --no-deps --pull never --entrypoint bash schema-init -ec
 '
 echo 'Legacy schema initialization rejects invalid secret sources before SQL or migration PASS'
 
+# Run the real installed initializer with a deterministic fake SQL client.
+# No live database calls: verify ordering, fail-closed behavior and cleanup.
+docker compose run --rm --no-deps --pull never -T --entrypoint bash schema-init -se <<'BOOTSTRAP_GUARD'
+set -euo pipefail
+umask 077
+work=$(mktemp -d)
+trap 'rm -rf -- "$work"' EXIT
+mkdir "$work/bin" "$work/temps"
+export PATH="$work/bin:$PATH" TMPDIR="$work/temps" TRACE="$work/trace"
+unset DB_PASSWORD_FILE
+export DB_PASSWORD="$(printf '%048d' 0)"
+cat >"$work/bin/psql" <<'PSQL'
+#!/bin/sh
+case "$*" in
+  *"to_regclass('public.app_plans')"*)
+    printf '%s\n' baseline >>"$TRACE"
+    [ "$BASELINE" != error ] || exit 7
+    printf '%s\n' "$BASELINE"
+    ;;
+  *pg_catalog.pg_tables*)
+    printf '%s\n' count >>"$TRACE"
+    printf '%s\n' "$TABLE_COUNT"
+    ;;
+  *" -f "*)
+    printf '%s\n' schema >>"$TRACE"
+    ;;
+  *) printf '%s\n' unexpected >>"$TRACE"; exit 99 ;;
+esac
+PSQL
+cat >"$work/bin/python3" <<'PYTHON'
+#!/bin/sh
+[ "$#" -eq 1 ] && [ "$1" = /opt/radius/migrate.py ] || exit 99
+printf '%s\n' migrate >>"$TRACE"
+PYTHON
+chmod 700 "$work/bin/psql" "$work/bin/python3"
+check() {
+  local baseline="$1" count="$2" status="$3" expected="$4" marker="$5" rc=0
+  : >"$TRACE"
+  BASELINE="$baseline" TABLE_COUNT="$count" bash /usr/local/bin/schema-init.sh >"$work/out" 2>"$work/err" || rc=$?
+  test "$rc" -eq "$status"
+  test "$(cat "$TRACE")" = "$(printf '%b' "$expected")"
+  if [[ -n "$marker" ]]; then
+    grep -Fxq "$marker" "$work/err"
+  fi
+  test -z "$(find "$TMPDIR" -type f -print)"
+}
+check f 0 1 baseline 'Missing app_plans in a persistent database; refusing automatic repair.'
+check unexpected 0 1 baseline 'Missing app_plans in a persistent database; refusing automatic repair.'
+check error 0 7 baseline ''
+check t 3 1 'baseline\ncount' 'Refusing an incomplete FreeRADIUS schema (3 of 8 tables). Backup and repair manually.'
+check t 0 0 'baseline\ncount\nschema\nmigrate' ''
+check t 8 0 'baseline\ncount\nmigrate' ''
+BOOTSTRAP_GUARD
+echo 'Legacy bootstrap baseline-first guard and cleanup PASS (6 isolated cases)'
+
 # 1. Fresh DB, data preserved across transaction rollback and interrupted restart.
 setup_database "$db_one"
 plan_id=$(python3 -c 'import uuid; print(uuid.uuid4())')

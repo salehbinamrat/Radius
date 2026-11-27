@@ -45,6 +45,18 @@ class MigrationLedgerContracts(unittest.TestCase):
         self.assertIn("MIGRATION_FAIL_AFTER_SQL_VERSION", source)
         self.assertIn("LAB_MIGRATION_TEST_MODE", source)
 
+    def test_legacy_bootstrap_checks_baseline_before_schema_creation(self):
+        source = (ROOT / "radius/schema-init.sh").read_text()
+        smoke = (ROOT / "scripts/migration-ledger-smoke.sh").read_text()
+        self.assertLess(source.index("APP_TABLE_PRESENT="), source.index("SCHEMA_TABLE_COUNT="))
+        self.assertLess(source.index('if [[ "$APP_TABLE_PRESENT" != "t" ]]'),
+                        source.index('-f "$SCHEMA"\n'))
+        for marker in ("check f 0 1 baseline", "check unexpected 0 1 baseline",
+                       "check error 0 7 baseline", "check t 3 1",
+                       "check t 0 0", "check t 8 0",
+                       "Legacy bootstrap baseline-first guard and cleanup PASS"):
+            self.assertIn(marker, smoke)
+
     def test_read_only_verification_cannot_bootstrap_and_errors_are_redacted(self):
         source = ENGINE.read_text(encoding="utf-8")
         self.assertIn("if verify_only and not ledger_exists:", source)
