@@ -244,6 +244,10 @@ def run():
     connection = psycopg2.connect(
         host="db", user="radius", dbname=dbname, password=password,
         connect_timeout=10, application_name="radius-schema-migrator",
+        # Session defaults cover every version transaction and verification query.
+        # Migration 009 retains its stricter transaction-local limits.
+        options="-c lock_timeout=60s -c statement_timeout=150s "
+                "-c idle_in_transaction_session_timeout=150s",
     )
     try:
         if verify_only:

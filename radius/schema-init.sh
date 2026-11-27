@@ -18,10 +18,12 @@ fi
 # Serialize the guard and official schema creation in ONE transaction.
 # This two-int advisory lock conflicts with the session lock used by both
 # migrators. It is released on commit/rollback before invoking migrate.py.
-psql -X -v ON_ERROR_STOP=1 -1 -h db -U radius -d radius \
+PGCONNECT_TIMEOUT=10 psql -X -v ON_ERROR_STOP=1 -1 -h db -U radius -d radius \
   -v schema_file="$SCHEMA" -f - <<'BOOTSTRAP_SQL'
 SET TRANSACTION ISOLATION LEVEL READ COMMITTED;
 SET LOCAL lock_timeout TO '60s';
+SET LOCAL statement_timeout TO '150s';
+SET LOCAL idle_in_transaction_session_timeout TO '150s';
 SELECT pg_advisory_xact_lock(725134019, 20261124);
 DO $guard$
 DECLARE
