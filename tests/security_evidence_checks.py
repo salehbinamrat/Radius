@@ -130,6 +130,44 @@ class SecurityEvidenceChecks(unittest.TestCase):
             with self.subTest(invalid=invalid), self.assertRaises(ValueError):
                 evidence.inventory(invalid, expected, "build")
 
+    def test_reviewed_libffi_transition_keeps_exact_inventory_and_rejects_other_versions(self):
+        raw = b"libffi-3.8.1-r0\nother-1.0-r0\n"
+        actual = json.loads(evidence.BASELINE.read_text())["inventories"]
+        for kind in ("build", "runtime"):
+            with self.subTest(kind=kind):
+                transitions = [t for t in actual[kind]["additional_reviewed_transitions"]
+                               if t["packages"] == ["libffi"]]
+                self.assertEqual(len(transitions), 1)
+                expected = {"count": 2, "sha256": hashlib.sha256(raw).hexdigest(),
+                            "additional_reviewed_transitions": transitions}
+                updated = raw.replace(b"3.8.1-r0", b"3.8.2-r0")
+                for valid in (raw, updated):
+                    self.assertEqual(evidence.inventory(valid, expected, kind),
+                                     set(valid.decode().splitlines()))
+                for invalid in (updated.replace(b"3.8.2-r0", b"3.8.3-r0"),
+                                updated.replace(b"3.8.2-r0", b"3.8.2-r1"),
+                                updated.replace(b"other-1.0", b"other-2.0")):
+                    with self.assertRaises(ValueError):
+                        evidence.inventory(invalid, expected, kind)
+
+    def test_reject_build_runtime_libffi_mismatch_even_with_reviewed_transition(self):
+        old = b"apk-tools-1.0-r0\nlibffi-3.8.1-r0\n"
+        new = old.replace(b"3.8.1-r0", b"3.8.2-r0")
+        transition = {"from_version": "3.8.1-r0", "to_version": "3.8.2-r0",
+                      "packages": ["libffi"]}
+        for kind, raw in (("build", old), ("runtime", new)):
+            self.baseline["inventories"][kind] = {
+                "count": 2, "sha256": hashlib.sha256(old).hexdigest(),
+                "additional_reviewed_transitions": [transition]}
+            (self.root / ("radius-source-" + kind + "-packages.txt")).write_bytes(raw)
+        (self.root / "radius-live-packages.txt").write_bytes(new)
+        self.mutate_report("radius", lambda r: r["Results"][0]["Packages"].append(
+            {"Name": "libffi", "Version": "3.8.2-r0"}))
+        with self.assertRaisesRegex(ValueError, "Build/runtime libffi version mismatch"):
+            evidence.verify(self.root, self.baseline)
+        (self.root / "radius-source-build-packages.txt").write_bytes(new)
+        self.assertEqual(evidence.verify(self.root, self.baseline)["package_coverage"]["alpine_runtime"], 2)
+
     def test_combined_reviewed_transitions_preserve_whole_inventory_hash(self):
         raw = (b"expat-2.10.0-r0\nexpat-dev-2.10.0-r0\n"
                b"libexpat-2.10.0-r0\nlibxml2-2.13.9-r3\nother-1.0-r0\n")

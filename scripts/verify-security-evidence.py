@@ -74,9 +74,10 @@ def verify(root, baseline):
     build_packages = inventory((root / "radius-source-build-packages.txt").read_bytes(), inv["build"], "build")
     runtime_raw = (root / "radius-source-runtime-packages.txt").read_bytes()
     packages = inventory(runtime_raw, inv["runtime"], "runtime")
-    require({p for p in build_packages if p.startswith("libexpat-")} ==
-            {p for p in packages if p.startswith("libexpat-")},
-            "Build/runtime libexpat version mismatch")
+    for shared in ("libexpat", "libffi"):
+        require({p for p in build_packages if p.startswith(shared + "-")} ==
+                {p for p in packages if p.startswith(shared + "-")},
+                "Build/runtime " + shared + " version mismatch")
     require((root / "radius-live-packages.txt").read_bytes() == runtime_raw,
             "Running daemon package inventory differs from build")
     alpine = [r for r in reports["radius"] if r.get("Type") == "alpine"]

@@ -43,6 +43,18 @@
             45830751119,
             45840447457
           ]
+        },
+        {
+          "from_version": "3.8.1-r0",
+          "to_version": "3.8.2-r0",
+          "packages": [
+            "libffi"
+          ],
+          "evidence_runs": [
+            45981456810,
+            46079599666,
+            46079594667
+          ]
         }
       ]
     },
@@ -59,7 +71,21 @@
           45597356221,
           45678859051
         ]
-      }
+      },
+      "additional_reviewed_transitions": [
+        {
+          "from_version": "3.8.1-r0",
+          "to_version": "3.8.2-r0",
+          "packages": [
+            "libffi"
+          ],
+          "evidence_runs": [
+            45981456810,
+            46079599666,
+            46079594667
+          ]
+        }
+      ]
     }
   }
 }
