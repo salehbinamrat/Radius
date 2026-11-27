@@ -20,6 +20,7 @@ fi
 # migrators. It is released on commit/rollback before invoking migrate.py.
 psql -X -v ON_ERROR_STOP=1 -1 -h db -U radius -d radius \
   -v schema_file="$SCHEMA" -f - <<'BOOTSTRAP_SQL'
+SET TRANSACTION ISOLATION LEVEL READ COMMITTED;
 SET LOCAL lock_timeout TO '60s';
 SELECT pg_advisory_xact_lock(725134019, 20261124);
 DO $guard$
@@ -37,7 +38,7 @@ BEGIN
   IF existing NOT IN (0, 8) THEN
     RAISE EXCEPTION 'Refusing an incomplete FreeRADIUS schema (% of 8 tables). Backup and repair manually.', existing;
   END IF;
-END
+END;
 $guard$;
 SELECT NOT EXISTS (
   SELECT 1 FROM pg_catalog.pg_tables
@@ -45,6 +46,16 @@ SELECT NOT EXISTS (
 ) AS bootstrap_needed \gset
 \if :bootstrap_needed
   \i :schema_file
+  DO $postcheck$
+  BEGIN
+    IF (SELECT count(*) FROM pg_catalog.pg_tables
+        WHERE schemaname='public' AND tablename IN
+        ('radcheck','radreply','radgroupcheck','radgroupreply',
+         'radusergroup','radacct','radpostauth','nas')) <> 8 THEN
+      RAISE EXCEPTION 'Official schema creation incomplete; rolling back.';
+    END IF;
+  END;
+  $postcheck$;
   \echo Official FreeRADIUS PostgreSQL schema installed transactionally.
 \else
   \echo FreeRADIUS tables already exist; initial schema init skipped.

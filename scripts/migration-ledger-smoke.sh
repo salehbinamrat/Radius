@@ -123,13 +123,32 @@ trap 'rm -rf -- "$work"' EXIT
 mkdir "$work/bin" "$work/temps"
 export REAL_PSQL="$(command -v psql)" TMPDIR="$work/temps" TRACE="$work/trace"
 export PATH="$work/bin:$PATH"
+# Separate protected credential file for this disposable database only.
+fixture_password=$(bash /opt/radius/radius_secret_input.sh DB_PASSWORD)
+export FIXTURE_PGPASS="$work/fixture.pgpass"
+printf 'db:5432:%s:radius:%s\n' "$BOOTSTRAP_DB" "$fixture_password" >"$FIXTURE_PGPASS"
+unset fixture_password
+chmod 600 "$FIXTURE_PGPASS"
 cat >"$work/bin/psql" <<'PSQL'
 #!/bin/bash
 set -euo pipefail
 [[ "$BOOTSTRAP_DB" =~ ^radius_mig_[a-f0-9]{8}$ ]]
-# The CI fixture uses the same role/password as the normal DB.
-export PGPASSWORD="$DB_PASSWORD"
-exec "$REAL_PSQL" "$@" -d "$BOOTSTRAP_DB"
+# Accept only the expected compatibility database selector, or none.
+# Remove it rather than rely on repeated -d option precedence.
+args=()
+while (($#)); do
+  case "$1" in
+    -d)
+      [[ $# -ge 2 && "$2" == radius ]] || exit 99
+      shift 2
+      ;;
+    --dbname|--dbname=*|-d?*) exit 99 ;;
+    *) args+=("$1"); shift ;;
+  esac
+done
+unset PGPASSWORD
+export PGPASSFILE="$FIXTURE_PGPASS"
+exec "$REAL_PSQL" -d "$BOOTSTRAP_DB" "${args[@]}"
 PSQL
 cat >"$work/bin/python3" <<'PYTHON'
 #!/bin/sh
@@ -162,10 +181,10 @@ query 'DROP TABLE public.radcheck' >/dev/null
 # Hold the same session-scoped lock as the C# / Python migration engines.
 # Observe the bootstrap waiting on that lock before releasing it.
 psql -X -v ON_ERROR_STOP=1 -h db -U radius -c \
-  "SELECT pg_advisory_lock(725134019, 20261124); SELECT pg_sleep(12);" >"$work/holder" 2>&1 &
+  "SELECT pg_advisory_lock(725134019, 20261124); SELECT pg_sleep(30);" >"$work/holder" 2>&1 &
 holder=$!
 held=0
-for attempt in $(seq 1 40); do
+for attempt in $(seq 1 100); do
   if [[ "$(query "SELECT count(*) FROM pg_locks WHERE locktype='advisory' AND database=(SELECT oid FROM pg_database WHERE datname=current_database()) AND classid=725134019 AND objid=20261124 AND objsubid=2 AND granted")" = 1 ]]; then held=1; break; fi
   sleep .1
 done
@@ -175,7 +194,7 @@ first=$!
 run_init >"$work/second" 2>&1 &
 second=$!
 waiting=0
-for attempt in $(seq 1 40); do
+for attempt in $(seq 1 100); do
   if [[ "$(query "SELECT count(*) FROM pg_locks WHERE locktype='advisory' AND database=(SELECT oid FROM pg_database WHERE datname=current_database()) AND classid=725134019 AND objid=20261124 AND objsubid=2 AND NOT granted")" = 2 ]]; then waiting=1; break; fi
   sleep .1
 done

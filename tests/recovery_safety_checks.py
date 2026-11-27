@@ -9,13 +9,24 @@ SCRIPTS = ROOT / "scripts"
 class RecoverySafetyChecks(unittest.TestCase):
     def test_existing_freeradius_schema_must_be_complete_before_skipping_init(self):
         init = (ROOT / "radius/schema-init.sh").read_text(encoding="utf-8")
-        self.assertIn("SCHEMA_TABLE_COUNT", init)
-        self.assertIn("incomplete FreeRADIUS schema", init)
+        # Assert the fail-closed behavior, not the retired Bash variable.
+        self.assertEqual(init.count("psql -X"), 1)
+        self.assertIn("SET TRANSACTION ISOLATION LEVEL READ COMMITTED;", init)
+        self.assertIn("IF existing NOT IN (0, 8) THEN", init)
+        self.assertIn("RAISE EXCEPTION 'Refusing an incomplete FreeRADIUS schema", init)
+        self.assertLess(init.index("pg_advisory_xact_lock("), init.index("SELECT count(*) INTO existing"))
+        self.assertLess(init.index("IF existing NOT IN (0, 8) THEN"), init.index(r"\i :schema_file"))
+        self.assertLess(init.index(r"\i :schema_file"), init.index("Official schema creation incomplete"))
+        self.assertLess(init.index("Official schema creation incomplete"), init.index("\nBOOTSTRAP_SQL\n"))
+        smoke = (SCRIPTS / "migration-ledger-smoke.sh").read_text()
+        self.assertIn("refuse 'Refusing an incomplete FreeRADIUS schema (1 of 8 tables)", smoke)
+        self.assertIn('test "$(official_count)" = 1', smoke)
+        self.assertIn('test "$(official_count)" = 8', smoke)
         for name in ("radcheck", "radreply", "radgroupcheck", "radgroupreply",
                      "radusergroup", "radacct", "radpostauth", "nas"):
             self.assertIn(name, init)
         self.assertIn("app_plans", init)
-        self.assertIn("ON_ERROR_STOP=1 -1", init)  # one transaction per existing app SQL file
+        self.assertIn("ON_ERROR_STOP=1 -1", init)  # one transaction for the complete official bootstrap
         self.assertIn("ON_ERROR_STOP=1", init)
 
     def test_backup_is_encrypted_and_never_overwrites_an_existing_snapshot(self):

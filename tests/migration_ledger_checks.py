@@ -56,6 +56,7 @@ class MigrationLedgerContracts(unittest.TestCase):
         self.assertIn("LockId = 20261124", verifier)
         self.assertEqual(source.count("psql -X"), 1)
         self.assertIn("-v ON_ERROR_STOP=1 -1", source)
+        self.assertLess(source.index("SET TRANSACTION ISOLATION LEVEL READ COMMITTED;"), source.index("pg_advisory_xact_lock"))
         self.assertLess(source.index("SET LOCAL lock_timeout"), source.index("pg_advisory_xact_lock(725134019, 20261124)"))
         self.assertLess(source.index("pg_advisory_xact_lock"), source.index("to_regclass('public.app_plans')"))
         self.assertLess(source.index("to_regclass('public.app_plans')"), source.index("SELECT count(*) INTO existing"))
