@@ -2,11 +2,13 @@
 from pathlib import Path
 import importlib.util
 import ipaddress
+import runpy
 import subprocess
 import os
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 ROOT=Path(__file__).resolve().parents[1]
 spec=importlib.util.spec_from_file_location("radius_secret_input", ROOT/"radius/radius_secret_input.py")
@@ -111,6 +113,33 @@ class RadiusSecretInputChecks(unittest.TestCase):
             result = subprocess.run(["bash", "-c", 'source "$1"; valid_cidr "$2"',
                                      "bash", str(script), cidr], capture_output=True, timeout=5)
             self.assertEqual(result.returncode == 0, expected, cidr)
+
+    def test_legacy_render_cli_delegates_to_single_shell_writer(self):
+        legacy = ROOT / "radius/radius_secret_input.py"
+        with patch.object(sys, "argv", [str(legacy), "render"]), \
+             patch.object(os, "execv", side_effect=SystemExit(0)) as execute:
+            with self.assertRaises(SystemExit) as result:
+                runpy.run_path(str(legacy), run_name="__main__")
+        self.assertEqual(result.exception.code, 0)
+        execute.assert_called_once_with(
+            "/bin/bash", ["bash", "/opt/radius/radius_secret_input.sh", "render"])
+        self.assertFalse(hasattr(module, "render"))
+        self.assertIn("bash /opt/radius/radius_secret_input.sh render",
+                      (ROOT / "radius/start.sh").read_text())
+        self.assertIn("def load_hex(", legacy.read_text())
+
+    def test_legacy_render_exec_failure_is_redacted(self):
+        legacy = ROOT / "radius/radius_secret_input.py"
+        from io import StringIO
+        with patch.object(sys, "argv", [str(legacy), "render"]), \
+             patch.object(os, "execv", side_effect=OSError("private path")), \
+             patch("sys.stderr", new_callable=StringIO) as error, \
+             patch("sys.stdout", new_callable=StringIO) as output:
+            with self.assertRaises(SystemExit) as result:
+                runpy.run_path(str(legacy), run_name="__main__")
+        self.assertEqual(result.exception.code, 1)
+        self.assertEqual(output.getvalue(), "")
+        self.assertEqual(error.getvalue(), "RADIUS secret or configuration input rejected\n")
 
     def test_daemon_and_health_probe_do_not_invoke_python(self):
         for path in ("start.sh", "health-probe.sh"):
