@@ -249,6 +249,7 @@ def run():
         options="-c lock_timeout=60s -c statement_timeout=150s "
                 "-c idle_in_transaction_session_timeout=150s",
     )
+    completed = False
     try:
         if verify_only:
             # PostgreSQL enforces read-only transactions in verification mode,
@@ -274,6 +275,7 @@ def run():
             if applied != len(files):
                 raise RuntimeError("Migrations still pending; verification incomplete")
             print(f"Migrations: verified {applied} immutable versions")
+            completed = True
             return
         for version, name, digest, sql, _objects in files[applied:]:
             with connection:
@@ -293,14 +295,18 @@ def run():
             print(f"Migrations: applied immutable version {version} transactionally")
         verified_prefix(connection, files)
         print(f"Migrations: all {len(files)} versions verified")
+        completed = True
     finally:
         try:
-            # Advisory lock is session-scoped and is also released on connection loss.
-            connection.rollback()
-            with connection:
-                with connection.cursor() as cursor:
-                    cursor.execute("SELECT pg_advisory_unlock(%s, %s)",
-                                   (LOCK_NAMESPACE, LOCK_ID))
+            # On failure, do not issue more SQL or rollback on a possibly broken
+            # connection: that can mask the original error. Closing the physical
+            # session releases its advisory lock and any uncommitted transaction.
+            if completed:
+                connection.rollback()
+                with connection:
+                    with connection.cursor() as cursor:
+                        cursor.execute("SELECT pg_advisory_unlock(%s, %s)",
+                                       (LOCK_NAMESPACE, LOCK_ID))
         finally:
             connection.close()
 

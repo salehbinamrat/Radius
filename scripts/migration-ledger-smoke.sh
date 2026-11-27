@@ -229,6 +229,59 @@ assert_count "$db_one" "SELECT count(*) FROM app_schema_migrations" 1
 assert_count "$db_one" "SELECT count(*) FROM pg_catalog.pg_tables WHERE schemaname='public' AND tablename='app_lab_accounts'" 0
 assert_count "$db_one" "SELECT count(*) FROM app_plans WHERE id='$plan_id'::uuid" 1
 
+# Terminate the real migration backend after the original version 002 SQL,
+# before recording the ledger entry. Only the disposable CI database is used.
+# The SQL fixture is changed in memory, never on disk or in a migration hash.
+docker compose run --rm --no-deps --pull never -T \
+  -e MIGRATION_DB_NAME="$db_one" -e LAB_MIGRATION_TEST_MODE=isolated-ci \
+  --entrypoint python3 schema-init - <<'MIGRATION_DISCONNECT'
+import os
+import re
+import runpy
+import sys
+import psycopg2
+
+if os.environ.get("LAB_MIGRATION_TEST_MODE") != "isolated-ci" or not re.fullmatch(
+        r"radius_mig_[a-f0-9]{8}", os.environ.get("MIGRATION_DB_NAME", "")):
+    raise SystemExit("Disconnect fixture requires isolated database")
+sys.path.insert(0, "/opt/radius")
+sys.argv = ["/opt/radius/migrate.py"]
+run = runpy.run_path(sys.argv[0])["run"]
+scope = run.__globals__
+original_files = scope["migration_files"]
+original_connect = psycopg2.connect
+connections = []
+def track_connect(*args, **kwargs):
+    conn = original_connect(*args, **kwargs)
+    connections.append(conn)
+    return conn
+
+def interrupted_files():
+    files = original_files()
+    assert any(version == 2 for version, *_ in files)
+    return [(version, name, digest,
+             sql + "\n;SELECT pg_terminate_backend(pg_backend_pid());" if version == 2 else sql,
+             objects) for version, name, digest, sql, objects in files]
+
+scope["migration_files"] = interrupted_files
+psycopg2.connect = track_connect
+try:
+    run()
+except psycopg2.Error as exc:
+    if exc.pgcode not in (None, "57P01", "08006", "08003"):
+        raise RuntimeError("Unexpected SQLSTATE in disconnect fixture") from None
+else:
+    raise RuntimeError("Migration unexpectedly survived backend termination")
+if len(connections) != 1 or not connections[0].closed:
+    raise RuntimeError("Interrupted migration did not close its connection")
+print("Legacy migration backend disconnect refused and connection closed PASS")
+MIGRATION_DISCONNECT
+assert_count "$db_one" "SELECT count(*) FROM app_schema_migrations" 1
+assert_count "$db_one" "SELECT count(*) FROM pg_catalog.pg_tables WHERE schemaname='public' AND tablename='app_lab_accounts'" 0
+assert_count "$db_one" "SELECT count(*) FROM app_plans WHERE id='$plan_id'::uuid" 1
+assert_count "$db_one" "SELECT count(*) FROM pg_locks WHERE locktype='advisory' AND database=(SELECT oid FROM pg_database WHERE datname=current_database()) AND classid=725134019 AND objid=20261124 AND objsubid=2" 0
+echo 'Legacy migration disconnect rollback, ledger and shared lock recovery PASS'
+
 if docker compose run --rm --no-deps -e MIGRATION_DB_NAME="$db_one" \
      -e LAB_MIGRATION_TEST_MODE=isolated-ci -e MIGRATION_FAIL_AFTER_SQL_VERSION=3 \
      --entrypoint python3 schema-init /opt/radius/migrate.py >"$tmp/fail3.log" 2>&1; then
