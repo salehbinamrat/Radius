@@ -48,13 +48,23 @@ class MigrationLedgerContracts(unittest.TestCase):
     def test_legacy_bootstrap_checks_baseline_before_schema_creation(self):
         source = (ROOT / "radius/schema-init.sh").read_text()
         smoke = (ROOT / "scripts/migration-ledger-smoke.sh").read_text()
-        self.assertLess(source.index("APP_TABLE_PRESENT="), source.index("SCHEMA_TABLE_COUNT="))
-        self.assertLess(source.index('if [[ "$APP_TABLE_PRESENT" != "t" ]]'),
-                        source.index('-f "$SCHEMA"\n'))
-        for marker in ("check f 0 1 baseline", "check unexpected 0 1 baseline",
-                       "check error 0 7 baseline", "check t 3 1",
-                       "check t 0 0", "check t 8 0",
-                       "Legacy bootstrap baseline-first guard and cleanup PASS"):
+        verifier = (ROOT / "src/RadiusManager.Api/MigrationVerifier.cs").read_text()
+        engine = ENGINE.read_text()
+        self.assertIn("LOCK_NAMESPACE = 725134019", engine)
+        self.assertIn("LOCK_ID = 20261124", engine)
+        self.assertIn("LockNamespace = 725134019", verifier)
+        self.assertIn("LockId = 20261124", verifier)
+        self.assertEqual(source.count("psql -X"), 1)
+        self.assertIn("-v ON_ERROR_STOP=1 -1", source)
+        self.assertLess(source.index("SET TRANSACTION ISOLATION LEVEL READ COMMITTED;"), source.index("pg_advisory_xact_lock"))
+        self.assertLess(source.index("SET LOCAL lock_timeout"), source.index("pg_advisory_xact_lock(725134019, 20261124)"))
+        self.assertLess(source.index("pg_advisory_xact_lock"), source.index("to_regclass('public.app_plans')"))
+        self.assertLess(source.index("to_regclass('public.app_plans')"), source.index("SELECT count(*) INTO existing"))
+        self.assertLess(source.index("IF existing NOT IN (0, 8)"), source.index(r"\i :schema_file"))
+        self.assertLess(source.index("\nBOOTSTRAP_SQL\n"), source.index("python3 /opt/radius/migrate.py"))
+        for marker in ("refuse 'Missing app_plans", "refuse 'Refusing an incomplete",
+                       "test \"$waiting\" = 1", "test \"$(official_count)\" = 8",
+                       "Legacy bootstrap baseline-first guard, shared lock and concurrent schema creation PASS"):
             self.assertIn(marker, smoke)
 
     def test_read_only_verification_cannot_bootstrap_and_errors_are_redacted(self):

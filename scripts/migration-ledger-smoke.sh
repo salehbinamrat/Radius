@@ -13,8 +13,9 @@ db_two="radius_mig_$(python3 -c 'import secrets; print(secrets.token_hex(4))')"
 db_partial="radius_mig_$(python3 -c 'import secrets; print(secrets.token_hex(4))')"
 db_csharp="radius_mig_$(python3 -c 'import secrets; print(secrets.token_hex(4))')"
 db_csharp_legacy="radius_mig_$(python3 -c 'import secrets; print(secrets.token_hex(4))')"
+db_bootstrap="radius_mig_$(python3 -c 'import secrets; print(secrets.token_hex(4))')"
 cleanup() {
-  for db in "$db_one" "$db_two" "$db_partial" "$db_csharp" "$db_csharp_legacy"; do
+  for db in "$db_one" "$db_two" "$db_partial" "$db_csharp" "$db_csharp_legacy" "$db_bootstrap"; do
     [[ "$db" =~ ^radius_mig_[a-f0-9]{8}$ ]] || continue
     docker compose exec -T db dropdb -U radius --if-exists "$db" >/dev/null 2>&1 || true
   done
@@ -108,34 +109,46 @@ docker compose run --rm --no-deps --pull never --entrypoint bash schema-init -ec
 '
 echo 'Legacy schema initialization rejects invalid secret sources before SQL or migration PASS'
 
-# Run the real installed initializer with a deterministic fake SQL client.
-# No live database calls: verify ordering, fail-closed behavior and cleanup.
-docker compose run --rm --no-deps --pull never -T --entrypoint bash schema-init -se <<'BOOTSTRAP_GUARD'
+# Exercise the actual installed bootstrap on an isolated PostgreSQL database.
+# A wrapper redirects ONLY the hard-coded compatibility DB name and stubs
+# application migration, so the test isolates official schema creation.
+docker compose exec -T db createdb -U radius "$db_bootstrap"
+docker compose run --rm --no-deps --pull never -T \
+  -e BOOTSTRAP_DB="$db_bootstrap" --entrypoint bash schema-init -se <<'BOOTSTRAP_GUARD'
 set -euo pipefail
 umask 077
+[[ "$BOOTSTRAP_DB" =~ ^radius_mig_[a-f0-9]{8}$ ]]
 work=$(mktemp -d)
 trap 'rm -rf -- "$work"' EXIT
 mkdir "$work/bin" "$work/temps"
-export PATH="$work/bin:$PATH" TMPDIR="$work/temps" TRACE="$work/trace"
-unset DB_PASSWORD_FILE
-export DB_PASSWORD="$(printf '%048d' 0)"
+export REAL_PSQL="$(command -v psql)" TMPDIR="$work/temps" TRACE="$work/trace"
+export PATH="$work/bin:$PATH"
+# Separate protected credential file for this disposable database only.
+fixture_password=$(bash /opt/radius/radius_secret_input.sh DB_PASSWORD)
+export FIXTURE_PGPASS="$work/fixture.pgpass"
+printf 'db:5432:%s:radius:%s\n' "$BOOTSTRAP_DB" "$fixture_password" >"$FIXTURE_PGPASS"
+unset fixture_password
+chmod 600 "$FIXTURE_PGPASS"
 cat >"$work/bin/psql" <<'PSQL'
-#!/bin/sh
-case "$*" in
-  *"to_regclass('public.app_plans')"*)
-    printf '%s\n' baseline >>"$TRACE"
-    [ "$BASELINE" != error ] || exit 7
-    printf '%s\n' "$BASELINE"
-    ;;
-  *pg_catalog.pg_tables*)
-    printf '%s\n' count >>"$TRACE"
-    printf '%s\n' "$TABLE_COUNT"
-    ;;
-  *" -f "*)
-    printf '%s\n' schema >>"$TRACE"
-    ;;
-  *) printf '%s\n' unexpected >>"$TRACE"; exit 99 ;;
-esac
+#!/bin/bash
+set -euo pipefail
+[[ "$BOOTSTRAP_DB" =~ ^radius_mig_[a-f0-9]{8}$ ]]
+# Accept only the expected compatibility database selector, or none.
+# Remove it rather than rely on repeated -d option precedence.
+args=()
+while (($#)); do
+  case "$1" in
+    -d)
+      [[ $# -ge 2 && "$2" == radius ]] || exit 99
+      shift 2
+      ;;
+    --dbname|--dbname=*|-d?*) exit 99 ;;
+    *) args+=("$1"); shift ;;
+  esac
+done
+unset PGPASSWORD
+export PGPASSFILE="$FIXTURE_PGPASS"
+exec "$REAL_PSQL" -d "$BOOTSTRAP_DB" "${args[@]}"
 PSQL
 cat >"$work/bin/python3" <<'PYTHON'
 #!/bin/sh
@@ -143,25 +156,60 @@ cat >"$work/bin/python3" <<'PYTHON'
 printf '%s\n' migrate >>"$TRACE"
 PYTHON
 chmod 700 "$work/bin/psql" "$work/bin/python3"
-check() {
-  local baseline="$1" count="$2" status="$3" expected="$4" marker="$5" rc=0
-  : >"$TRACE"
-  BASELINE="$baseline" TABLE_COUNT="$count" bash /usr/local/bin/schema-init.sh >"$work/out" 2>"$work/err" || rc=$?
-  test "$rc" -eq "$status"
-  test "$(cat "$TRACE")" = "$(printf '%b' "$expected")"
-  if [[ -n "$marker" ]]; then
-    grep -Fxq "$marker" "$work/err"
+run_init() { bash /usr/local/bin/schema-init.sh; }
+query() { psql -X -v ON_ERROR_STOP=1 -h db -U radius -tAc "$1"; }
+official_count() {
+  query "SELECT count(*) FROM pg_catalog.pg_tables WHERE schemaname='public' AND tablename IN ('radcheck','radreply','radgroupcheck','radgroupreply','radusergroup','radacct','radpostauth','nas')"
+}
+refuse() {
+  local marker="$1"
+  if run_init >"$work/out" 2>"$work/err"; then
+    echo 'Legacy bootstrap accepted invalid database' >&2; exit 1
   fi
+  grep -Fq "$marker" "$work/err"
+  test ! -e "$TRACE"
   test -z "$(find "$TMPDIR" -type f -print)"
 }
-check f 0 1 baseline 'Missing app_plans in a persistent database; refusing automatic repair.'
-check unexpected 0 1 baseline 'Missing app_plans in a persistent database; refusing automatic repair.'
-check error 0 7 baseline ''
-check t 3 1 'baseline\ncount' 'Refusing an incomplete FreeRADIUS schema (3 of 8 tables). Backup and repair manually.'
-check t 0 0 'baseline\ncount\nschema\nmigrate' ''
-check t 8 0 'baseline\ncount\nmigrate' ''
+refuse 'Missing app_plans in a persistent database; refusing automatic repair.'
+test "$(official_count)" = 0
+psql -X -v ON_ERROR_STOP=1 -1 -h db -U radius -f /opt/radius/001_app.sql >/dev/null
+query 'CREATE TABLE public.radcheck (fixture integer)' >/dev/null
+refuse 'Refusing an incomplete FreeRADIUS schema (1 of 8 tables). Backup and repair manually.'
+test "$(official_count)" = 1
+# This table was created above in the isolated disposable fixture only.
+query 'DROP TABLE public.radcheck' >/dev/null
+# Hold the same session-scoped lock as the C# / Python migration engines.
+# Observe the bootstrap waiting on that lock before releasing it.
+psql -X -v ON_ERROR_STOP=1 -h db -U radius -c \
+  "SELECT pg_advisory_lock(725134019, 20261124); SELECT pg_sleep(30);" >"$work/holder" 2>&1 &
+holder=$!
+held=0
+for attempt in $(seq 1 100); do
+  if [[ "$(query "SELECT count(*) FROM pg_locks WHERE locktype='advisory' AND database=(SELECT oid FROM pg_database WHERE datname=current_database()) AND classid=725134019 AND objid=20261124 AND objsubid=2 AND granted")" = 1 ]]; then held=1; break; fi
+  sleep .1
+done
+test "$held" = 1
+run_init >"$work/first" 2>&1 &
+first=$!
+run_init >"$work/second" 2>&1 &
+second=$!
+waiting=0
+for attempt in $(seq 1 100); do
+  if [[ "$(query "SELECT count(*) FROM pg_locks WHERE locktype='advisory' AND database=(SELECT oid FROM pg_database WHERE datname=current_database()) AND classid=725134019 AND objid=20261124 AND objsubid=2 AND NOT granted")" = 2 ]]; then waiting=1; break; fi
+  sleep .1
+done
+test "$waiting" = 1
+test "$(official_count)" = 0
+wait "$holder"
+wait "$first"
+wait "$second"
+test "$(official_count)" = 8
+test "$(grep -hFc 'Official FreeRADIUS PostgreSQL schema installed transactionally.' "$work/first" "$work/second" | awk '{s+=$1} END {print s}')" = 1
+test "$(grep -hFc 'FreeRADIUS tables already exist; initial schema init skipped.' "$work/first" "$work/second" | awk '{s+=$1} END {print s}')" = 1
+test "$(grep -Fxc migrate "$TRACE")" = 2
+test -z "$(find "$TMPDIR" -type f -print)"
 BOOTSTRAP_GUARD
-echo 'Legacy bootstrap baseline-first guard and cleanup PASS (6 isolated cases)'
+echo 'Legacy bootstrap baseline-first guard, shared lock and concurrent schema creation PASS'
 
 # 1. Fresh DB, data preserved across transaction rollback and interrupted restart.
 setup_database "$db_one"
