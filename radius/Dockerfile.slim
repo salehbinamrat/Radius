@@ -18,6 +18,7 @@ ENV PATH=/opt/sbin:/opt/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/s
 RUN set -eu; \
     test -x /usr/local/bin/start.sh; \
     test -x /usr/local/bin/radius-health-probe.sh; \
+    command -v timeout >/dev/null; command -v od >/dev/null; \
     test -s /opt/etc/raddb/mods-config/sql/main/postgresql/schema.sql; \
     ! command -v python3; ! command -v python; \
     ! apk info --exists python3; ! apk info --exists py3-psycopg2; \
