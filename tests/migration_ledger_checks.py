@@ -130,6 +130,33 @@ class MigrationLedgerContracts(unittest.TestCase):
         self.assertNotIn("fixture SQL", statements)
         conn.close.assert_called_once()
 
+    def test_failed_migration_closes_without_cleanup_sql_or_masking_primary_error(self):
+        for failure_point in ("lock", "verification"):
+            with self.subTest(failure_point=failure_point):
+                run, driver, _ = self.load_engine_with_isolated_dependencies()
+                conn = driver.connect.return_value
+                cursor = conn.cursor.return_value.__enter__.return_value
+                primary = RuntimeError("primary migration failure")
+                conn.rollback.side_effect = RuntimeError("secondary cleanup failure")
+                verify = MagicMock(return_value=1)
+                if failure_point == "lock":
+                    cursor.execute.side_effect = [None, primary]
+                else:
+                    verify.side_effect = primary
+                with patch.dict(run.__globals__, {
+                        "migration_files": MagicMock(return_value=[(1, "001_app.sql", "digest", "fixture SQL", ("fixture",))]),
+                        "exists": MagicMock(return_value=True),
+                        "verified_prefix": verify}), \
+                     patch.dict("os.environ", {}, clear=True), \
+                     patch.object(sys, "argv", [str(ENGINE), "--verify-only"]):
+                    with self.assertRaises(RuntimeError) as caught:
+                        run()
+                self.assertIs(caught.exception, primary)
+                conn.rollback.assert_not_called()
+                self.assertFalse(any("pg_advisory_unlock" in call.args[0]
+                                     for call in cursor.execute.call_args_list))
+                conn.close.assert_called_once()
+
     def test_compose_migrator_bundling_preserves_original_db_volume(self):
         dockerfile = (ROOT / "radius/Dockerfile").read_text()
         compose = (ROOT / "compose.yaml").read_text()
@@ -150,6 +177,8 @@ class MigrationLedgerContracts(unittest.TestCase):
         smoke = (ROOT / "scripts/migration-ledger-smoke.sh").read_text()
         for marker in ("trap cleanup EXIT", "createdb", "dropdb", "schema-init",
                        "MIGRATION_FAIL_AFTER_SQL_VERSION", "LAB_MIGRATION_TEST_MODE",
+                       "Legacy migration backend disconnect refused and connection closed PASS",
+                       "Legacy migration disconnect rollback, ledger and shared lock recovery PASS",
                        "sha256", "pg_catalog", "app_schema_migrations",
                        "wait", "preserved"):
             self.assertIn(marker, smoke)
