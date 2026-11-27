@@ -15,6 +15,13 @@ SCHEMA=/etc/freeradius/3.0/mods-config/sql/main/postgresql/schema.sql
 if [[ ! -f "$SCHEMA" ]]; then
   echo "FreeRADIUS distribution does not include $SCHEMA" >&2; exit 1
 fi
+# app_plans is installed by PostgreSQL initial startup; never silently recreate it in an existing data volume.
+APP_TABLE_PRESENT=$(psql -X -v ON_ERROR_STOP=1 -h db -U radius -d radius -tAc "SELECT to_regclass('public.app_plans') IS NOT NULL")
+if [[ "$APP_TABLE_PRESENT" != "t" ]]; then
+  echo 'Missing app_plans in a persistent database; refusing automatic repair.' >&2
+  exit 1
+fi
+
 # Fail closed if any subset of the official FreeRADIUS tables exists.
 # A previously interrupted init must NOT be mistaken for a complete installation.
 SCHEMA_TABLE_COUNT=$(psql -X -v ON_ERROR_STOP=1 -h db -U radius -d radius -tAc "
@@ -32,13 +39,6 @@ elif [[ "$SCHEMA_TABLE_COUNT" == 8 ]]; then
   echo 'FreeRADIUS tables already exist; initial schema init skipped.'
 else
   echo "Refusing an incomplete FreeRADIUS schema ($SCHEMA_TABLE_COUNT of 8 tables). Backup and repair manually." >&2
-  exit 1
-fi
-
-# app_plans is installed by PostgreSQL initial startup; never silently recreate it in an existing data volume.
-APP_TABLE_PRESENT=$(psql -X -v ON_ERROR_STOP=1 -h db -U radius -d radius -tAc "SELECT to_regclass('public.app_plans') IS NOT NULL")
-if [[ "$APP_TABLE_PRESENT" != "t" ]]; then
-  echo 'Missing app_plans in a persistent database; refusing automatic repair.' >&2
   exit 1
 fi
 
