@@ -3,6 +3,7 @@ from pathlib import Path
 import importlib.util
 import ipaddress
 import runpy
+import shutil
 import subprocess
 import os
 import sys
@@ -95,6 +96,58 @@ class RadiusSecretInputChecks(unittest.TestCase):
                             self.assertEqual(result.stdout, b"a" * 48 + b"\n" if valid else b"")
                             self.assertEqual(result.stderr, b"" if valid else
                                              b"RADIUS secret or configuration input rejected\n")
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "Linux descriptor fixture")
+    def test_shell_rejects_file_replaced_after_regular_file_check(self):
+        script = ROOT / "radius/radius_secret_input.sh"
+        real_timeout = shutil.which("timeout")
+        self.assertIsNotNone(real_timeout)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            tools = root / "bin"
+            tools.mkdir()
+            wrapper = tools / "timeout"
+            # Replace the pathname after the reader's preliminary -f test.
+            # The replacement is local to this disposable test directory.
+            wrapper.write_text("""#!/bin/bash
+set -euo pipefail
+rm -- "$FIXTURE_PATH"
+ln -s -- "$FIXTURE_REPLACEMENT" "$FIXTURE_PATH"
+touch "$FIXTURE_MARKER"
+exec "$REAL_TIMEOUT" "$@"
+""")
+            wrapper.chmod(0o700)
+            fifo = root / "fifo"
+            os.mkfifo(fifo)
+            for name, replacement, writer in (
+                    ("DB_PASSWORD", fifo, False),
+                    ("RADIUS_SECRET", fifo, True),
+                    ("DB_PASSWORD", Path("/dev/zero"), False)):
+                with self.subTest(name=name, replacement=replacement.name, writer=writer):
+                    file = root / "secret"
+                    marker = root / "replaced"
+                    file.unlink(missing_ok=True)
+                    marker.unlink(missing_ok=True)
+                    file.write_bytes(b"a" * 48)
+                    fd = None
+                    try:
+                        if writer:
+                            fd = os.open(fifo, os.O_RDWR | os.O_NONBLOCK)
+                            os.write(fd, b"b" * 48)
+                        result = subprocess.run(
+                            ["bash", str(script), name],
+                            env={"PATH": str(tools) + os.pathsep + os.environ["PATH"],
+                                 "REAL_TIMEOUT": real_timeout, "FIXTURE_PATH": str(file),
+                                 "FIXTURE_REPLACEMENT": str(replacement),
+                                 "FIXTURE_MARKER": str(marker), name + "_FILE": str(file)},
+                            capture_output=True, timeout=6)
+                        self.assertTrue(marker.is_file(), "replacement must have occurred")
+                        self.assertEqual(result.returncode, 1)
+                        self.assertEqual(result.stdout, b"")
+                        self.assertEqual(result.stderr, b"RADIUS secret or configuration input rejected\n")
+                    finally:
+                        if fd is not None:
+                            os.close(fd)
 
     def test_shell_ipv4_network_matches_legacy(self):
         script = ROOT / "radius/radius_secret_input.sh"

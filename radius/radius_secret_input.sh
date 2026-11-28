@@ -13,7 +13,13 @@ load_hex() {
     file="${!filevar}"
     [[ -z "$inline" && "$file" == /* && -f "$file" ]] || return 1
     # Bash strings discard NUL bytes; inspect bounded raw bytes before decoding.
-    raw=$(od -An -v -tx1 -N 51 "$file" 2>/dev/null) || return 1
+    # A path can change after -f. Bound the open AND read, then check the
+    # actual opened descriptor before consuming bytes (Linux /proc).
+    raw=$(timeout -k 1s 2s bash -c '
+      exec 3<"$1"
+      [[ -f /proc/self/fd/3 ]] || exit 1
+      exec od -An -v -tx1 -N 51 <&3
+    ' bash "$file") 2>/dev/null || return 1
     raw="${raw//[[:space:]]/}"
     [[ "$raw" =~ ^(3[0-9]|6[1-6]){48}(0a|0d0a)?$ ]] || return 1
     for ((i=0;i<96;i+=2)); do

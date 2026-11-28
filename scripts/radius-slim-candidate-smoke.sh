@@ -34,6 +34,8 @@ docker image inspect "$legacy" "$candidate" >"$reports/radius-slim-image-inspect
 # Inspect only clean disposable containers with no network, credentials or volumes.
 read_image() { docker run --rm --pull never --network none --entrypoint sh "$1" -ec "$2"; }
 read_image "$legacy" 'apk info -v | sort' >"$reports/radius-slim-legacy-packages.txt"
+# Preserve complete build inventory even when slim preflight rejects the runtime.
+read_image "$legacy" 'cat /opt/share/radius-build/build-packages' >"$reports/radius-source-build-packages.txt"
 read_image "$candidate" 'apk info -v | sort' >"$reports/radius-slim-packages.txt"
 read_image "$candidate" 'cat /opt/share/radius-build/runtime-packages' >"$reports/radius-slim-build-packages.txt"
 cmp "$reports/radius-slim-packages.txt" "$reports/radius-slim-build-packages.txt"
